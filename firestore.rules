@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Clinic State (Open/Closed, Announcements)
+    // Readable by everyone (patients need to know if closed)
+    // Writeable only by admin
+    match /clinic/{document=**} {
+      allow read: if true;
+      allow write: if false; // In real app: if request.auth.uid == 'admin_uid'
+    }
+
+    // Queue
+    // Patients can create (join)
+    // Admin can update (call next, finish)
+    match /queue/{deviceId} {
+      allow read: if true;
+      allow create: if request.resource.data.status == 'waiting' 
+                    && request.resource.data.type in ['Q', 'E', 'D', 'P'];
+      allow update: if true; // In real app: restrict state changes to admin or owner
+    }
+  }
+}

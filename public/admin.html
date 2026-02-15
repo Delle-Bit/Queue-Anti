@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clinic Admin Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Firebase SDKs -->
+    <script type="module" src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js"></script>
+    <script type="module" src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js"></script>
+    <script type="module" src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js"></script>
+</head>
+
+<body>
+
+    <div class="admin-container">
+        <!-- Control Panel -->
+        <div class="admin-card">
+            <h2>Queue Controls</h2>
+            <div class="queue-status">
+                <h3>Current Serving: <span id="admin-current-serving" style="color: var(--primary-color);">--</span>
+                </h3>
+                <p>Next in Line: <span id="admin-next-patient">--</span></p>
+            </div>
+
+            <button class="btn btn-success" onclick="callNext()">📢 Call Next</button>
+            <button class="btn btn-danger" onclick="resetQueue()">🔄 Reset Queue</button>
+            <hr>
+            <h3>Broadcast Announcement</h3>
+            <input type="text" id="announcement-input" placeholder="Message..."
+                style="width: 100%; padding: 8px; margin-bottom: 10px;">
+            <button class="btn btn-secondary" onclick="broadcast()">Send</button>
+
+            <hr>
+            <h3>Clinic Settings</h3>
+            <label>
+                <input type="checkbox" id="clinic-status-toggle" onchange="toggleClinicStatus()"> Clinic Online
+            </label>
+
+            <hr>
+            <h3>Patient App QR Code</h3>
+            <div id="qrcode-container">Loading QR...</div>
+        </div>
+
+        <!-- Dashboard & Analytics -->
+        <div class="admin-card">
+            <h2>Dashboard & Logistics</h2>
+            <canvas id="queueChart"></canvas>
+
+            <div style="margin-top: 20px;">
+                <h3>Today's Stats</h3>
+                <p>Total Patients Served: <span id="total-served">0</span></p>
+                <p>Pending in Queue: <span id="pending-count">0</span></p>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="admin.js"></script>
+    <script>
+        // Global scope helpers
+        window.callNext = () => window.adminApp.callNext();
+        window.resetQueue = () => window.adminApp.resetQueue();
+        window.broadcast = () => window.adminApp.broadcast();
+        window.toggleClinicStatus = () => window.adminApp.toggleClinicStatus();
+    </script>
+</body>
+
+</html>
