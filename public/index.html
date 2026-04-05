@@ -4,110 +4,147 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Medical Clinic Queue</title>
+    <title>JEA Medical Clinic - Queue</title>
+    <!-- Use a professional font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@48,400,1,0" />
-    <!-- Firebase SDKs -->
-    <script type="module" src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js"></script>
-    <script type="module" src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js"></script>
 </head>
 
 <body>
+    <header class="main-header">
+        <div class="logo">
+            <span class="material-symbols-rounded">medical_services</span>
+            JEA Medical Clinic
+        </div>
+    </header>
 
     <div class="container">
-        <h1>JEA Medical Clinic</h1>
-        <div id="offline-message" style="display:none; color: red;">Clinic is currently CLOSED.</div>
+        
+        <div id="offline-message" class="alert error" style="display:none;">
+            <span class="material-symbols-rounded">error</span>
+            The clinic is currently CLOSED. Please check back later.
+        </div>
 
-        <div id="join-queue-section" class="category-list">
-            <p>Welcome! Please select your category to join the queue:</p>
-
-            <div class="category-card" onclick="joinQueue('Q')">
-                <div class="card-icon">👤</div>
-                <div class="card-info">
-                    <h3>Regular Patient</h3>
-                    <p>General checkups and consultations</p>
-                </div>
+        <!-- Join Queue Section -->
+        <div id="join-queue-section">
+            <div class="section-title">
+                <h2>Join the Queue</h2>
+                <p>Welcome! Please select your category down below.</p>
             </div>
 
-            <div class="category-card priority" onclick="joinQueue('E')">
-                <div class="card-icon">👴</div>
-                <div class="card-info">
-                    <h3>Elderly</h3>
-                    <p>Priority for senior citizens</p>
-                </div>
-            </div>
+            <div class="category-grid">
+                <button class="category-card" onclick="joinQueue('Q')">
+                    <div class="card-icon"><span class="material-symbols-rounded">person</span></div>
+                    <div class="card-info">
+                        <h3>Regular Patient</h3>
+                        <p>General checkups and illness consultations</p>
+                    </div>
+                </button>
 
-            <div class="category-card priority" onclick="joinQueue('D')">
-                <div class="card-icon">♿</div>
-                <div class="card-info">
-                    <h3>PWD</h3>
-                    <p>Priority for persons with disabilities</p>
-                </div>
-            </div>
+                <button class="category-card priority" onclick="joinQueue('E')">
+                    <div class="card-icon"><span class="material-symbols-rounded">elderly</span></div>
+                    <div class="card-info">
+                        <h3>Elderly</h3>
+                        <p>Priority lane for senior citizens</p>
+                    </div>
+                </button>
 
-            <div class="category-card priority" onclick="joinQueue('P')">
-                <div class="card-icon">🤰</div>
-                <div class="card-info">
-                    <h3>Pregnant</h3>
-                    <p>Priority for expecting mothers</p>
-                </div>
+                <button class="category-card priority" onclick="joinQueue('D')">
+                    <div class="card-icon"><span class="material-symbols-rounded">accessible</span></div>
+                    <div class="card-info">
+                        <h3>PWD</h3>
+                        <p>Priority lane for persons with disabilities</p>
+                    </div>
+                </button>
+
+                <button class="category-card priority" onclick="joinQueue('P')">
+                    <div class="card-icon"><span class="material-symbols-rounded">pregnant_woman</span></div>
+                    <div class="card-info">
+                        <h3>Pregnant</h3>
+                        <p>Priority lane for expecting mothers</p>
+                    </div>
+                </button>
             </div>
         </div>
 
+        <!-- Queue Status Section -->
         <div id="queue-status-section" style="display:none;">
-            <div class="queue-status">
-                <h2>Now Serving:</h2>
-                <div id="current-serving-number" class="current-number">--</div>
-                <p id="your-number-display" class="your-number">Your Number: <strong>--</strong></p>
-                <p id="wait-time-estimation">Est. Wait Time: <span id="wait-time">--</span> mins</p>
+            <div class="queue-status-board">
+                <div class="now-serving">
+                    <p class="label">Now Serving</p>
+                    <h2 id="current-serving-number">--</h2>
+                </div>
+                <div class="your-status">
+                    <p class="label">Your Ticket Number</p>
+                    <h1 id="your-number-display">--</h1>
+                </div>
+                <div class="status-indicator">
+                    <div class="metric">
+                        <span class="material-symbols-rounded">group</span>
+                        <div>
+                            <p class="metric-value"><span id="people-ahead">--</span></p>
+                            <p class="metric-label">People Ahead</p>
+                        </div>
+                    </div>
+                    <div class="metric">
+                        <span class="material-symbols-rounded">schedule</span>
+                        <div>
+                            <p class="metric-value"><span id="wait-time">--</span> mins</p>
+                            <p class="metric-label">Est. Wait Time</p>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <button class="btn btn-danger" onclick="leaveQueue()">Leave Queue</button>
+            <button class="btn btn-danger leave-btn" onclick="leaveQueue()">Cancel Ticket</button>
         </div>
 
     </div>
 
     <!-- Floating Chatbot -->
     <button class="chatbot-toggler" onclick="document.body.classList.toggle('show-chatbot')">
-        <span class="material-symbols-rounded">💬</span>
-        <span class="material-symbols-rounded">close</span>
+        <span class="material-symbols-rounded">forum</span>
+        <span class="material-symbols-rounded close-icon">close</span>
     </button>
     <div class="chatbot-container">
         <header>
-            <h3> <img src="robot.png" alt="ChatBot" class="icon">
-                Clinic Assistant</h3>
+            <div class="chatbot-header-title">
+                <span class="material-symbols-rounded bot-icon">smart_toy</span>
+                General Assistant
+            </div>
             <span class="close-btn material-symbols-rounded"
                 onclick="document.body.classList.remove('show-chatbot')">close</span>
         </header>
         <ul id="chat-log">
             <li class="chat incoming">
-                <p>Hi there 👋<br>How can I help you today?</p>
+                <p>Hello! How can I assist you with your visit today?</p>
             </li>
         </ul>
         <div class="chat-input-area">
-            <input type="text" id="chat-input" placeholder="Ask a question..." required>
+            <input type="text" id="chat-input" placeholder="Type your message..." required>
             <button id="send-btn" class="material-symbols-rounded" onclick="sendMessage()">send</button>
         </div>
     </div>
 
 
     <!-- Announcement Modal -->
-    <div id="announcement-modal" class="modal">
+    <div id="announcement-modal" class="modal" style="display:none;">
         <div class="modal-content">
-            <span class="close" onclick="closeModal()">&times;</span>
-            <h2 style="color: red;">📢 Announcement</h2>
-            <p id="announcement-text">...</p>
+            <div class="modal-header">
+                <span class="material-symbols-rounded text-primary">campaign</span>
+                <h2>Clinic Announcement</h2>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <p id="announcement-text" class="modal-body">...</p>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeModal()">Acknowledge</button>
+            </div>
         </div>
     </div>
 
-    <script type="module" src="patient.js"></script>
-    <script>
-        // Global scope helpers for onclick handlers which can be tricky with modules
-        window.joinQueue = (type) => window.patientApp.joinQueue(type);
-        window.leaveQueue = () => window.patientApp.leaveQueue();
-        window.sendMessage = () => window.patientApp.sendMessage();
-        window.closeModal = () => document.getElementById('announcement-modal').style.display = "none";
-    </script>
+    <!-- Switch from type="module" to normal script since we removed firebase -->
+    <script src="patient.js"></script>
 </body>
 
 </html>

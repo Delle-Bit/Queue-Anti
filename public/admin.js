@@ -1,150 +1,135 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, doc, onSnapshot, updateDoc, setDoc, getDocs, collection, query, where, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-
-const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT_ID.appspot.com",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId: "YOUR_APP_ID"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-const adminApp = {
-    callNext: async () => {
-        // Priority Logic: Check Priority Types first (P, D, E) then Q
-        // Query for 'waiting' with priority
-        // This is a simplified logic. In real app, might separate collections or use compound queries.
-
-        try {
-            const qRef = collection(db, "queue");
-            // We need to fetch all waiting to sort by priority manually or simple 2 queries
-            // Strategy: Query 'waiting' status, sort by timestamp asc. 
-            // In client, pick first P, D, or E. If none, pick Q.
-
-            const q = query(qRef, where("status", "==", "waiting"), orderBy("timestamp", "asc"));
-            const querySnapshot = await getDocs(q);
-
-            if (querySnapshot.empty) {
-                alert("Queue is empty!");
-                return;
-            }
-
-            let nextPatient = null;
-            const patients = querySnapshot.docs.map(d => ({ ...d.data(), id: d.id }));
-
-            // Priority Filter
-            const priorities = patients.filter(p => ['P', 'D', 'E'].includes(p.type));
-            const regulars = patients.filter(p => p.type === 'Q');
-
-            if (priorities.length > 0) {
-                nextPatient = priorities[0]; // First priority by timestamp
-            } else if (regulars.length > 0) {
-                nextPatient = regulars[0];
-            }
-
-            if (nextPatient) {
-                // Update Status
-                await updateDoc(doc(db, "queue", nextPatient.id), { status: 'serving' });
-
-                // Update Clinic State
-                await updateDoc(doc(db, "clinic", "state"), {
-                    currentServing: nextPatient.number
-                });
-
-                // Done previous patient? Need to handle "serving" -> "done" transition if we track history.
-                // ideally we mark the PREVIOUS 'serving' patient as 'done' before setting new one.
-            }
-
-        } catch (err) {
-            console.error("Error calling next:", err);
-            alert("Error calling next patient.");
+// Global scope helpers
+window.callNext = async () => {
+    try {
+        const res = await fetch('/api/admin/next', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            console.log("Called next:", data.next);
+            adminApp.fetchState();
+        } else {
+            alert(data.message || "Could not call next patient.");
         }
-    },
-
-    resetQueue: async () => {
-        if (!confirm("Are you sure? This will remove everyone from the queue.")) return;
-
-        // Batch update all waiting/serving to 'cancelled' or delete
-        // For prototype, we might just wipe the colleciton or reset state
-        const qRef = collection(db, "queue");
-        const snapshot = await getDocs(qRef);
-        snapshot.forEach(async (d) => {
-            await updateDoc(doc(db, "queue", d.id), { status: 'cancelled' });
-        });
-
-        await updateDoc(doc(db, "clinic", "state"), { currentServing: '--' });
-    },
-
-    broadcast: async () => {
-        const msg = document.getElementById('announcement-input').value;
-        if (!msg) return;
-
-        await setDoc(doc(db, "clinic", "announcements"), {
-            message: msg,
-            timestamp: serverTimestamp()
-        });
-        alert('Broadcast sent!');
-        document.getElementById('announcement-input').value = '';
-    },
-
-    toggleClinicStatus: async () => {
-        const isOpen = document.getElementById('clinic-status-toggle').checked;
-        await updateDoc(doc(db, "clinic", "state"), { isOpen: isOpen });
+    } catch (err) {
+        console.error("Error calling next:", err);
+        alert("Error connecting to server.");
     }
 };
 
-// Initialize Dashboard
-async function initDashboard() {
-    // Generate QR
-    const res = await fetch('/api/qrcode');
-    const data = await res.json();
-    document.getElementById('qrcode-container').innerHTML = `<img src="${data.qrImage}" alt="Scan to join" width="150"/>`;
+window.resetQueue = async () => {
+    if (!confirm("Are you sure? This will remove everyone from the queue.")) return;
 
-    // Listen to stats
-    const qRef = collection(db, "queue");
-    onSnapshot(qRef, (snap) => {
-        const list = snap.docs.map(d => d.data());
-        const waiting = list.filter(d => d.status === 'waiting').length;
-        const served = list.filter(d => d.status === 'done' || d.status === 'serving').length; // approximation
+    try {
+        await fetch('/api/admin/reset', { method: 'POST' });
+        adminApp.fetchState();
+    } catch (err) {
+        console.error("Error resetting queue:", err);
+    }
+};
 
-        document.getElementById('pending-count').innerText = waiting;
-        document.getElementById('total-served').innerText = served;
+window.broadcast = async () => {
+    const msg = document.getElementById('announcement-input').value.trim();
+    if (!msg) return;
 
-        updateChart(waiting, served);
-    });
+    try {
+        await fetch('/api/admin/broadcast', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: msg })
+        });
+        alert('Broadcast sent!');
+        document.getElementById('announcement-input').value = '';
+        adminApp.fetchState();
+    } catch (err) {
+        console.error("Error broadcasting:", err);
+    }
+};
 
-    // Listen to Clinic State
-    onSnapshot(doc(db, "clinic", "state"), (doc) => {
-        if (doc.exists()) {
-            document.getElementById('admin-current-serving').innerText = doc.data().currentServing || '--';
-            document.getElementById('clinic-status-toggle').checked = doc.data().isOpen;
+window.toggleClinicStatus = async () => {
+    const isOpen = document.getElementById('clinic-status-toggle').checked;
+    try {
+        await fetch('/api/admin/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isOpen })
+        });
+        adminApp.fetchState();
+    } catch (err) {
+        console.error("Error toggling clinic status:", err);
+        // revert UI if failed
+        document.getElementById('clinic-status-toggle').checked = !isOpen;
+    }
+};
+
+// Admin Application Logic
+const adminApp = {
+    chart: null,
+
+    async init() {
+        // Generate QR code for patients
+        try {
+            const res = await fetch('/api/qrcode');
+            const data = await res.json();
+            document.getElementById('qrcode-container').innerHTML = `<img src="${data.qrImage}" alt="Scan to join" style="width: 150px; height: 150px;"/>`;
+        } catch(e) {
+            console.error("Error loading QR code");
         }
-    });
-}
 
-// Chart.js
-let queueChart;
-function updateChart(waiting, served) {
-    const ctx = document.getElementById('queueChart').getContext('2d');
-    if (queueChart) queueChart.destroy();
+        // Initialize polling state
+        this.fetchState();
+        setInterval(() => this.fetchState(), 3000); // UI poll
+    },
 
-    queueChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: ['Waiting', 'Served'],
-            datasets: [{
-                label: 'Patients',
-                data: [waiting, served],
-                backgroundColor: ['#ffc107', '#28a745']
-            }]
+    async fetchState() {
+        try {
+            const res = await fetch('/api/state');
+            if(!res.ok) return;
+            const data = await res.json();
+            
+            // Clinic State
+            document.getElementById('admin-current-serving').innerText = data.clinicState.currentServing || '--';
+            document.getElementById('clinic-status-toggle').checked = data.clinicState.isOpen;
+
+            // Stats
+            const waitingCount = data.waitingQueue ? data.waitingQueue.length : 0;
+            const servedCount = data.totalServed || 0;
+
+            document.getElementById('pending-count').innerText = waitingCount;
+            document.getElementById('total-served').innerText = servedCount;
+
+            this.updateChart(waitingCount, servedCount);
+
+        } catch (err) {
+            console.error("Failed to fetch admin state", err);
         }
-    });
-}
+    },
 
-initDashboard();
+    updateChart(waiting, served) {
+        const ctx = document.getElementById('queueChart').getContext('2d');
+        if (this.chart) {
+            this.chart.data.datasets[0].data = [waiting, served];
+            this.chart.update();
+        } else {
+            this.chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Waiting', 'Served Today'],
+                    datasets: [{
+                        label: 'Patients',
+                        data: [waiting, served],
+                        backgroundColor: ['#005B96', '#00A896'],
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { beginAtZero: true, ticks: { stepSize: 1 } }
+                    }
+                }
+            });
+        }
+    }
+};
 
-window.adminApp = adminApp;
+// Start logic
+adminApp.init();

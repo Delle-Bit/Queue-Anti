@@ -1,210 +1,194 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, doc, onSnapshot, updateDoc, setDoc, getDoc, collection, addDoc, query, where, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+// Global scope functions for HTML onclick handlers
+window.joinQueue = async (type) => {
+    if (patientApp.currentQueueNumber) {
+        alert(`You are already in the queue as ${patientApp.currentQueueNumber}`);
+        return;
+    }
 
-// TODO: Replace with your actual Firebase config
-const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT_ID.appspot.com",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId: "YOUR_APP_ID"
+    try {
+        const res = await fetch('/api/queue/join', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deviceId: patientApp.deviceId, type })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+            patientApp.currentQueueNumber = data.number;
+            localStorage.setItem('queueNumber', data.number);
+            patientApp.updateUI(true);
+            patientApp.fetchState(); // fetch immediately after joining
+        }
+    } catch (err) {
+        console.error("Error joining queue: ", err);
+        alert("Failed to join queue. Clinic might be offline.");
+    }
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-let currentPatientId = localStorage.getItem('patientId') || null;
-let currentQueueNumber = localStorage.getItem('queueNumber') || null;
-
-const patientApp = {
-    joinQueue: async (type) => {
-        if (currentQueueNumber) {
-            alert(`You are already in the queue as ${currentQueueNumber}`);
-            return;
-        }
-
-        // Generate ID logic (simplified for demo, usually backend handles sequential numbering safely)
-        // Here we rely on a counter document or random ID for simplicity in this prototype phase
-        // Optimally: Transaction to increment counter based on Type.
-
-        try {
-            const prefix = type;
-            // Fetch current counter for this type (active_queues collection? or metadata doc?)
-            // For now, let's just generate a random short ID to simulate unique number
-            const randomNum = Math.floor(1000 + Math.random() * 9000);
-            const newQueueNumber = `${prefix}-${randomNum}`;
-
-            const newPatientData = {
-                number: newQueueNumber,
-                type: type, // Q, E, D, P
-                status: 'waiting', // waiting, serving, done
-                timestamp: serverTimestamp(),
-                deviceId: generateDeviceId()
-            };
-
-            // Use deviceId as document key for persistence
-            await setDoc(doc(db, "queue", newPatientData.deviceId), newPatientData);
-
-            // Update LocalStorage
-            localStorage.setItem('patientId', newPatientData.deviceId);
-            localStorage.setItem('queueNumber', newQueueNumber);
-
-            currentPatientId = newPatientData.deviceId;
-            currentQueueNumber = newQueueNumber;
-
-            updateUI(true);
-        } catch (error) {
-            console.error("Error joining queue: ", error);
-            alert("Failed to join queue. Clinic might be offline.");
-        }
-    },
-
-    leaveQueue: async () => {
-        if (!currentPatientId) return;
-        try {
-            await updateDoc(doc(db, "queue", currentPatientId), {
-                status: 'cancelled'
-            });
-            localStorage.removeItem('patientId');
+window.leaveQueue = async () => {
+    if (!patientApp.deviceId) return;
+    try {
+        const res = await fetch('/api/queue/leave', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deviceId: patientApp.deviceId })
+        });
+        if (res.ok) {
             localStorage.removeItem('queueNumber');
-            currentPatientId = null;
-            currentQueueNumber = null;
-            updateUI(false);
-        } catch (error) {
-            console.error("Error leaving queue: ", error);
+            patientApp.currentQueueNumber = null;
+            patientApp.updateUI(false);
+        }
+    } catch (err) {
+        console.error("Error leaving queue: ", err);
+    }
+};
+
+window.sendMessage = async () => {
+    const input = document.getElementById('chat-input');
+    const message = input.value.trim();
+    if (!message) return;
+
+    const chatLog = document.getElementById('chat-log');
+
+    // Append User Message
+    const userMsgLi = document.createElement('li');
+    userMsgLi.classList.add('chat', 'outgoing');
+    userMsgLi.innerHTML = `<p>${message}</p>`; 
+    chatLog.appendChild(userMsgLi);
+
+    input.value = '';
+    chatLog.scrollTop = chatLog.scrollHeight;
+
+    try {
+        const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message })
+        });
+        let botReply = "I am currently unavailable.";
+        if (res.ok) {
+            const data = await res.json();
+            botReply = data.reply;
+        }
+
+        const botMsgLi = document.createElement('li');
+        botMsgLi.classList.add('chat', 'incoming');
+        botMsgLi.innerHTML = `<p>${botReply}</p>`;
+        chatLog.appendChild(botMsgLi);
+
+        chatLog.scrollTop = chatLog.scrollHeight;
+    } catch (err) {
+        const errorLi = document.createElement('li');
+        errorLi.classList.add('chat', 'incoming');
+        errorLi.innerHTML = `<p style="color:red">Error connecting to bot.</p>`;
+        chatLog.appendChild(errorLi);
+    }
+};
+
+window.closeModal = () => {
+    document.getElementById('announcement-modal').style.display = "none";
+};
+
+// Main App Logic
+const patientApp = {
+    deviceId: localStorage.getItem('deviceId') || ('device_' + Math.random().toString(36).substring(2, 9)),
+    currentQueueNumber: localStorage.getItem('queueNumber') || null,
+    lastSeenAnnouncementId: localStorage.getItem('lastAnnouncementId') || null,
+
+    init() {
+        localStorage.setItem('deviceId', this.deviceId);
+        
+        if (this.currentQueueNumber) {
+            this.updateUI(true);
+        }
+
+        // Poll server for state every 3 seconds
+        this.fetchState();
+        setInterval(() => this.fetchState(), 3000);
+
+        // Add Enter key listener for chat
+        document.getElementById('chat-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                window.sendMessage();
+            }
+        });
+    },
+
+    updateUI(inQueue) {
+        if (inQueue) {
+            document.getElementById('join-queue-section').style.display = 'none';
+            document.getElementById('queue-status-section').style.display = 'block';
+            document.getElementById('your-number-display').innerText = this.currentQueueNumber;
+        } else {
+            document.getElementById('join-queue-section').style.display = 'block';
+            document.getElementById('queue-status-section').style.display = 'none';
         }
     },
 
-    sendMessage: async () => {
-        const input = document.getElementById('chat-input');
-        const message = input.value.trim();
-        if (!message) return;
-
-        const chatLog = document.getElementById('chat-log');
-
-        // Append User Message
-        const userMsgLi = document.createElement('li');
-        userMsgLi.classList.add('chat', 'outgoing');
-        userMsgLi.innerHTML = `<p>${message}</p>`; // sanitized in a real app
-        chatLog.appendChild(userMsgLi);
-
-        input.value = '';
-        chatLog.scrollTop = chatLog.scrollHeight;
-
+    async fetchState() {
         try {
-            // Simulate bot response for UI demo if backend not ready, or actual fetch
-            /* 
-            const res = await fetch('/api/chat', {
-                 method: 'POST',
-                 headers: { 'Content-Type': 'application/json' },
-                 body: JSON.stringify({ message })
-             });
-             const data = await res.json();
-             const botReply = data.reply;
-            */
+            const res = await fetch('/api/state');
+            if(!res.ok) return;
+            const data = await res.json();
+            
+            // 1. Process Clinic State
+            const state = data.clinicState;
+            document.getElementById('current-serving-number').innerText = state.currentServing || "--";
 
-            // Simulating response for visual verification since server might not have LLM hooked up yet
-            // In real prod, uncomment the fetch above.
+            const offlineMsg = document.getElementById('offline-message');
+            const joinSection = document.getElementById('join-queue-section');
 
-            // For now, let's try to fetch, if it fails, fallback to dummy
-            let botReply = "I'm just a demo bot for now.";
-            try {
-                const res = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    botReply = data.reply;
-                }
-            } catch (e) {
-                console.log("Chat API not reachable, using mock.");
+            if (!state.isOpen) {
+                offlineMsg.style.display = 'flex';
+                joinSection.style.display = 'none';
+            } else {
+                offlineMsg.style.display = 'none';
+                if (!this.currentQueueNumber) joinSection.style.display = 'block';
             }
 
-            const botMsgLi = document.createElement('li');
-            botMsgLi.classList.add('chat', 'incoming');
-            botMsgLi.innerHTML = `<p>${botReply}</p>`;
-            chatLog.appendChild(botMsgLi);
+            // 2. Process Current User's Queue Position
+            const queue = data.waitingQueue || [];
+            if (this.currentQueueNumber) {
+                const myIndex = queue.findIndex(q => q.number === this.currentQueueNumber);
+                
+                if (myIndex === -1) {
+                    // Check if they are currently serving
+                    if(state.currentServing === this.currentQueueNumber) {
+                        document.getElementById('people-ahead').innerText = "0";
+                        document.getElementById('wait-time').innerText = "0";
+                    } else {
+                        // Not in line, not serving -> probably done or cancelled via admin
+                        this.currentQueueNumber = null;
+                        localStorage.removeItem('queueNumber');
+                        this.updateUI(false);
+                    }
+                } else {
+                    // Number of priority people vs regular people affects exact ordering, 
+                    // but the server gave us an ordered array based on timestamp (for now, or logic).
+                    // In a perfect system the array is pre-sorted by the backend Priority > timestamp.
+                    const peopleAhead = myIndex;
+                    document.getElementById('people-ahead').innerText = peopleAhead;
+                    
+                    // Simple estimate: 10 mins per person
+                    document.getElementById('wait-time').innerText = peopleAhead * 10;
+                }
+            }
 
-            chatLog.scrollTop = chatLog.scrollHeight;
+            // 3. Process Announcements
+            const ann = data.announcement;
+            if (ann && ann.id && String(ann.id) !== this.lastSeenAnnouncementId) {
+                this.lastSeenAnnouncementId = String(ann.id);
+                localStorage.setItem('lastAnnouncementId', this.lastSeenAnnouncementId);
+                
+                document.getElementById('announcement-text').innerText = ann.message;
+                document.getElementById('announcement-modal').style.display = 'flex';
+            }
+
         } catch (err) {
-            const errorLi = document.createElement('li');
-            errorLi.classList.add('chat', 'incoming');
-            errorLi.innerHTML = `<p style="color:red">Error connecting to bot.</p>`;
-            chatLog.appendChild(errorLi);
+            console.error("Failed to fetch clinic state", err);
         }
     }
 };
 
-// UI & Listeners
-function updateUI(inQueue) {
-    if (inQueue) {
-        document.getElementById('join-queue-section').style.display = 'none';
-        document.getElementById('queue-status-section').style.display = 'block';
-        document.getElementById('your-number-display').innerHTML = `Your Number: <strong>${currentQueueNumber}</strong>`;
-    } else {
-        document.getElementById('join-queue-section').style.display = 'block';
-        document.getElementById('queue-status-section').style.display = 'none';
-    }
-}
-
-function generateDeviceId() {
-    let id = localStorage.getItem('deviceId');
-    if (!id) {
-        id = 'device_' + Math.random().toString(36).substr(2, 9);
-        localStorage.setItem('deviceId', id);
-    }
-    return id;
-}
-
-// Initial Load
-if (currentPatientId) {
-    // Check if still valid in DB
-    const docRef = doc(db, "queue", currentPatientId);
-    getDoc(docRef).then(docSnap => {
-        if (docSnap.exists() && docSnap.data().status !== 'done' && docSnap.data().status !== 'cancelled') {
-            updateUI(true);
-        } else {
-            // Expired or done
-            localStorage.removeItem('patientId');
-            localStorage.removeItem('queueNumber');
-            updateUI(false);
-        }
-    });
-}
-
-// Listen for Global State (Current Serving)
-const stateDocRef = doc(db, "clinic", "state");
-onSnapshot(stateDocRef, (doc) => {
-    if (doc.exists()) {
-        const data = doc.data();
-        document.getElementById('current-serving-number').innerText = data.currentServing || "--";
-
-        // Online/Offline Status
-        if (!data.isOpen) {
-            document.getElementById('offline-message').style.display = 'block';
-            document.getElementById('join-queue-section').style.display = 'none';
-        } else {
-            document.getElementById('offline-message').style.display = 'none';
-            if (!currentPatientId) document.getElementById('join-queue-section').style.display = 'block';
-        }
-    }
-});
-
-// Listen for Announcements
-const announcementDocRef = doc(db, "clinic", "announcements");
-onSnapshot(announcementDocRef, (doc) => {
-    if (doc.exists()) {
-        const data = doc.data();
-        if (data.message && data.timestamp && (Date.now() - data.timestamp.toMillis() < 60000)) {
-            // Only show if recent (< 1 min old) to avoid stale popups on refresh
-            // Or use a local flag to track 'seen' announcements
-            document.getElementById('announcement-text').innerText = data.message;
-            document.getElementById('announcement-modal').style.display = 'block';
-        }
-    }
-});
-
-window.patientApp = patientApp;
+// Start App
+patientApp.init();
