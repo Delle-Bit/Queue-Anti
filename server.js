@@ -4,11 +4,32 @@ const bodyParser = require('body-parser');
 const dotenv = require('dotenv');
 const QRCode = require('qrcode');
 const { pool, initDB } = require('./database.js');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// --- GEMINI AI SETUP ---
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    systemInstruction: `You are a friendly and helpful assistant for JEA Medical Clinic.
+    Your role is to assist patients who are waiting in the queue.
+    You can help with:
+    - Explaining how the queue system works
+    - Answering general questions about clinic procedures
+    - Letting patients know about priority lanes (Elderly, PWD, Pregnant patients get priority)
+    - Giving general health advice (not medical diagnoses)
+    - Estimating wait times (approx. 10 minutes per patient)
+    - Calming anxious or worried patients
+    Keep responses short, warm, and professional. Do not diagnose illnesses.
+    If asked something outside your scope, politely redirect to clinic staff.`
+});
+
+// Store per-session chat histories (sessionId -> ChatSession)
+const chatSessions = new Map();
 
 // Middleware
 app.use(cors());
@@ -21,7 +42,7 @@ initDB();
 // API: Generate QR Code for the patient app
 app.get('/api/qrcode', async (req, res) => {
     try {
-        const url = `${req.protocol}://${req.get('host')}/index.html`; 
+        const url = `${req.protocol}://${req.get('host')}/index.html`;
         const qrImage = await QRCode.toDataURL(url);
         res.json({ qrImage, url });
     } catch (err) {
@@ -29,20 +50,31 @@ app.get('/api/qrcode', async (req, res) => {
     }
 });
 
-// API: AI Chatbot Proxy (Mock)
+// API: AI Chatbot (Gemini)
 app.post('/api/chat', async (req, res) => {
-    const { message } = req.body;
-    let response = `I understand you said: "${message}". Please wait for assistance or check the queue board.`;
-    
-    // Quick keyword logic for a better demo
-    const msgLower = message.toLowerCase();
-    if(msgLower.includes('doctor') || msgLower.includes('time')) {
-        response = "The doctor is currently seeing patients. Wait times vary based on the queue.";
-    } else if (msgLower.includes('priority')) {
-        response = "Priority lanes are for Elderly, PWD, and Pregnant patients.";
+    const { message, sessionId } = req.body;
+    if (!message) return res.status(400).json({ error: 'No message provided' });
+
+    try {
+        // Get or create a chat session for this user
+        let chat;
+        if (sessionId && chatSessions.has(sessionId)) {
+            chat = chatSessions.get(sessionId);
+        } else {
+            chat = model.startChat({ history: [] });
+            const id = sessionId || ('sess_' + Date.now());
+            chatSessions.set(id, chat);
+            // Clean up old sessions after 30 minutes to save memory
+            setTimeout(() => chatSessions.delete(id), 30 * 60 * 1000);
+        }
+
+        const result = await chat.sendMessage(message);
+        const reply = result.response.text();
+        res.json({ reply });
+    } catch (err) {
+        console.error('Gemini API error:', err.message);
+        res.status(500).json({ reply: 'Sorry, the assistant is temporarily unavailable. Please ask clinic staff for help.' });
     }
-    
-    res.json({ reply: response });
 });
 
 // --- QUEUE SYSTEM APIs ---
@@ -60,7 +92,7 @@ app.get('/api/state', async (req, res) => {
 
         // Get snapshot of pending queue and wait times
         const [queueRows] = await pool.query(`SELECT id, number, type, status FROM queue WHERE status = 'waiting' ORDER BY timestamp ASC`);
-        
+
         // Calculate total served today
         const [servedRows] = await pool.query(`SELECT COUNT(*) as served FROM queue WHERE status IN ('serving', 'done') AND DATE(timestamp) = CURDATE()`);
 
@@ -80,11 +112,11 @@ app.get('/api/state', async (req, res) => {
 app.post('/api/queue/join', async (req, res) => {
     try {
         const { deviceId, type } = req.body;
-        if(!deviceId || !type) return res.status(400).json({error: 'Invalid input'});
+        if (!deviceId || !type) return res.status(400).json({ error: 'Invalid input' });
 
         // Check if device is already waiting
         const [existing] = await pool.query(`SELECT * FROM queue WHERE id = ? AND status = 'waiting'`, [deviceId]);
-        if(existing.length > 0) {
+        if (existing.length > 0) {
             return res.json({ success: true, number: existing[0].number }); // Idempotent
         }
 
@@ -105,7 +137,7 @@ app.post('/api/queue/leave', async (req, res) => {
         const { deviceId } = req.body;
         await pool.query(`UPDATE queue SET status = 'cancelled' WHERE id = ? AND status = 'waiting'`, [deviceId]);
         res.json({ success: true });
-    } catch(err) {
+    } catch (err) {
         res.status(500).json({ error: 'Failed to leave queue' });
     }
 });
@@ -117,7 +149,7 @@ app.post('/api/queue/leave', async (req, res) => {
 app.post('/api/admin/next', async (req, res) => {
     try {
         const [queueRows] = await pool.query(`SELECT * FROM queue WHERE status = 'waiting' ORDER BY timestamp ASC`);
-        
+
         if (queueRows.length === 0) {
             return res.json({ success: false, message: 'Queue is empty' });
         }
@@ -130,10 +162,10 @@ app.post('/api/admin/next', async (req, res) => {
 
         // Ensure state transition for previous serving patient
         await pool.query(`UPDATE queue SET status = 'done' WHERE status = 'serving'`);
-        
+
         // Update new patient to serving
         await pool.query(`UPDATE queue SET status = 'serving' WHERE id = ?`, [nextPatient.id]);
-        
+
         // Update clinic state
         await pool.query(`UPDATE clinic_state SET currentServing = ? WHERE id = 1`, [nextPatient.number]);
 
@@ -170,7 +202,7 @@ app.post('/api/admin/toggle', async (req, res) => {
 app.post('/api/admin/broadcast', async (req, res) => {
     try {
         const { message } = req.body;
-        if(message) {
+        if (message) {
             await pool.query(`INSERT INTO announcements (message) VALUES (?)`, [message]);
         }
         res.json({ success: true });

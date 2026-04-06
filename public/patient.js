@@ -1,3 +1,6 @@
+// Unique chat session ID for Gemini conversation history
+const chatSessionId = 'chat_' + (localStorage.getItem('deviceId') || Math.random().toString(36).substring(2, 9));
+
 // Global scope functions for HTML onclick handlers
 window.joinQueue = async (type) => {
     if (patientApp.currentQueueNumber) {
@@ -59,17 +62,27 @@ window.sendMessage = async () => {
     input.value = '';
     chatLog.scrollTop = chatLog.scrollHeight;
 
+    // Show a typing indicator
+    const typingLi = document.createElement('li');
+    typingLi.classList.add('chat', 'incoming', 'typing-indicator');
+    typingLi.innerHTML = `<p><em>Typing...</em></p>`;
+    chatLog.appendChild(typingLi);
+    chatLog.scrollTop = chatLog.scrollHeight;
+
     try {
         const res = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message })
+            body: JSON.stringify({ message, sessionId: chatSessionId })
         });
         let botReply = "I am currently unavailable.";
         if (res.ok) {
             const data = await res.json();
             botReply = data.reply;
         }
+
+        // Remove typing indicator
+        chatLog.removeChild(typingLi);
 
         const botMsgLi = document.createElement('li');
         botMsgLi.classList.add('chat', 'incoming');
@@ -78,6 +91,7 @@ window.sendMessage = async () => {
 
         chatLog.scrollTop = chatLog.scrollHeight;
     } catch (err) {
+        chatLog.removeChild(typingLi);
         const errorLi = document.createElement('li');
         errorLi.classList.add('chat', 'incoming');
         errorLi.innerHTML = `<p style="color:red">Error connecting to bot.</p>`;
