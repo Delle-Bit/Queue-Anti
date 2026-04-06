@@ -5,30 +5,22 @@ const dotenv = require('dotenv');
 const QRCode = require('qrcode');
 const { pool, initDB } = require('./database.js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123';
 
 // --- GEMINI AI SETUP ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash',
-    systemInstruction: `You are a friendly and helpful assistant for JEA Medical Clinic.
-    Your role is to assist patients who are waiting in the queue.
-    You can help with:
-    - Explaining how the queue system works
-    - Answering general questions about clinic procedures
-    - Letting patients know about priority lanes (Elderly, PWD, Pregnant patients get priority)
-    - Giving general health advice (not medical diagnoses)
-    - Estimating wait times (approx. 10 minutes per patient)
-    - Calming anxious or worried patients
-    Keep responses short, warm, and professional. Do not diagnose illnesses.
-    If asked something outside your scope, politely redirect to clinic staff.`
+    // System instructions will now be injected per request dynamically
 });
 
-// Store per-session chat histories (sessionId -> ChatSession)
 const chatSessions = new Map();
 
 // Middleware
@@ -36,94 +28,255 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
-// Initialize DB on start
-initDB();
+// --- DB INITIALIZATION & SEED ---
+async function startServer() {
+    await initDB();
 
-// API: Generate QR Code for the patient app
-app.get('/api/qrcode', async (req, res) => {
+    // Seed default UltraAdmin 
+    const [users] = await pool.query('SELECT COUNT(*) as cnt FROM users WHERE username = ?', ['AdminUltimo']);
+    if (users[0].cnt === 0) {
+        const hash = await bcrypt.hash('123testPass', 10);
+        await pool.query('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', ['AdminUltimo', hash, 'ultraadmin']);
+        console.log('account');
+    }
+
+    // Seed default admin account
+    const [adminUsers] = await pool.query('SELECT COUNT(*) as cnt FROM users WHERE username = ?', ['admin123']);
+    if (adminUsers[0].cnt === 0) {
+        const hash = await bcrypt.hash('231minda', 10);
+        await pool.query('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', ['admin123', hash, 'admin']);
+        console.log('Admin created: user: admin123, pass: 231minda');
+    }
+
+    // Seed default Cashier department
+    const [depts] = await pool.query('SELECT COUNT(*) as cnt FROM departments WHERE name = ?', ['Cashier']);
+    if (depts[0].cnt === 0) {
+        await pool.query('INSERT INTO departments (name, start_time, cutoff_time, is_open) VALUES (?, NULL, NULL, true)', ['Cashier']);
+        console.log('Default Cashier department created');
+    }
+
+    app.listen(port, () => {
+        console.log(`Server running at http://localhost:${port}`);
+    });
+}
+
+// --- AUTH MIDDLEWARE ---
+function authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (token == null) return res.status(401).json({ error: 'Missing token' });
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ error: 'Invalid token' });
+        req.user = user;
+        next();
+    });
+}
+
+function verifyUltraAdmin(req, res, next) {
+    if (req.user.role !== 'ultraadmin') return res.status(403).json({ error: 'UltraAdmin access required' });
+    next();
+}
+
+// --- AUTH APIs ---
+app.post('/api/auth/login', async (req, res) => {
+    const { username, password } = req.body;
     try {
-        const url = `${req.protocol}://${req.get('host')}/index.html`;
-        const qrImage = await QRCode.toDataURL(url);
-        res.json({ qrImage, url });
+        const [rows] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
+        if (rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+
+        const user = rows[0];
+        const match = await bcrypt.compare(password, user.password_hash);
+        if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+
+        const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
+        res.json({ success: true, token, role: user.role });
     } catch (err) {
-        res.status(500).json({ error: 'Failed to generate QR code' });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
-// API: AI Chatbot (Gemini)
-app.post('/api/chat', async (req, res) => {
-    const { message, sessionId } = req.body;
-    if (!message) return res.status(400).json({ error: 'No message provided' });
-
+app.post('/api/auth/forgot-password', async (req, res) => {
+    const { username } = req.body;
+    // Mocking email sending for this prototype
     try {
-        // Get or create a chat session for this user
-        let chat;
-        if (sessionId && chatSessions.has(sessionId)) {
-            chat = chatSessions.get(sessionId);
-        } else {
-            chat = model.startChat({ history: [] });
-            const id = sessionId || ('sess_' + Date.now());
-            chatSessions.set(id, chat);
-            // Clean up old sessions after 30 minutes to save memory
-            setTimeout(() => chatSessions.delete(id), 30 * 60 * 1000);
+        const [rows] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
+        if (rows.length > 0) {
+            // Generate mock reset token
+            const resetToken = 'RESET_' + Math.random().toString(36).substr(2, 9);
+            await pool.query('UPDATE users SET reset_token = ?, reset_expiry = DATE_ADD(NOW(), INTERVAL 1 HOUR) WHERE username = ?', [resetToken, username]);
+            console.log(`[MOCK EMAIL TO ${username}] Password reset token: ${resetToken}`);
+            // In a real app, send email here.
         }
-
-        const result = await chat.sendMessage(message);
-        const reply = result.response.text();
-        res.json({ reply });
+        // Always return success to prevent username enumeration
+        res.json({ success: true, message: 'If the username exists, a recovery instruction was sent via mock email (Terminal log).' });
     } catch (err) {
-        console.error('Gemini API error:', err.message);
-        res.status(500).json({ reply: 'Sorry, the assistant is temporarily unavailable. Please ask clinic staff for help.' });
+        res.status(500).json({ error: 'Error processing request' });
     }
 });
 
-// --- QUEUE SYSTEM APIs ---
+app.post('/api/auth/reset-password', async (req, res) => {
+    const { username, resetToken, newPassword } = req.body;
+    try {
+        const [rows] = await pool.query('SELECT * FROM users WHERE username = ? AND reset_token = ? AND reset_expiry > NOW()', [username, resetToken]);
+        if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired token' });
 
-// 1. Get Clinic State (Polled by clients)
+        const hash = await bcrypt.hash(newPassword, 10);
+        await pool.query('UPDATE users SET password_hash = ?, reset_token = NULL, reset_expiry = NULL WHERE username = ?', [hash, username]);
+        res.json({ success: true, message: 'Password reset successfully!' });
+    } catch (err) {
+        res.status(500).json({ error: 'Error resetting password' });
+    }
+});
+
+// --- ULTRAADMIN APIs ---
+app.get('/api/users', authenticateToken, verifyUltraAdmin, async (req, res) => {
+    const [rows] = await pool.query('SELECT id, username, role FROM users');
+    res.json(rows);
+});
+
+app.post('/api/users', authenticateToken, verifyUltraAdmin, async (req, res) => {
+    const { username, password, role } = req.body;
+    try {
+        const hash = await bcrypt.hash(password, 10);
+        await pool.query('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', [username, hash, role || 'admin']);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to create user (maybe username exists)' });
+    }
+});
+
+// --- DEPARTMENTS APIs ---
+app.get('/api/departments', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM departments');
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch departments' });
+    }
+});
+
+app.post('/api/departments', authenticateToken, async (req, res) => {
+        const { name, start_time, cutoff_time } = req.body;
+    try {
+        await pool.query('INSERT INTO departments (name, start_time, cutoff_time, is_open) VALUES (?, ?, ?, true)', [name, start_time || null, cutoff_time || null]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to create department' });
+    }
+});
+
+app.put('/api/departments/:id', authenticateToken, async (req, res) => {
+    const { name, start_time, cutoff_time, is_open } = req.body;
+    try {
+        await pool.query('UPDATE departments SET name = ?, start_time = ?, cutoff_time = ?, is_open = ? WHERE id = ?',
+            [name, start_time, cutoff_time, is_open, req.params.id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to update department' });
+    }
+});
+
+app.delete('/api/departments/:id', authenticateToken, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM departments WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete department (might be in use)' });
+    }
+});
+
+// --- PRICING FAQs APIs ---
+app.get('/api/faqs', async (req, res) => {
+    const [rows] = await pool.query('SELECT * FROM pricing_faqs');
+    res.json(rows);
+});
+
+app.post('/api/faqs', authenticateToken, async (req, res) => {
+    const { service_name, price, description } = req.body;
+    await pool.query('INSERT INTO pricing_faqs (service_name, price, description) VALUES (?, ?, ?)', [service_name, price, description]);
+    res.json({ success: true });
+});
+
+app.delete('/api/faqs/:id', authenticateToken, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM pricing_faqs WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete faq' });
+    }
+});
+
+app.put('/api/faqs/:id', authenticateToken, async (req, res) => {
+    const { service_name, price, description } = req.body;
+    try {
+        await pool.query('UPDATE pricing_faqs SET service_name = ?, price = ?, description = ? WHERE id = ?', [service_name, price, description, req.params.id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to update faq' });
+    }
+});
+
+// --- QUEUE / PATIENT APIs ---
 app.get('/api/state', async (req, res) => {
     try {
-        // Get clinic state
-        const [stateRows] = await pool.query(`SELECT * FROM clinic_state WHERE id = 1`);
-        let clinicState = stateRows[0] || { currentServing: '--', isOpen: true };
-
-        // Get latest announcement
-        const [annRows] = await pool.query(`SELECT * FROM announcements ORDER BY timestamp DESC LIMIT 1`);
-        let announcement = annRows[0] || null;
-
-        // Get snapshot of pending queue and wait times
-        const [queueRows] = await pool.query(`SELECT id, number, type, status FROM queue WHERE status = 'waiting' ORDER BY timestamp ASC`);
-
-        // Calculate total served today
-        const [servedRows] = await pool.query(`SELECT COUNT(*) as served FROM queue WHERE status IN ('serving', 'done') AND DATE(timestamp) = CURDATE()`);
+        const [deptRows] = await pool.query('SELECT * FROM departments');
+        const [queueRows] = await pool.query(`SELECT id, department_id, number, type, status, timestamp FROM queue WHERE status IN ('waiting', 'serving') ORDER BY timestamp ASC`);
+        const [announcements] = await pool.query(`SELECT * FROM announcements ORDER BY timestamp DESC LIMIT 1`);
 
         res.json({
-            clinicState,
-            announcement,
-            waitingQueue: queueRows,
-            totalServed: servedRows[0].served || 0
+            departments: deptRows,
+            queue: queueRows,
+            announcement: announcements[0] || null
         });
     } catch (err) {
-        console.error(err);
+        console.error('[API/STATE] Critical error fetching data from MySQL:', err);
         res.status(500).json({ error: 'Failed to fetch state' });
     }
 });
 
-// 2. Join Queue
 app.post('/api/queue/join', async (req, res) => {
     try {
-        const { deviceId, type } = req.body;
-        if (!deviceId || !type) return res.status(400).json({ error: 'Invalid input' });
+        const { deviceId, type, department_id } = req.body;
+        if (!deviceId || !type || !department_id) return res.status(400).json({ error: 'Invalid input' });
 
-        // Check if device is already waiting
-        const [existing] = await pool.query(`SELECT * FROM queue WHERE id = ? AND status = 'waiting'`, [deviceId]);
-        if (existing.length > 0) {
-            return res.json({ success: true, number: existing[0].number }); // Idempotent
+        // Check if cut-off time reached
+        const [deptData] = await pool.query('SELECT * FROM departments WHERE id = ?', [department_id]);
+        if (deptData.length === 0) return res.status(404).json({ error: 'Dept not found' });
+        const dept = deptData[0];
+
+        if (!dept.is_open) return res.status(403).json({ error: 'Department is closed.' });
+
+        const now = new Date();
+        const currentTime = now.toTimeString().split(' ')[0]; // HH:MM:SS
+        if (dept.cutoff_time && currentTime > dept.cutoff_time) {
+            return res.status(403).json({ error: 'Cut-off time reached for this department.' });
+        }
+        if (dept.start_time && currentTime < dept.start_time) {
+            return res.status(403).json({ error: 'Department is not open yet.' });
         }
 
-        const randomNum = Math.floor(1000 + Math.random() * 9000);
-        const newQueueNumber = `${type}-${randomNum}`;
+        // Check existing
+        const [existing] = await pool.query(`SELECT * FROM queue WHERE id = ? AND status IN ('waiting', 'serving')`, [deviceId]);
+        if (existing.length > 0) {
+            return res.json({ success: true, number: existing[0].number, department_id: existing[0].department_id });
+        }
 
-        await pool.query(`INSERT INTO queue (id, number, type, status) VALUES (?, ?, ?, 'waiting') ON DUPLICATE KEY UPDATE number = ?, type = ?, status = 'waiting'`, [deviceId, newQueueNumber, type, newQueueNumber, type]);
+        // Generate Sequential Number for the day and department
+        const [seqRows] = await pool.query(`SELECT COUNT(*) as cnt FROM queue_logs WHERE department_id = ? AND type = ? AND DATE(join_time) = CURDATE()`, [department_id, type]);
+        const seqNumber = seqRows[0].cnt + 1;
+        const newQueueNumber = `${type}-${String(seqNumber).padStart(3, '0')}`; // e.g., P-001
+
+        // Remove any old completed/cancelled entries for this device so the PK doesn't collide
+        await pool.query(`DELETE FROM queue WHERE id = ? AND status NOT IN ('waiting', 'serving')`, [deviceId]);
+
+        // Insert into queue
+        await pool.query(`INSERT INTO queue (id, department_id, number, type, status) VALUES (?, ?, ?, ?, 'waiting')`, [deviceId, department_id, newQueueNumber, type]);
+
+        // Log entry joined
+        await pool.query(`INSERT INTO queue_logs (department_id, ticket_number, type, join_time) VALUES (?, ?, ?, NOW())`, [department_id, newQueueNumber, type]);
+
         res.json({ success: true, number: newQueueNumber });
     } catch (err) {
         console.error(err);
@@ -131,7 +284,6 @@ app.post('/api/queue/join', async (req, res) => {
     }
 });
 
-// 3. Leave Queue
 app.post('/api/queue/leave', async (req, res) => {
     try {
         const { deviceId } = req.body;
@@ -142,75 +294,213 @@ app.post('/api/queue/leave', async (req, res) => {
     }
 });
 
-
-// --- ADMIN APIs ---
-
-// Admin: Call Next Patient
-app.post('/api/admin/next', async (req, res) => {
+// --- ADMIN QUEUE OPERATIONS ---
+app.post('/api/admin/next', authenticateToken, async (req, res) => {
+    const { department_id } = req.body;
     try {
-        const [queueRows] = await pool.query(`SELECT * FROM queue WHERE status = 'waiting' ORDER BY timestamp ASC`);
+        const [queueRows] = await pool.query(`SELECT * FROM queue WHERE department_id = ? AND status = 'waiting' ORDER BY timestamp ASC`, [department_id]);
 
-        if (queueRows.length === 0) {
-            return res.json({ success: false, message: 'Queue is empty' });
-        }
+        if (queueRows.length === 0) return res.json({ success: false, message: 'Queue is empty for this department' });
 
-        // Priority Logic: P, D, E first.
         const priorities = queueRows.filter(p => ['P', 'D', 'E'].includes(p.type));
         const regulars = queueRows.filter(p => p.type === 'Q');
 
         let nextPatient = priorities.length > 0 ? priorities[0] : regulars[0];
 
-        // Ensure state transition for previous serving patient
-        await pool.query(`UPDATE queue SET status = 'done' WHERE status = 'serving'`);
+        // Ensure previous patient in this dept that was serving is marked as completed? 
+        // No, we will make 'Complete Transaction' explicit as requested.
+        // But the prompt says "When staff finishes a transaction... add complete button".
+        // So we just set this one to serving. We allow multiple 'serving' if multiple staffs, but let's just mark it.
 
-        // Update new patient to serving
         await pool.query(`UPDATE queue SET status = 'serving' WHERE id = ?`, [nextPatient.id]);
 
-        // Update clinic state
-        await pool.query(`UPDATE clinic_state SET currentServing = ? WHERE id = 1`, [nextPatient.number]);
+        // Update log
+        await pool.query(`UPDATE queue_logs SET serve_time = NOW() WHERE ticket_number = ? AND complete_time IS NULL ORDER BY join_time DESC LIMIT 1`, [nextPatient.number]);
 
         res.json({ success: true, next: nextPatient.number });
     } catch (err) {
-        console.error(err);
         res.status(500).json({ error: 'Failed to call next patient' });
     }
 });
 
-// Admin: Reset Queue
-app.post('/api/admin/reset', async (req, res) => {
+app.post('/api/admin/complete', authenticateToken, async (req, res) => {
+    const { ticket_id } = req.body; // Using the internal deviceId string for reference
     try {
-        await pool.query(`UPDATE queue SET status = 'cancelled' WHERE status IN ('waiting', 'serving')`);
-        await pool.query(`UPDATE clinic_state SET currentServing = '--' WHERE id = 1`);
+        // Get ticket details
+        const [queueRows] = await pool.query(`SELECT number FROM queue WHERE id = ?`, [ticket_id]);
+        if (queueRows.length > 0) {
+            const ticketNumber = queueRows[0].number;
+            await pool.query(`UPDATE queue SET status = 'completed' WHERE id = ?`, [ticket_id]);
+            await pool.query(`UPDATE queue_logs SET complete_time = NOW() WHERE ticket_number = ? AND complete_time IS NULL ORDER BY id DESC LIMIT 1`, [ticketNumber]);
+            // Also push a global notification or something for that specific user. 
+            // We can add it to announcements targeted, or the patient polls state and sees status='completed'.
+        }
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to complete' });
+    }
+});
+
+app.post('/api/admin/transfer', authenticateToken, async (req, res) => {
+    const { ticket_id, new_department_id } = req.body;
+    try {
+        const [rows] = await pool.query(`SELECT type FROM queue WHERE id = ?`, [ticket_id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Ticket not found' });
+        
+        const type = rows[0].type;
+        
+        // Generate new sequential number for the new department
+        const [seqRows] = await pool.query(`SELECT COUNT(*) as cnt FROM queue_logs WHERE department_id = ? AND type = ? AND DATE(join_time) = CURDATE()`, [new_department_id, type]);
+        const seqNumber = seqRows[0].cnt + 1;
+        const newQueueNumber = `${type}-${String(seqNumber).padStart(3, '0')}`;
+        
+        // Update department and assign the NEW number so sequences stay correct!
+        await pool.query(`UPDATE queue SET department_id = ?, number = ?, status = 'waiting', timestamp = NOW() WHERE id = ?`, [new_department_id, newQueueNumber, ticket_id]);
+
+        await pool.query(`INSERT INTO queue_logs (department_id, ticket_number, type, join_time) VALUES (?, ?, ?, NOW())`, [new_department_id, newQueueNumber, type]);
+        res.json({ success: true, newNumber: newQueueNumber });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to transfer' });
+    }
+});
+
+// --- ADMIN BROADCAST API ---
+app.post('/api/admin/broadcast', authenticateToken, async (req, res) => {
+    const { message } = req.body;
+    try {
+        await pool.query('INSERT INTO announcements (message) VALUES (?)', [message]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed' });
+    }
+});
+
+// --- QUEUE RESET APIs ---
+app.post('/api/admin/reset-queue/:deptId', authenticateToken, async (req, res) => {
+    try {
+        await pool.query(`DELETE FROM queue WHERE department_id = ?`, [req.params.deptId]);
+        await pool.query(`DELETE FROM queue_logs WHERE department_id = ?`, [req.params.deptId]);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: 'Failed to reset queue' });
     }
 });
 
-// Admin: Toggle visibility
-app.post('/api/admin/toggle', async (req, res) => {
+app.post('/api/admin/reset-queue-all', authenticateToken, async (req, res) => {
     try {
-        const { isOpen } = req.body;
-        await pool.query(`UPDATE clinic_state SET isOpen = ? WHERE id = 1`, [isOpen]);
+        await pool.query(`DELETE FROM queue`);
+        await pool.query(`DELETE FROM queue_logs`);
         res.json({ success: true });
     } catch (err) {
-        res.status(500).json({ error: 'Failed to toggle clinic state' });
+        res.status(500).json({ error: 'Failed to reset all queues' });
     }
 });
 
-// Admin: Broadcast Announcement
-app.post('/api/admin/broadcast', async (req, res) => {
+// --- DASHBOARD & ANALYTICS ---
+app.get('/api/admin/dashboard', authenticateToken, async (req, res) => {
     try {
-        const { message } = req.body;
-        if (message) {
-            await pool.query(`INSERT INTO announcements (message) VALUES (?)`, [message]);
+        // Average processing time (completed tickets today)
+        const [avgRows] = await pool.query(`
+            SELECT AVG(TIMESTAMPDIFF(MINUTE, serve_time, complete_time)) as avg_mins 
+            FROM queue_logs 
+            WHERE complete_time IS NOT NULL AND DATE(join_time) = CURDATE()
+        `);
+
+        const avg_time = avgRows[0].avg_mins || 0;
+
+        // Processed per hour today
+        const [hourRows] = await pool.query(`
+            SELECT COUNT(*) / GREATEST(1, HOUR(TIMEDIFF(MAX(complete_time), MIN(serve_time)))) as per_hour
+            FROM queue_logs
+            WHERE complete_time IS NOT NULL AND DATE(join_time) = CURDATE()
+        `);
+        const tickets_per_hour = hourRows[0].per_hour || 0;
+
+        // Total processed
+        const [totalRows] = await pool.query(`SELECT COUNT(*) as total FROM queue_logs WHERE complete_time IS NOT NULL AND DATE(join_time) = CURDATE()`);
+
+        // Logs
+        const [logs] = await pool.query(`
+            SELECT q.*, d.name as department_name 
+            FROM queue_logs q 
+            LEFT JOIN departments d ON q.department_id = d.id 
+            ORDER BY q.join_time DESC LIMIT 50
+        `);
+
+        // Est time: If avg time is say 10 mins, and there are X waiting, total = x * 10
+        const [waitingRows] = await pool.query(`SELECT COUNT(*) as cnt FROM queue WHERE status = 'waiting'`);
+        const est_total_time = waitingRows[0].cnt * avg_time;
+
+        res.json({
+            avg_time: parseFloat(avg_time).toFixed(1),
+            per_hour: parseFloat(tickets_per_hour).toFixed(1),
+            total_processed: totalRows[0].total,
+            est_total_time: parseFloat(est_total_time).toFixed(1),
+            logs
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch dashboard' });
+    }
+});
+
+// --- OTHERS ---
+app.post('/api/qrcode', async (req, res) => {
+    try {
+        const { dept_id } = req.body;
+        const url = `${req.protocol}://${req.get('host')}/index.html${dept_id ? '?dept=' + dept_id : ''}`;
+        const qrImage = await QRCode.toDataURL(url, { width: 300 });
+        res.json({ qrImage, url });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to generate QR code' });
+    }
+});
+
+app.post('/api/chat', async (req, res) => {
+    const { message, sessionId } = req.body;
+    if (!message) return res.status(400).json({ error: 'No message provided' });
+
+    try {
+        // Build dynamic system prompt
+        let sysPrompt = `You are a friendly and helpful assistant for the Medical Clinic.
+        Your role is to assist patients who are waiting in the queue.
+        Explaining how the overall queue system works.
+        Priority lanes (Elderly, PWD, Pregnant patients get priority).
+        Keep responses short, warm, and professional. Do not diagnose illnesses.
+        Always use Philippine Peso (₱) when mentioning prices. Never use dollar signs.
+        If asked something outside your scope, politely redirect to clinic staff.`;
+
+        try {
+            const [faqs] = await pool.query('SELECT service_name, price, description FROM pricing_faqs');
+            if (faqs.length > 0) {
+                sysPrompt += `\n\nHere are the current service prices (in Philippine Peso ₱) you can use as reference:`;
+                faqs.forEach(f => {
+                    sysPrompt += `\n- ${f.service_name}: ₱${f.price} (${f.description || 'No description'})`;
+                });
+            }
+        } catch(e) {}
+
+        const currentModel = genAI.getGenerativeModel({
+            model: 'gemini-2.5-flash',
+            systemInstruction: sysPrompt
+        });
+
+        let chat;
+        if (sessionId && chatSessions.has(sessionId)) {
+            chat = chatSessions.get(sessionId);
+        } else {
+            chat = currentModel.startChat({ history: [] });
+            const id = sessionId || ('sess_' + Date.now());
+            chatSessions.set(id, chat);
+            setTimeout(() => chatSessions.delete(id), 30 * 60 * 1000);
         }
-        res.json({ success: true });
+
+        const result = await chat.sendMessage(message);
+        const reply = result.response.text();
+        res.json({ reply, sessionId: sessionId || 'sess_' + Date.now() });
     } catch (err) {
-        res.status(500).json({ error: 'Failed to broadcast' });
+        console.error('Gemini API error:', err.message);
+        res.status(500).json({ error: 'Sorry, I am currently facing technical issues. Please approach the desk.' });
     }
 });
 
-app.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
-});
+startServer();
