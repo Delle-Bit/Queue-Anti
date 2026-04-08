@@ -3,98 +3,50 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Medical Clinic</title>
+    <title>Welcome - Clinic Queue</title>
     <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-</head>
-<body class="patient-body">
-
-    <div class="container container-glass border-glow" id="main-container">
-        <h1 style="text-align: center;"><i class="fa-solid fa-hospital-user"></i> Medical Clinic</h1>
-        <div id="offline-message" style="display:none; color: red; text-align: center;">Clinic operations are currently suspended.</div>
-
-        <!-- STAGE 1: Department Selection (If no dept_id from QR) -->
-        <div id="dept-selection-section" style="display:none;">
-            <h3>Select a Department:</h3>
-            <div id="dept-cards-container" class="card-grid">
-                <!-- Dynamically populated -->
-            </div>
-        </div>
-
-        <!-- STAGE 2: Category Selection (Join Queue) -->
-        <div id="join-queue-section" style="display:none; text-align: center;">
-            <h2 id="selected-dept-name" style="color: var(--primary-color);"></h2>
-            
-            <!-- Queue Preview before joining -->
-            <div style="background: #f8f9fa; border-radius: 10px; padding: 15px; margin-bottom: 20px; border: 1px solid #ddd;">
-                <h3 style="margin-bottom: 5px;"><i class="fa-solid fa-users"></i> Now Serving</h3>
-                <div id="preview-serving-number" style="font-size: 3em; font-weight: bold; color: var(--primary-color);">--</div>
-                <div id="preview-waiting-count" style="color: #666; font-size: 0.9em; margin-top: 5px;">0 people waiting ahead</div>
-            </div>
-
-            <p>Select your category to join the waitlist:</p>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                <button class="btn" onclick="joinQueue('Q')" style="margin:0;"><i class="fa-solid fa-user"></i><br>Regular Patient</button>
-                <button class="btn" onclick="joinQueue('E')" style="margin:0; background: var(--warning-color); color: #fff;"><i class="fa-solid fa-person-cane"></i><br>Elderly (Priority)</button>
-                <button class="btn" onclick="joinQueue('D')" style="margin:0; background: #2980b9;"><i class="fa-solid fa-wheelchair"></i><br>PWD (Priority)</button>
-                <button class="btn" onclick="joinQueue('P')" style="margin:0; background: #c0392b;"><i class="fa-solid fa-person-pregnant"></i><br>Pregnant (Priority)</button>
-            </div>
-            <button class="btn btn-secondary" onclick="goBackToDepts()" style="margin-top:20px; font-size: 0.9em;">Back</button>
-        </div>
-
-        <!-- STAGE 3: Queue Status -->
-        <div id="queue-status-section" style="display:none; text-align: center;">
-            <div class="queue-status">
-                <h2 style="color: #666; font-size: 1.2em;" id="status-dept-name">Department</h2>
-                <h3>Currently Serving:</h3>
-                <div id="current-serving-number" class="current-number" style="font-size: 3em;">--</div>
-                <p id="your-number-display" class="your-number" style="margin-top: 20px; font-size: 1.5em;">Your Number: <strong>--</strong></p>
-            </div>
-            <button class="btn btn-danger" onclick="leaveQueue()">Leave Queue</button>
-        </div>
-    </div>
-
-    <!-- Floating Chatbot Widget -->
-    <button class="chat-fab" onclick="toggleChat()"><i class="fa-solid fa-comments"></i> Chat</button>
-    <div class="chat-widget" id="chat-widget">
-        <div class="chat-header">
-            <h4><i class="fa-solid fa-robot"></i> Clinic Assistant</h4>
-            <span onclick="toggleChat()" style="cursor:pointer;">&times;</span>
-        </div>
-        <div class="chat-log" id="chat-log">
-            <div class="bot-msg">Hi! I can help answer questions about the clinic or priority lanes.</div>
-        </div>
-        <div class="chat-input-area">
-            <input type="text" id="chat-input" placeholder="Type a message..." onkeypress="if(event.key==='Enter') sendMessage()">
-            <button onclick="sendMessage()">Send</button>
-        </div>
-    </div>
-
-    <!-- Announcement Modal -->
-    <div id="announcement-modal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal()">&times;</span>
-            <h2 style="color: red;"><i class="fa-solid fa-bullhorn"></i> Announcement</h2>
-            <p id="announcement-text">...</p>
-        </div>
-    </div>
-    
-    <!-- Transaction Completed Modal -->
-    <div id="completed-modal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="document.getElementById('completed-modal').style.display='none'">&times;</span>
-            <h2 style="color: var(--success-color);"><i class="fa-solid fa-circle-check"></i> Transaction Completed</h2>
-            <p>Your transaction has been finalized by the staff. Thank you for visiting the Medical Clinic!</p>
-        </div>
-    </div>
-
-    <script src="patient.js"></script>
-    <script>
-        function toggleChat() {
-            const w = document.getElementById('chat-widget');
-            w.style.display = (w.style.display === 'none' || w.style.display === '') ? 'flex' : 'none';
+    <style>
+        body {
+            background-image: url('images/samplebg.jpg');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
         }
-    </script>
+        .landing-card {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+        .btn-large {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            margin: 15px 0;
+            font-size: 1.2em;
+            text-decoration: none;
+            box-sizing: border-box;
+        }
+        .site-title { color: var(--primary-color); margin-bottom: 30px; font-size: 2.2em;}
+    </style>
+</head>
+<body>
+    <div class="landing-card">
+        <h1 class="site-title"><i class="fa-solid fa-hospital-user"></i> Medical Clinic</h1>
+        <p style="font-size: 1.1em; color: #555; margin-bottom: 30px;">Welcome to our automated queue management system.</p>
+        
+        <a href="login.html" class="btn btn-primary btn-large"><i class="fa-solid fa-right-to-bracket"></i> Login</a>
+        <a href="register.html" class="btn btn-secondary btn-large"><i class="fa-solid fa-user-plus"></i> Customer Registration</a>
+    </div>
 </body>
 </html>

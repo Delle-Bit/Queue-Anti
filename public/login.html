@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="style.css">
     <style>
         body {
-            background-image: url('https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?q=80&w=2053&auto=format&fit=crop');
+            background-image: url('../images/samplebg.jpg');
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
@@ -50,7 +50,7 @@
 <body>
 
     <div class="login-card">
-        <h2>Admin Login</h2>
+        <h2>Login</h2>
         <p class="error" id="error-msg"></p>
         <form id="login-form">
             <input type="text" id="username" placeholder="Username" required>
@@ -90,10 +90,15 @@
 
             if (res.ok) {
                 const data = await res.json();
-                localStorage.setItem('adminToken', data.token);
+                localStorage.setItem('adminToken', data.token); // using adminToken for simplicity across the app
                 localStorage.setItem('adminRole', data.role);
+                localStorage.setItem('customerCategory', data.category || 'Regular');
 
-                window.location.href = '/admin.html';
+                if (data.role === 'customer') {
+                    window.location.href = '/customer.html';
+                } else {
+                    window.location.href = '/adminstaff.html';
+                }
             } else {
                 const err = await res.json();
                 errorMsg.innerText = err.error || 'Login failed';

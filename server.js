@@ -8,16 +8,26 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
+const multer = require('multer');
+const http = require('http');
+const socketIo = require('socket.io');
+const aiServices = require('./ai_services.js');
+const queueAutomation = require('./queue_automation.js');
+const path = require('path');
+
 dotenv.config();
 
 const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
+
 const port = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123';
 
 // --- GEMINI AI SETUP ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-1.5-flash',
     // System instructions will now be injected per request dynamically
 });
 
@@ -27,25 +37,56 @@ const chatSessions = new Map();
 app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static('public'));
+app.use('/uploads', express.static('uploads'));
+
+const upload = multer({ dest: 'uploads/' });
+
+// Socket.io connection handling
+io.on('connection', (socket) => {
+    console.log('New client connected', socket.id);
+    socket.on('disconnect', () => {
+        console.log('Client disconnected');
+    });
+});
 
 // --- DB INITIALIZATION & SEED ---
 async function startServer() {
     await initDB();
 
-    // Seed default UltraAdmin 
+    // Seed default Admin 
     const [users] = await pool.query('SELECT COUNT(*) as cnt FROM users WHERE username = ?', ['AdminUltimo']);
     if (users[0].cnt === 0) {
         const hash = await bcrypt.hash('123testPass', 10);
-        await pool.query('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', ['AdminUltimo', hash, 'ultraadmin']);
-        console.log('account');
+        await pool.query('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', ['AdminUltimo', hash, 'admin']);
+        console.log('Account created');
     }
 
-    // Seed default admin account
+    // Seed default staff account (will test frontdesk)
     const [adminUsers] = await pool.query('SELECT COUNT(*) as cnt FROM users WHERE username = ?', ['admin123']);
     if (adminUsers[0].cnt === 0) {
         const hash = await bcrypt.hash('231minda', 10);
-        await pool.query('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', ['admin123', hash, 'admin']);
-        console.log('Admin created: user: admin123, pass: 231minda');
+        await pool.query('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', ['admin123', hash, 'frontdesk']);
+    }
+
+    // Seed Doctor, Secretary, Cashier
+    const rolesToSeed = ['doctor', 'secretary', 'cashier'];
+    for (let role of rolesToSeed) {
+        const [r] = await pool.query('SELECT COUNT(*) as cnt FROM users WHERE username = ?', [role + '123']);
+        if (r[0].cnt === 0) {
+            const hash = await bcrypt.hash('pass123', 10);
+            await pool.query('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', [role + '123', hash, role]);
+        }
+    }
+
+    // Seed test Customers
+    const customerTypes = ['Regular', 'Elderly', 'PWD'];
+    for (let cat of customerTypes) {
+        const uname = 'test_' + cat.toLowerCase();
+        const [c] = await pool.query('SELECT COUNT(*) as cnt FROM users WHERE username = ?', [uname]);
+        if (c[0].cnt === 0) {
+            const hash = await bcrypt.hash('pass123', 10);
+            await pool.query('INSERT INTO users (username, password_hash, role, customer_category) VALUES (?, ?, ?, ?)', [uname, hash, 'customer', cat]);
+        }
     }
 
     // Seed default Cashier department
@@ -55,7 +96,7 @@ async function startServer() {
         console.log('Default Cashier department created');
     }
 
-    app.listen(port, () => {
+    server.listen(port, () => {
         console.log(`Server running at http://localhost:${port}`);
     });
 }
@@ -74,8 +115,28 @@ function authenticateToken(req, res, next) {
     });
 }
 
-function verifyUltraAdmin(req, res, next) {
-    if (req.user.role !== 'ultraadmin') return res.status(403).json({ error: 'UltraAdmin access required' });
+function verifyAdmin(req, res, next) {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+    next();
+}
+
+function verifyFrontDesk(req, res, next) {
+    if (req.user.role !== 'frontdesk' && req.user.role !== 'admin') return res.status(403).json({ error: 'Front Desk access required' });
+    next();
+}
+
+function verifyDoctor(req, res, next) {
+    if (req.user.role !== 'doctor' && req.user.role !== 'admin') return res.status(403).json({ error: 'Doctor access required' });
+    next();
+}
+
+function verifySecretary(req, res, next) {
+    if (req.user.role !== 'secretary' && req.user.role !== 'admin') return res.status(403).json({ error: 'Secretary access required' });
+    next();
+}
+
+function verifyCashier(req, res, next) {
+    if (req.user.role !== 'cashier' && req.user.role !== 'admin') return res.status(403).json({ error: 'Cashier access required' });
     next();
 }
 
@@ -90,10 +151,32 @@ app.post('/api/auth/login', async (req, res) => {
         const match = await bcrypt.compare(password, user.password_hash);
         if (!match) return res.status(401).json({ error: 'Invalid credentials' });
 
-        const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
-        res.json({ success: true, token, role: user.role });
+        const token = jwt.sign({ id: user.id, username: user.username, role: user.role, category: user.customer_category }, JWT_SECRET, { expiresIn: '8h' });
+        res.json({ success: true, token, role: user.role, category: user.customer_category });
     } catch (err) {
         res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.post('/api/auth/register', upload.single('idImage'), async (req, res) => {
+    const { username, password } = req.body;
+    try {
+        if (!req.file) return res.status(400).json({ error: 'ID Image is required for registration' });
+
+        // Use Mock OCR to determine category
+        const ocrData = await aiServices.ocrScan(req.file.path);
+
+        // Mapping ocr ID types to our customer categories
+        let category = 'Regular';
+        if (ocrData.idType === 'Senior' || ocrData.idType === 'Elderly') category = 'Elderly';
+        if (ocrData.idType === 'PWD') category = 'PWD';
+
+        const hash = await bcrypt.hash(password, 10);
+        await pool.query('INSERT INTO users (username, password_hash, role, customer_category) VALUES (?, ?, ?, ?)', [username, hash, 'customer', category]);
+        res.json({ success: true, message: 'Registration successful!', category });
+    } catch (err) {
+        console.error('Registration error', err);
+        res.status(500).json({ error: 'Registration failed or username exists' });
     }
 });
 
@@ -130,20 +213,35 @@ app.post('/api/auth/reset-password', async (req, res) => {
     }
 });
 
-// --- ULTRAADMIN APIs ---
-app.get('/api/users', authenticateToken, verifyUltraAdmin, async (req, res) => {
+// --- STAFF MANAGEMENT APIs ---
+app.get('/api/users', authenticateToken, verifyAdmin, async (req, res) => {
     const [rows] = await pool.query('SELECT id, username, role FROM users');
     res.json(rows);
 });
 
-app.post('/api/users', authenticateToken, verifyUltraAdmin, async (req, res) => {
+app.post('/api/users', authenticateToken, verifyAdmin, async (req, res) => {
     const { username, password, role } = req.body;
     try {
         const hash = await bcrypt.hash(password, 10);
-        await pool.query('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', [username, hash, role || 'admin']);
+        await pool.query('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', [username, hash, role || 'staff']);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: 'Failed to create user (maybe username exists)' });
+    }
+});
+
+app.put('/api/users/:id', authenticateToken, verifyAdmin, async (req, res) => {
+    const { password, role } = req.body;
+    try {
+        if (password) {
+            const hash = await bcrypt.hash(password, 10);
+            await pool.query('UPDATE users SET password_hash = ?, role = ? WHERE id = ?', [hash, role, req.params.id]);
+        } else {
+            await pool.query('UPDATE users SET role = ? WHERE id = ?', [role, req.params.id]);
+        }
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to update user' });
     }
 });
 
@@ -158,7 +256,7 @@ app.get('/api/departments', async (req, res) => {
 });
 
 app.post('/api/departments', authenticateToken, async (req, res) => {
-        const { name, start_time, cutoff_time } = req.body;
+    const { name, start_time, cutoff_time } = req.body;
     try {
         await pool.query('INSERT INTO departments (name, start_time, cutoff_time, is_open) VALUES (?, ?, ?, true)', [name, start_time || null, cutoff_time || null]);
         res.json({ success: true });
@@ -225,10 +323,23 @@ app.get('/api/state', async (req, res) => {
         const [queueRows] = await pool.query(`SELECT id, department_id, number, type, status, timestamp FROM queue WHERE status IN ('waiting', 'serving') ORDER BY timestamp ASC`);
         const [announcements] = await pool.query(`SELECT * FROM announcements ORDER BY timestamp DESC LIMIT 1`);
 
+        const [avgRows] = await pool.query(`
+            SELECT department_id, AVG(TIMESTAMPDIFF(MINUTE, serve_time, complete_time)) as avg_mins 
+            FROM queue_logs 
+            WHERE complete_time IS NOT NULL AND DATE(join_time) = CURDATE()
+            GROUP BY department_id
+        `);
+
+        const deptAvgTimes = {};
+        avgRows.forEach(row => {
+            deptAvgTimes[row.department_id] = parseFloat(row.avg_mins || 0);
+        });
+
         res.json({
             departments: deptRows,
             queue: queueRows,
-            announcement: announcements[0] || null
+            announcement: announcements[0] || null,
+            deptAvgTimes
         });
     } catch (err) {
         console.error('[API/STATE] Critical error fetching data from MySQL:', err);
@@ -298,27 +409,19 @@ app.post('/api/queue/leave', async (req, res) => {
 app.post('/api/admin/next', authenticateToken, async (req, res) => {
     const { department_id } = req.body;
     try {
-        const [queueRows] = await pool.query(`SELECT * FROM queue WHERE department_id = ? AND status = 'waiting' ORDER BY timestamp ASC`, [department_id]);
+        const nextPatient = await queueAutomation.getNextPatient(department_id);
 
-        if (queueRows.length === 0) return res.json({ success: false, message: 'Queue is empty for this department' });
-
-        const priorities = queueRows.filter(p => ['P', 'D', 'E'].includes(p.type));
-        const regulars = queueRows.filter(p => p.type === 'Q');
-
-        let nextPatient = priorities.length > 0 ? priorities[0] : regulars[0];
-
-        // Ensure previous patient in this dept that was serving is marked as completed? 
-        // No, we will make 'Complete Transaction' explicit as requested.
-        // But the prompt says "When staff finishes a transaction... add complete button".
-        // So we just set this one to serving. We allow multiple 'serving' if multiple staffs, but let's just mark it.
+        if (!nextPatient) return res.json({ success: false, message: 'Queue is empty for this department' });
 
         await pool.query(`UPDATE queue SET status = 'serving' WHERE id = ?`, [nextPatient.id]);
 
         // Update log
         await pool.query(`UPDATE queue_logs SET serve_time = NOW() WHERE ticket_number = ? AND complete_time IS NULL ORDER BY join_time DESC LIMIT 1`, [nextPatient.number]);
 
+        io.emit('queueUpdate', { department_id, nextPatient: nextPatient.number });
         res.json({ success: true, next: nextPatient.number });
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: 'Failed to call next patient' });
     }
 });
@@ -346,14 +449,14 @@ app.post('/api/admin/transfer', authenticateToken, async (req, res) => {
     try {
         const [rows] = await pool.query(`SELECT type FROM queue WHERE id = ?`, [ticket_id]);
         if (rows.length === 0) return res.status(404).json({ error: 'Ticket not found' });
-        
+
         const type = rows[0].type;
-        
+
         // Generate new sequential number for the new department
         const [seqRows] = await pool.query(`SELECT COUNT(*) as cnt FROM queue_logs WHERE department_id = ? AND type = ? AND DATE(join_time) = CURDATE()`, [new_department_id, type]);
         const seqNumber = seqRows[0].cnt + 1;
         const newQueueNumber = `${type}-${String(seqNumber).padStart(3, '0')}`;
-        
+
         // Update department and assign the NEW number so sequences stay correct!
         await pool.query(`UPDATE queue SET department_id = ?, number = ?, status = 'waiting', timestamp = NOW() WHERE id = ?`, [new_department_id, newQueueNumber, ticket_id]);
 
@@ -455,6 +558,68 @@ app.post('/api/qrcode', async (req, res) => {
     }
 });
 
+// --- APPOINTMENTS APIs ---
+app.get('/api/appointments', authenticateToken, async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT a.*, d.name as department_name, u.username as customer_name FROM appointments a JOIN departments d ON a.department_id = d.id JOIN users u ON a.customer_id = u.id ORDER BY a.timestamp DESC');
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch appointments' });
+    }
+});
+
+app.post('/api/appointments', authenticateToken, async (req, res) => {
+    const { department_id, phone_number } = req.body;
+    try {
+        // Create an appointment for the logged-in customer
+        await pool.query('INSERT INTO appointments (customer_id, department_id, phone_number, status) VALUES (?, ?, ?, ?)', [req.user.id, department_id, phone_number, 'scheduled']);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to create appointment' });
+    }
+});
+
+app.post('/api/appointments/checkin', authenticateToken, async (req, res) => {
+    const { appointment_id } = req.body;
+    try {
+        // 1. Get the appointment details
+        const [rows] = await pool.query('SELECT * FROM appointments WHERE id = ? AND status = "scheduled"', [appointment_id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Appointment not found or already checked-in' });
+
+        const appointment = rows[0];
+        const department_id = appointment.department_id;
+
+        // 2. Map category from token mapping (regular -> Q, Elderly -> E, PWD -> D)
+        let type = 'Q';
+        if (req.user.category === 'Elderly') type = 'E';
+        if (req.user.category === 'PWD') type = 'D';
+
+        // 3. Generate normal queue number
+        const [seqRows] = await pool.query(`SELECT COUNT(*) as cnt FROM queue_logs WHERE department_id = ? AND type = ? AND DATE(join_time) = CURDATE()`, [department_id, type]);
+        const seqNumber = seqRows[0].cnt + 1;
+        const newQueueNumber = `${type}-${String(seqNumber).padStart(3, '0')}`;
+
+        // 4. Update appointment status
+        await pool.query('UPDATE appointments SET status = "checked-in" WHERE id = ?', [appointment_id]);
+
+        // 5. Add to actual queue using customer user ID as deviceId 
+        // Note: The original system used a randomly generated deviceId. We will use `cust_` + req.user.id
+        const deviceId = 'cust_' + req.user.id;
+
+        // Remove old queue data for this customer
+        await pool.query(`DELETE FROM queue WHERE id = ? AND status NOT IN ('waiting', 'serving')`, [deviceId]);
+
+        // Insert into queue
+        await pool.query(`INSERT INTO queue (id, department_id, number, type, status) VALUES (?, ?, ?, ?, 'waiting')`, [deviceId, department_id, newQueueNumber, type]);
+        await pool.query(`INSERT INTO queue_logs (department_id, ticket_number, type, join_time) VALUES (?, ?, ?, NOW())`, [department_id, newQueueNumber, type]);
+
+        res.json({ success: true, number: newQueueNumber });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to check-in appointment' });
+    }
+});
+
 app.post('/api/chat', async (req, res) => {
     const { message, sessionId } = req.body;
     if (!message) return res.status(400).json({ error: 'No message provided' });
@@ -477,7 +642,7 @@ app.post('/api/chat', async (req, res) => {
                     sysPrompt += `\n- ${f.service_name}: ₱${f.price} (${f.description || 'No description'})`;
                 });
             }
-        } catch(e) {}
+        } catch (e) { }
 
         const currentModel = genAI.getGenerativeModel({
             model: 'gemini-2.5-flash',
@@ -500,6 +665,44 @@ app.post('/api/chat', async (req, res) => {
     } catch (err) {
         console.error('Gemini API error:', err.message);
         res.status(500).json({ error: 'Sorry, I am currently facing technical issues. Please approach the desk.' });
+    }
+});
+
+// --- SETTINGS (CUSTOMIZATION) APIs ---
+app.get('/api/settings', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM settings WHERE id = 1');
+        res.json(rows[0] || {});
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+app.post('/api/settings', authenticateToken, verifyAdmin, upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'background', maxCount: 1 }]), async (req, res) => {
+    try {
+        const { site_name, theme } = req.body;
+        let logo_path = req.files['logo'] ? '/uploads/' + req.files['logo'][0].filename : undefined;
+        let background_path = req.files['background'] ? '/uploads/' + req.files['background'][0].filename : undefined;
+
+        let query = 'UPDATE settings SET site_name = ?, theme = ?';
+        let params = [site_name, theme];
+
+        if (logo_path !== undefined) { query += ', logo_path = ?'; params.push(logo_path); }
+        if (background_path !== undefined) { query += ', background_path = ?'; params.push(background_path); }
+        query += ' WHERE id = 1';
+
+        await pool.query(query, params);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+
+// --- OCR MOCK API ---
+app.post('/api/ocr', upload.single('idImage'), async (req, res) => {
+    try {
+        // Mock processing using ai_services
+        const ocrData = await aiServices.ocrScan(req.file ? req.file.path : null);
+        res.json(ocrData);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed OCR Scan' });
     }
 });
 

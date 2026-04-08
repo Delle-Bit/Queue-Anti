@@ -1,25 +1,13 @@
-const token = localStorage.getItem('adminToken');
-if (!token) {
-    window.location.href = '/login.html';
+function generateDeviceId() {
+    let id = localStorage.getItem('deviceId');
+    if (!id) {
+        id = 'device_' + Math.random().toString(36).substr(2, 9);
+        localStorage.setItem('deviceId', id);
+    }
+    return id;
 }
 
-const customerCategory = localStorage.getItem('customerCategory') || 'Regular';
-
-// Map 'Regular' -> 'Q', 'Elderly' -> 'E', 'PWD' -> 'D'
-function getQueueLetter() {
-    if (customerCategory === 'Elderly') return 'E';
-    if (customerCategory === 'PWD') return 'D';
-    return 'Q';
-}
-
-function getUserIdFromToken() {
-    try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        return payload.id;
-    } catch(e) { return null; }
-}
-
-const deviceId = 'cust_' + getUserIdFromToken();
+const deviceId = generateDeviceId();
 let selectedDepartmentId = null;
 let currentQueueStatus = null; // waiting, serving, completed
 let chatSessionId = localStorage.getItem('chatSessionId');
@@ -27,7 +15,6 @@ let chatSessionId = localStorage.getItem('chatSessionId');
 // --- INITIAL LOAD & ROUTING ---
 async function init() {
     await fetchSettings();
-    document.getElementById('user-category-display').innerText = customerCategory;
     
     // Connect socket for live queue updates
     const socket = io();
@@ -36,13 +23,13 @@ async function init() {
             pollState(); // refresh immediately
         }
     });
-
+    // Check URL parameters for QR scans
     const urlParams = new URLSearchParams(window.location.search);
     const qrDeptId = urlParams.get('dept');
     
     if (qrDeptId) {
         selectedDepartmentId = qrDeptId;
-        pollState(); 
+        pollState(); // Poll state to check if we are in queue, otherwise show join options
     } else {
         pollState();
     }
@@ -61,66 +48,95 @@ async function startPolling() {
 async function pollState() {
     try {
         const res = await fetch('/api/state');
-        if (!res.ok) throw new Error(`Server returned ${res.status}: ${res.statusText}`);
+        
+        // 1. Check if the response was successful
+        if (!res.ok) {
+            throw new Error(`Server returned ${res.status}: ${res.statusText}`);
+        }
+        
         const data = await res.json();
         
+        // If data is valid, reset backoff
         consecutiveErrors = 0;
         currentPollInterval = 3000;
 
+        // Ensure safety checks (Optional chaining and fallback arrays)
         const queues = data?.queue || [];
         const departments = data?.departments || [];
         const deptAvgTimes = data?.deptAvgTimes || {};
         
+        // 1. Handle overall announcements
         if (data.announcement) {
+            // Initialize last id on first fetch to prevent old messages from popping up
             if (window.lastAnnouncementId === undefined) {
                 window.lastAnnouncementId = data.announcement.id;
             } else if (data.announcement.id !== window.lastAnnouncementId) {
+                // New announcement detected!
                 window.lastAnnouncementId = data.announcement.id;
                 document.getElementById('announcement-text').innerText = data.announcement.message;
                 document.getElementById('announcement-modal').style.display = 'block';
             }
         }
 
+        // 2. Determine our queue state safely
         const myQueues = queues.filter(q => q.id === deviceId);
         
+        // Check if we were active but now aren't (meaning completed, cancelled, or transferred)
         if (currentQueueStatus !== null && myQueues.length === 0) {
            if (currentQueueStatus === 'serving' || currentQueueStatus === 'waiting') {
                showCompleted();
            }
-           currentQueueStatus = null;
+           resetQueueStateLocal();
         }
 
         if (myQueues.length > 0) {
+            // We have an active queue ticket!
             const ticket = myQueues[0];
-            selectedDepartmentId = ticket.department_id; 
+            selectedDepartmentId = ticket.department_id; // Set dept forcefully 
             currentQueueStatus = ticket.status; 
             
+            // Find department name
             const dept = departments.find(d => d.id == ticket.department_id);
             document.getElementById('status-dept-name').innerText = dept ? dept.name : '';
             
+            // Find who is serving in this department
             const serving = queues.find(q => q.department_id == ticket.department_id && q.status === 'serving');
             document.getElementById('current-serving-number').innerText = serving ? serving.number : '--';
 
+            // Calculate estimated wait time
             const deptQueue = queues.filter(q => q.department_id == ticket.department_id && q.status === 'waiting');
             const myIndex = deptQueue.findIndex(q => q.id === deviceId);
-            const avgTime = deptAvgTimes[ticket.department_id] || 5; 
+            const avgTime = deptAvgTimes[ticket.department_id] || 5; // default 5 mins
             const estWaitMins = myIndex >= 0 ? Math.ceil((myIndex + 1) * avgTime) : 0;
             
             showUIState('checking-queue', { ticketNumber: ticket.number, estWaitMins });
 
         } else {
+            // Not in queue. 
+            // If we have selected a dept, show join categories. 
+            // If we haven't selected a dept, show department cards.
             if (selectedDepartmentId) {
+                // Verify department is open
                 const dept = departments.find(d => d.id == selectedDepartmentId);
                 if (dept) {
                     if(!dept.is_open) {
                         document.getElementById('offline-message').innerText = `${dept.name} is Closed.`;
                         document.getElementById('offline-message').style.display = 'block';
-                        showUIState('select-department', { departments: departments });
                     } else {
                         document.getElementById('offline-message').style.display = 'none';
-                        // Auto-join the queue using the user's registered category!
-                        joinQueue(getQueueLetter());
-                        selectedDepartmentId = null; // reset to prevent looping if error
+                        
+                        const serving = queues.find(q => q.department_id == selectedDepartmentId && q.status === 'serving');
+                        const waitingCount = queues.filter(q => q.department_id == selectedDepartmentId && q.status === 'waiting').length;
+
+                        const avgTime = deptAvgTimes[selectedDepartmentId] || 5;
+                        const estWaitMins = Math.ceil((waitingCount + 1) * avgTime);
+
+                        showUIState('select-category', { 
+                            deptName: dept.name, 
+                            servingNum: serving ? serving.number : '--', 
+                            waitingCount,
+                            estWaitMins
+                        });
                     }
                 }
             } else {
@@ -130,24 +146,27 @@ async function pollState() {
 
     } catch (err) {
         console.error("Poll Error:", err.message);
+        
+        // 3. Exponential Backoff implementation
         consecutiveErrors++;
+        // Max limit of 30 seconds backoff
         currentPollInterval = Math.min(30000, 3000 * Math.pow(2, consecutiveErrors));
+        console.log(`Retrying in ${currentPollInterval / 1000} seconds...`);
     }
 }
 
 // --- UI STATE MANAGEMENT ---
 function showUIState(state, context) {
     const sDept = document.getElementById('dept-selection-section');
+    const sCat = document.getElementById('join-queue-section');
     const sQue = document.getElementById('queue-status-section');
-    const sTop = document.getElementById('top-controls');
     
-    if (sDept) sDept.style.display = 'none';
-    if (sQue) sQue.style.display = 'none';
-    if (sTop) sTop.style.display = 'none';
+    sDept.style.display = 'none';
+    sCat.style.display = 'none';
+    sQue.style.display = 'none';
 
     if (state === 'select-department') {
-        if(sDept) sDept.style.display = 'block';
-        if(sTop) sTop.style.display = 'flex';
+        sDept.style.display = 'block';
         let html = '';
         if (context.departments.length === 0) {
             html = '<div style="grid-column: 1/-1; text-align: center; color: var(--secondary-color);"><br>No departments have been set up yet.</div>';
@@ -160,12 +179,18 @@ function showUIState(state, context) {
                          </div>`;
             });
         }
-        if(document.getElementById('dept-cards-container')) {
-            document.getElementById('dept-cards-container').innerHTML = html;
-        }
+        document.getElementById('dept-cards-container').innerHTML = html;
+    }
+    else if (state === 'select-category') {
+        sCat.style.display = 'block';
+        document.getElementById('selected-dept-name').innerText = context.deptName;
+        document.getElementById('preview-serving-number').innerText = context.servingNum;
+        document.getElementById('preview-waiting-count').innerText = `${context.waitingCount} people waiting ahead`;
+        const estText = context.estWaitMins > 0 ? `~${context.estWaitMins} mins` : '--';
+        document.getElementById('preview-est-time').innerText = `Estimated Wait: ${estText}`;
     }
     else if (state === 'checking-queue') {
-        if(sQue) sQue.style.display = 'block';
+        sQue.style.display = 'block';
         document.getElementById('your-number-display').innerHTML = `Your Number: <strong style="color:var(--primary-color);">${context.ticketNumber}</strong>`;
         const estText = context.estWaitMins > 0 ? `~${context.estWaitMins} mins` : '--';
         document.getElementById('status-est-time').innerText = `Estimated Wait: ${estText}`;
@@ -174,91 +199,45 @@ function showUIState(state, context) {
 
 function selectDepartment(deptId, isOpen) {
     if (!isOpen) { alert('This department is currently closed.'); return; }
-    // Ask for confirmation
-    if (confirm("Are you sure you want to directly join this department's queue?")) {
-        selectedDepartmentId = deptId;
-        pollState(); 
-    }
+    selectedDepartmentId = deptId;
+    pollState(); // re-eval
 }
-
-// --- CHECKIN MODAL ---
-async function showScanModal() {
-    document.getElementById('scan-modal').style.display = 'block';
-    const list = document.getElementById('mock-appointments-list');
-    list.innerHTML = 'Loading...';
-    try {
-        const res = await fetch('/api/appointments', { headers: { 'Authorization': 'Bearer ' + token } });
-        const appts = await res.json();
-        
-        // Filter to only ours that are scheduled
-        const myId = getUserIdFromToken();
-        const mine = appts.filter(a => a.customer_id === myId && a.status === 'scheduled');
-        
-        if (mine.length === 0) {
-            list.innerHTML = '<span style="color:#666;">No scheduled appointments found for today. Chat with our assistant to set one!</span>';
-            return;
-        }
-
-        let html = '';
-        mine.forEach(a => {
-            html += `<div style="padding: 10px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items:center;">
-                <div>
-                    <strong>${a.department_name}</strong><br>
-                    <small>Phone: ${a.phone_number}</small>
-                </div>
-                <button class="btn btn-primary" onclick="checkinAppt(${a.id})" style="margin:0; padding:5px 10px;">Check In</button>
-            </div>`;
-        });
-        list.innerHTML = html;
-    } catch(err) {
-        list.innerHTML = '<span style="color:red;">Failed to loading your appointments</span>';
-    }
-}
-
-async function checkinAppt(id) {
-    if (!confirm('Proceed to scan QR and check in for this appointment?')) return;
-    try {
-        const res = await fetch('/api/appointments/checkin', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-            body: JSON.stringify({ appointment_id: id })
-        });
-        const data = await res.json();
-        if (res.ok) {
-            document.getElementById('scan-modal').style.display = 'none';
-            alert(`Checked in successfully! You are placed in the live queue.`);
-            pollState();
-        } else alert(data.error);
-    } catch (err) { alert('Error checking in.');}
+function goBackToDepts() {
+    selectedDepartmentId = null;
+    pollState();
 }
 
 // --- ACTION METHODS ---
 async function joinQueue(type) {
     const res = await fetch('/api/queue/join', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deviceId, type, department_id: selectedDepartmentId })
     });
     
     const data = await res.json();
     if (res.ok) {
-        pollState(); 
+        pollState(); // Force instant refresh
     } else {
-        alert(data.error || 'Failed to join queue');
+        alert(data.error);
     }
 }
 
 async function leaveQueue() {
     const res = await fetch('/api/queue/leave', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deviceId })
     });
     if(res.ok) {
-        currentQueueStatus = null;
+        resetQueueStateLocal();
         selectedDepartmentId = null; 
         pollState();
     }
+}
+
+function resetQueueStateLocal() {
+    currentQueueStatus = null;
 }
 
 function showCompleted() {
@@ -302,6 +281,72 @@ async function fetchSettings() {
     } catch(err) { console.error('Failed to load settings', err); }
 }
 
+// --- OCR MOCKUP LOGIC ---
+let pendingJoinType = null;
+
+function startOCRmock(type) {
+    pendingJoinType = type;
+    document.getElementById('ocr-file-input').value = '';
+    document.getElementById('ocr-status').style.display = 'none';
+    document.getElementById('ocr-modal').style.display = 'block';
+}
+
+async function submitOCR() {
+    const fileInput = document.getElementById('ocr-file-input');
+    const statusText = document.getElementById('ocr-status');
+    
+    if (fileInput.files.length === 0) {
+        statusText.style.display = 'block';
+        statusText.style.color = 'red';
+        statusText.innerText = "Please select an image or skip.";
+        return;
+    }
+    
+    statusText.style.display = 'block';
+    statusText.style.color = 'var(--primary-color)';
+    statusText.innerText = "Processing ID Document...";
+    
+    // Simulate API delay
+    await new Promise(res => setTimeout(res, 1500));
+    
+    // Trigger /api/ocr using FormData
+    const formData = new FormData();
+    formData.append('idImage', fileInput.files[0]);
+    
+    try {
+        const res = await fetch('/api/ocr', { method: 'POST', body: formData });
+        const data = await res.json();
+        
+        // Use the returned OCR category if it suggests one (e.g., E for elderly)
+        // But for mock flexibility, we just respect the user's initial choice unless they picked Q and OCR proved they are E.
+        let finalType = pendingJoinType;
+        if (pendingJoinType === 'Q' && data.category) {
+            finalType = data.category; // Upgrades to 'E' if elderly
+        }
+        
+        statusText.style.color = 'green';
+        statusText.innerText = `Verified! Name: ${data.name}, Type: ${data.idType}. Joining queue...`;
+        
+        setTimeout(() => {
+            document.getElementById('ocr-modal').style.display = 'none';
+            joinQueue(finalType);
+        }, 1500);
+
+    } catch (e) {
+        statusText.style.color = 'red';
+        statusText.innerText = "OCR Failed. Using fallback.";
+        setTimeout(() => {
+            document.getElementById('ocr-modal').style.display = 'none';
+            joinQueue(pendingJoinType);
+        }, 1500);
+    }
+}
+
+function skipOCR() {
+    document.getElementById('ocr-modal').style.display = 'none';
+    joinQueue(pendingJoinType);
+}
+
 // --- CHATBOT WIDGET ---
 async function sendMessage() {
     const input = document.getElementById('chat-input');
@@ -312,42 +357,8 @@ async function sendMessage() {
     chatLog.innerHTML += `<div class="user-msg">${message}</div>`;
     input.value = '';
     
+    // scroll to bottom
     chatLog.scrollTop = chatLog.scrollHeight;
-    
-    // Simplistic mock parse algorithm for 'appointment'
-    const lc = message.toLowerCase();
-    if (lc.includes('appointment')) {
-        const phoneMatch = message.match(/\b09\d{9}\b/);
-        const hasDeptMatch = ['cardiology', 'cashier'].some(d => lc.includes(d)); // mock matching logic
-
-        if (phoneMatch) {
-            // Attempt auto booking
-            try {
-                const resDepts = await fetch('/api/state');
-                const data = await resDepts.json();
-                const depts = data.departments;
-                const foundDept = depts.find(d => lc.includes(d.name.toLowerCase()));
-                
-                if (foundDept) {
-                    const apptRes = await fetch('/api/appointments', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                        body: JSON.stringify({ department_id: foundDept.id, phone_number: phoneMatch[0] })
-                    });
-                    
-                    if (apptRes.ok) {
-                        chatLog.innerHTML += `<div class="bot-msg">Got it! I have scheduled your appointment for the ${foundDept.name} department with phone number ${phoneMatch[0]}. Remember to click "Scan QR" when you arrive at the clinic!</div>`;
-                        chatLog.scrollTop = chatLog.scrollHeight;
-                        return;
-                    }
-                }
-            } catch (e) {}
-        }
-        
-        chatLog.innerHTML += `<div class="bot-msg">To book an appointment, please tell me the department and provide your 11-digit phone number (e.g., "I want an appt for Cardiology, my number is 09123456789").</div>`;
-        chatLog.scrollTop = chatLog.scrollHeight;
-        return;
-    }
 
     try {
         const res = await fetch('/api/chat', {
@@ -373,4 +384,5 @@ async function sendMessage() {
     chatLog.scrollTop = chatLog.scrollHeight;
 }
 
+// Remove duplicate init call since startPolling calls pollState
 startPolling();

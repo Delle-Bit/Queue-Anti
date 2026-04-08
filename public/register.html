@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Clinic Queue</title>
+    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            background-image: url('../images/samplebg.jpg');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .login-card {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 450px;
+            text-align: center;
+        }
+        .login-card input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        .error { color: red; margin-bottom: 10px; display: none; }
+        .success { color: green; margin-bottom: 10px; display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="login-card">
+        <h2>Customer Registration</h2>
+        <p>Please register to access queueing and appointments.</p>
+        <p class="error" id="error-msg"></p>
+        <p class="success" id="success-msg"></p>
+        
+        <div style="background: #eef5fc; padding: 10px; margin-bottom: 15px; border-left: 3px solid var(--primary-color); font-size: 0.9em; text-align: left;">
+            <strong>Instructions:</strong>
+            <ul style="margin: 5px 0; padding-left: 20px;">
+                <li>If you are elderly, upload your <strong>Senior Citizen Card</strong>.</li>
+                <li>If you are regular, upload <strong>any valid ID</strong>.</li>
+                <li>If you are PWD, upload your <strong>PWD ID</strong>.</li>
+            </ul>
+        </div>
+
+        <form id="register-form">
+            <input type="text" id="username" placeholder="Choose a Username" required>
+            <input type="password" id="password" placeholder="Choose a Password" required>
+            
+            <div style="text-align: left; margin: 10px 0;">
+                <label style="font-weight: bold; font-size: 0.9em;">Upload ID Photo:</label>
+                <input type="file" id="id-photo" accept="image/*" required>
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="reg-btn" style="width: 100%;">Upload & Register</button>
+        </form>
+        <p style="margin-top: 15px;">
+            <a href="/login.html" style="color: var(--primary-color);">Already have an account? Login here</a>
+        </p>
+    </div>
+
+    <script>
+        document.getElementById('register-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('reg-btn');
+            const user = document.getElementById('username').value;
+            const pass = document.getElementById('password').value;
+            const fileInput = document.getElementById('id-photo');
+            const errorMsg = document.getElementById('error-msg');
+            const successMsg = document.getElementById('success-msg');
+
+            errorMsg.style.display = 'none';
+            successMsg.style.display = 'none';
+
+            if (fileInput.files.length === 0) {
+                errorMsg.innerText = "ID Image is required.";
+                errorMsg.style.display = 'block';
+                return;
+            }
+
+            btn.innerText = "Processing AI ID Scan...";
+            btn.disabled = true;
+
+            const formData = new FormData();
+            formData.append('username', user);
+            formData.append('password', pass);
+            formData.append('idImage', fileInput.files[0]);
+
+            try {
+                const res = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+
+                if (res.ok) {
+                    successMsg.innerText = `Registration complete! AI verified category: ${data.category}. Redirecting to login...`;
+                    successMsg.style.display = 'block';
+                    setTimeout(() => window.location.href = '/login.html', 3000);
+                } else {
+                    errorMsg.innerText = data.error || 'Registration failed';
+                    errorMsg.style.display = 'block';
+                    btn.innerText = "Upload & Register";
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                errorMsg.innerText = 'Connection error';
+                errorMsg.style.display = 'block';
+                btn.innerText = "Upload & Register";
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

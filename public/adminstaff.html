@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Clinic Admin Dashboard</title>
+    <title>Clinic Management Dashboard</title>
     <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -52,11 +52,13 @@
 <body>
     <!-- Top bar: nav tabs + logout in one row -->
     <div class="admin-topbar">
-        <div class="nav-tabs">
-            <button class="active" onclick="switchTab('queue')"><i class="fa-solid fa-list-ul"></i> Queue Management</button>
-            <button onclick="switchTab('departments')"><i class="fa-solid fa-building"></i> Departments &amp; Pricing</button>
-            <button onclick="switchTab('analytics')"><i class="fa-solid fa-chart-line"></i> Analytics Dashboard</button>
-            <button id="tab-ultra-btn" onclick="switchTab('ultra')" style="display:none; background: var(--danger-color); color: white;"><i class="fa-solid fa-shield-halved"></i> User Management</button>
+        <div class="nav-tabs" id="main-nav-tabs">
+            <button id="tab-queue-btn" onclick="switchTab('queue')" style="display:none;"><i class="fa-solid fa-list-ul"></i> Queue Management</button>
+            <button id="tab-departments-btn" onclick="switchTab('departments')" style="display:none;"><i class="fa-solid fa-building"></i> Departments &amp; Pricing</button>
+            <button id="tab-analytics-btn" onclick="switchTab('analytics')" style="display:none;"><i class="fa-solid fa-chart-line"></i> Analytics Dashboard</button>
+            <button id="tab-appointments-btn" onclick="switchTab('appointments')" style="display:none;"><i class="fa-solid fa-calendar-check"></i> Appointments & QR</button>
+            <button id="tab-admin-btn" onclick="switchTab('adminstaff')" style="display:none; background: var(--danger-color); color: white;"><i class="fa-solid fa-shield-halved"></i> Staff Management</button>
+            <button id="tab-settings-btn" onclick="switchTab('settings')" style="display:none; background: var(--primary-color); color: white;"><i class="fa-solid fa-cogs"></i> System Settings</button>
         </div>
         <div class="topbar-logout">
             <button class="btn btn-danger" onclick="logout()" style="font-size: 1.05em;"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
@@ -138,19 +140,79 @@
             </div>
         </div>
         
-        <!-- ULTRAADMIN USER TAB -->
-        <div id="tab-ultra" class="tab-content admin-card">
-            <h2><i class="fa-solid fa-shield-halved"></i> Manage Administrators</h2>
+        <!-- APPOINTMENTS TAB -->
+        <div id="tab-appointments" class="tab-content admin-card">
+            <h2><i class="fa-solid fa-calendar-check"></i> Appointments & QR Codes</h2>
+            <p>Manage booked appointments and generate QR codes for patients to scan.</p>
+            
+            <div style="margin-bottom: 20px;">
+                <button class="btn btn-primary" onclick="showQrModal()"><i class="fa-solid fa-qrcode"></i> Generate Check-In QR</button>
+            </div>
+
+            <h3>Scheduled Appointments</h3>
+            <table>
+                <thead><tr><th>ID</th><th>Customer</th><th>Department</th><th>Phone</th><th>Status</th><th>Time Booked</th></tr></thead>
+                <tbody id="appointments-list"></tbody>
+            </table>
+        </div>
+        
+        <!-- ADMIN STAFF MANAGEMENT TAB -->
+        <div id="tab-adminstaff" class="tab-content admin-card">
+            <h2><i class="fa-solid fa-shield-halved"></i> Manage Staff Accounts</h2>
             <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 15px;">
-                <h4>Add New Administrator</h4>
+                <h4>Add New Staff Member</h4>
                 <input type="text" id="new-user" placeholder="Username" style="padding: 10px;">
                 <input type="password" id="new-pass" placeholder="Initial Password" style="padding: 10px;">
-                <button class="btn btn-success" onclick="createUser()"><i class="fa-solid fa-user-plus"></i> Create Admin</button>
+                <select id="new-role" style="padding: 10px;">
+                    <option value="customer">Customer</option>
+                    <option value="cashier">Cashier</option>
+                    <option value="frontdesk">Front Desk</option>
+                    <option value="doctor">Doctor</option>
+                    <option value="secretary">Secretary</option>
+                    <option value="admin">Admin</option>
+                </select>
+                <button class="btn btn-success" onclick="createStaff()"><i class="fa-solid fa-user-plus"></i> Create Account</button>
             </div>
             <table>
-                <thead><tr><th>ID</th><th>Username</th><th>Role</th></tr></thead>
+                <thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Actions</th></tr></thead>
                 <tbody id="users-table"></tbody>
             </table>
+        </div>
+
+        <!-- SETTINGS TAB -->
+        <div id="tab-settings" class="tab-content admin-card">
+            <h2><i class="fa-solid fa-cogs"></i> System Settings</h2>
+            
+            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                <!-- Website Customization -->
+                <div style="flex: 1; min-width: 300px; background: #f8f9fa; padding: 15px; border-radius: 5px;">
+                    <h4>Website Customization</h4>
+                    <form id="settings-form" onsubmit="saveSettings(event)">
+                        <div class="form-group">
+                            <label>Site Name</label>
+                            <input type="text" id="set-site-name" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Theme</label>
+                            <select id="set-theme">
+                                <option value="light">Light</option>
+                                <option value="dark">Dark</option>
+                                <option value="custom">Custom</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Logo Upload (Image)</label>
+                            <input type="file" id="set-logo" accept="image/*">
+                        </div>
+                        <div class="form-group">
+                            <label>Background Upload (Image)</label>
+                            <input type="file" id="set-bg" accept="image/*">
+                        </div>
+                        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save Settings</button>
+                    </form>
+                </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -208,6 +270,29 @@
             <h2 id="qr-dept-name">Department QR Scanner</h2>
             <img id="qr-image" src="" alt="QR" style="width: 100%; max-width: 300px; display: block; margin: 0 auto;">
             <p><a href="#" id="qr-download" target="_blank" download="QRCode.png" class="btn btn-primary">Download QR</a></p>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div id="user-modal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <span class="close" onclick="closeModal('user-modal')">&times;</span>
+            <h2>Edit User</h2>
+            <input type="hidden" id="edit-user-id" value="">
+            <div class="form-group"><label>Username</label><input type="text" id="edit-username" disabled></div>
+            <div class="form-group"><label>New Password (leave blank to keep current)</label><input type="password" id="edit-password"></div>
+            <div class="form-group">
+                <label>Role</label>
+                <select id="edit-role">
+                    <option value="customer">Customer</option>
+                    <option value="cashier">Cashier</option>
+                    <option value="frontdesk">Front Desk</option>
+                    <option value="doctor">Doctor</option>
+                    <option value="secretary">Secretary</option>
+                    <option value="admin">Admin</option>
+                </select>
+            </div>
+            <button class="btn btn-success" onclick="updateUser()">Save Changes</button>
         </div>
     </div>
 

@@ -4,25 +4,53 @@ if (!token) window.location.href = '/login.html';
 
 const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-if (role === 'ultraadmin') {
-    document.getElementById('tab-ultra-btn').style.display = 'inline-block';
-    fetchUsers(); // Initial fetch
+if (role === 'admin') {
+    document.getElementById('tab-admin-btn').style.display = 'inline-block';
+    document.getElementById('tab-settings-btn').style.display = 'inline-block';
+    fetchStaff();
 }
+
+if (['doctor', 'cashier'].includes(role)) {
+    document.getElementById('tab-queue-btn').style.display = 'inline-block';
+}
+
+if (['frontdesk', 'secretary'].includes(role)) {
+    document.getElementById('tab-departments-btn').style.display = 'inline-block';
+}
+
+if (role === 'frontdesk') {
+    document.getElementById('tab-analytics-btn').style.display = 'inline-block';
+}
+
+if (['secretary'].includes(role)) {
+    document.getElementById('tab-appointments-btn').style.display = 'inline-block';
+}
+
+// Set initial active tab based on role
+setTimeout(() => {
+    if (['doctor', 'cashier'].includes(role)) switchTab('queue');
+    else if (role === 'frontdesk') switchTab('departments');
+    else if (role === 'secretary') switchTab('appointments');
+    else if (role === 'admin') switchTab('adminstaff');
+}, 100);
 
 let currentDeptId = null;
 let currentTicketId = null; // Internal db ID
 let currentServingRaw = null;
 
-// Tab UI
 function switchTab(tabId) {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     document.querySelectorAll('.nav-tabs button').forEach(b => b.classList.remove('active'));
-    document.getElementById(`tab-${tabId}`).classList.add('active');
-    event.target.classList.add('active');
+    const tabContent = document.getElementById(`tab-${tabId}`);
+    if (tabContent) tabContent.classList.add('active');
+    const tabBtn = document.getElementById(`tab-${tabId}-btn`);
+    if (tabBtn) tabBtn.classList.add('active');
 
     if (tabId === 'departments') { loadDepartments(); loadFaqs(); }
     if (tabId === 'analytics') loadDashboard();
-    if (tabId === 'ultra') fetchUsers();
+    if (tabId === 'adminstaff') fetchStaff();
+    if (tabId === 'settings') { loadSettings(); }
+    if (tabId === 'appointments') loadAppointments();
 }
 
 function logout() {
@@ -300,40 +328,135 @@ async function loadDashboard() {
     document.getElementById('logs-list').innerHTML = html;
 }
 
-// --- ULTRAADMIN USER MANAGEMENT ---
-async function fetchUsers() {
-    if (role !== 'ultraadmin') return;
+// --- ADMIN STAFF MANAGEMENT ---
+async function fetchStaff() {
+    if (role !== 'admin') return;
     const res = await fetch('/api/users', { headers });
     if (res.ok) {
         const users = await res.json();
         let html = '';
         users.forEach(u => {
-            html += `<tr><td>${u.id}</td><td>${u.username}</td><td><span class="badge" style="background:${u.role==='ultraadmin'?'#dc3545':'#17a2b8'};color:white;padding:3px 8px;border-radius:12px;font-size:12px;">${u.role}</span></td></tr>`;
+            html += `<tr>
+                <td>${u.id}</td>
+                <td>${u.username}</td>
+                <td><span class="badge" style="background:${u.role==='admin'?'#dc3545':'#17a2b8'};color:white;padding:3px 8px;border-radius:12px;font-size:12px;">${u.role}</span></td>
+                <td>
+                    <button class="btn btn-sm btn-secondary" onclick="editUser(${u.id}, '${u.username}', '${u.role}')" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                </td>
+            </tr>`;
         });
         document.getElementById('users-table').innerHTML = html;
     }
 }
 
-async function createUser() {
-    if (role !== 'ultraadmin') return;
+async function createStaff() {
+    if (role !== 'admin') return;
     const username = document.getElementById('new-user').value;
     const password = document.getElementById('new-pass').value;
+    const accountRole = document.getElementById('new-role').value;
     if(!username || !password) return alert('Fill fields');
 
     const res = await fetch('/api/users', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ username, password, role: 'admin' })
+        body: JSON.stringify({ username, password, role: accountRole })
     });
 
     if(res.ok) {
-        alert('User created!');
+        alert('Account created!');
         document.getElementById('new-user').value = '';
         document.getElementById('new-pass').value = '';
-        fetchUsers();
+        fetchStaff();
     } else {
         alert('Failed. Username might exist.');
     }
+}
+
+function editUser(id, username, currentRole) {
+    document.getElementById('edit-user-id').value = id;
+    document.getElementById('edit-username').value = username;
+    document.getElementById('edit-password').value = '';
+    document.getElementById('edit-role').value = currentRole;
+    document.getElementById('user-modal').style.display = 'block';
+}
+
+async function updateUser() {
+    const id = document.getElementById('edit-user-id').value;
+    const password = document.getElementById('edit-password').value;
+    const roleToSet = document.getElementById('edit-role').value;
+
+    const res = await fetch(`/api/users/${id}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ password, role: roleToSet })
+    });
+
+    if (res.ok) {
+        alert('User updated successfully');
+        closeModal('user-modal');
+        fetchStaff();
+    } else {
+        alert('Failed to update user');
+    }
+}
+
+// --- SETTINGS & AI PANEL ---
+async function loadSettings() {
+    const res = await fetch('/api/settings');
+    if(res.ok){
+        const data = await res.json();
+        document.getElementById('set-site-name').value = data.site_name || '';
+        document.getElementById('set-theme').value = data.theme || 'light';
+    }
+}
+
+async function saveSettings(e) {
+    e.preventDefault();
+    const formData = new FormData();
+    formData.append('site_name', document.getElementById('set-site-name').value);
+    formData.append('theme', document.getElementById('set-theme').value);
+    
+    const logoFile = document.getElementById('set-logo').files[0];
+    const bgFile = document.getElementById('set-bg').files[0];
+    if(logoFile) formData.append('logo', logoFile);
+    if(bgFile) formData.append('background', bgFile);
+
+    const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }, // no content-type for form-data
+        body: formData
+    });
+    if(res.ok) {
+        alert('Settings saved!');
+    } else {
+        alert('Failed to save settings.');
+    }
+}
+
+
+// --- APPOINTMENTS & QR ---
+async function loadAppointments() {
+    const res = await fetch('/api/appointments', { headers });
+    if(res.ok) {
+        const appts = await res.json();
+        let html = '';
+        appts.forEach(a => {
+            html += `<tr>
+                <td>${a.id}</td>
+                <td>${a.customer_name}</td>
+                <td>${a.department_name}</td>
+                <td>${a.phone_number}</td>
+                <td><span class="badge" style="background:${a.status === 'scheduled' ? '#ffc107' : (a.status === 'checked-in' ? '#28a745' : '#dc3545')};color:#fff;padding:4px 8px;border-radius:12px;">${a.status}</span></td>
+                <td>${new Date(a.timestamp).toLocaleString()}</td>
+            </tr>`;
+        });
+        document.getElementById('appointments-list').innerHTML = html;
+    }
+}
+
+function showQrModal() {
+    // Show QR modal for general Check-In page (or department-specific)
+    showQR('', 'General Check-In');
 }
 
 // Init

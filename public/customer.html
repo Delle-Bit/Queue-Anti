@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Dashboard - Clinic Queue</title>
+    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="patient-body">
+
+    <div class="container container-glass border-glow" id="main-container">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2 style="margin: 0;">
+                <img id="site-logo" src="" style="max-height: 40px; display: none; vertical-align: middle; margin-right: 10px;">
+                <span id="site-name-display"><i class="fa-solid fa-hospital-user"></i> Medical Clinic</span>
+            </h2>
+            <button class="btn btn-danger" onclick="logout()" style="padding: 8px 15px; margin: 0;"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+        </div>
+
+        <div id="offline-message" style="display:none; color: red; text-align: center;">Clinic operations are currently suspended.</div>
+
+        <div id="top-controls" style="display: flex; gap: 10px; margin-bottom: 20px;">
+            <button class="btn btn-primary" onclick="showScanModal()" style="flex: 1; margin: 0;"><i class="fa-solid fa-qrcode"></i> Scan QR to Check-in</button>
+        </div>
+
+        <!-- STAGE 1: Department Selection -->
+        <div id="dept-selection-section" style="display:none;">
+            <h3>Select a Department to Queue:</h3>
+            <p style="color: #666; font-size: 0.9em; margin-top: -10px;">Your registration category (<span id="user-category-display" style="font-weight: bold; color: var(--primary-color);"></span>) will automatically be applied.</p>
+            <div id="dept-cards-container" class="card-grid">
+                <!-- Dynamically populated -->
+            </div>
+        </div>
+
+        <!-- STAGE 3: Queue Status -->
+        <div id="queue-status-section" style="display:none; text-align: center;">
+            <div class="queue-status">
+                <h2 style="color: #666; font-size: 1.2em;" id="status-dept-name">Department</h2>
+                <h3>Currently Serving:</h3>
+                <div id="current-serving-number" class="current-number" style="font-size: 3em;">--</div>
+                <p id="your-number-display" class="your-number" style="margin-top: 20px; font-size: 1.5em;">Your Number: <strong>--</strong></p>
+                <div id="status-est-time" style="color: var(--primary-color); font-size: 1em; margin-top: 10px; font-weight: bold;">Estimated Wait: --</div>
+            </div>
+            <button class="btn btn-danger" onclick="leaveQueue()">Leave Queue</button>
+        </div>
+    </div>
+
+    <!-- Floating Chatbot Widget -->
+    <button class="chat-fab" onclick="toggleChat()"><i class="fa-solid fa-comments"></i> Chat / Appt</button>
+    <div class="chat-widget" id="chat-widget">
+        <div class="chat-header">
+            <h4><i class="fa-solid fa-robot"></i> Clinic Assistant</h4>
+            <span onclick="toggleChat()" style="cursor:pointer;">&times;</span>
+        </div>
+        <div class="chat-log" id="chat-log">
+            <div class="bot-msg">Hi! I can answer clinic questions or help you set an appointment. E.g., "I want an appointment for Cardiology, my phone is 09123456789".</div>
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="Type a message..." onkeypress="if(event.key==='Enter') sendMessage()">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <!-- QR Scan Modal -->
+    <div id="scan-modal" class="modal">
+        <div class="modal-content" style="max-width: 400px; text-align: center;">
+            <span class="close" onclick="document.getElementById('scan-modal').style.display='none'">&times;</span>
+            <h2><i class="fa-solid fa-qrcode"></i> Scan to Check-In</h2>
+            <p>If you have an appointment, select the camera to scan the clinic's QR code to formally check-in and join the queue.</p>
+            <div style="background: #eee; padding: 40px; margin-bottom: 20px; border-radius: 10px;">
+                <i class="fa-solid fa-camera" style="font-size: 3em; color: #999;"></i>
+                <p style="margin-top: 10px;">Camera Viewport (Mocked)</p>
+            </div>
+            <p><strong>Available Appointments to Check-In:</strong></p>
+            <div id="mock-appointments-list" style="margin-bottom: 15px; text-align: left; background: #fafafa; padding: 10px; border-radius: 5px; max-height: 150px; overflow-y: auto;">
+                Loading...
+            </div>
+        </div>
+    </div>
+
+    <!-- Announcement Modal -->
+    <div id="announcement-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="document.getElementById('announcement-modal').style.display='none'">&times;</span>
+            <h2 style="color: red;"><i class="fa-solid fa-bullhorn"></i> Announcement</h2>
+            <p id="announcement-text">...</p>
+        </div>
+    </div>
+    
+    <!-- Transaction Completed Modal -->
+    <div id="completed-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="document.getElementById('completed-modal').style.display='none'">&times;</span>
+            <h2 style="color: var(--success-color);"><i class="fa-solid fa-circle-check"></i> Transaction Completed</h2>
+            <p>Your transaction has been finalized by the staff. Thank you for visiting the Medical Clinic!</p>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="patient.js"></script>
+    <script>
+        function toggleChat() {
+            const w = document.getElementById('chat-widget');
+            w.style.display = (w.style.display === 'none' || w.style.display === '') ? 'flex' : 'none';
+        }
+        function logout() {
+            localStorage.clear();
+            window.location.href = '/login.html';
+        }
+    </script>
+</body>
+</html>
