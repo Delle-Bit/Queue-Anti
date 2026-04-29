@@ -406,7 +406,32 @@ async function loadSettings() {
     if(res.ok){
         const data = await res.json();
         document.getElementById('set-site-name').value = data.site_name || '';
-        document.getElementById('set-theme').value = data.theme || 'light';
+
+        // Show current background file names as hints
+        const pageFields = [
+            { key: 'bg_login',    id: 'prev-bg-login' },
+            { key: 'bg_register', id: 'prev-bg-register' },
+            { key: 'bg_index',    id: 'prev-bg-index' },
+            { key: 'bg_customer', id: 'prev-bg-customer' },
+            { key: 'bg_admin',    id: 'prev-bg-admin' }
+        ];
+        pageFields.forEach(({ key, id }) => {
+            const el = document.getElementById(id);
+            if (el && data[key]) {
+                const filename = data[key].split('/').pop();
+                el.textContent = `Current: ${filename}`;
+            } else if (el) {
+                el.textContent = 'No image set';
+            }
+        });
+
+        // Apply bg_admin to admin page body
+        if (data.bg_admin) {
+            document.body.style.backgroundImage = `url('${data.bg_admin}')`;
+            document.body.style.backgroundSize = 'cover';
+            document.body.style.backgroundPosition = 'center';
+            document.body.style.backgroundAttachment = 'fixed';
+        }
     }
 }
 
@@ -414,20 +439,32 @@ async function saveSettings(e) {
     e.preventDefault();
     const formData = new FormData();
     formData.append('site_name', document.getElementById('set-site-name').value);
-    formData.append('theme', document.getElementById('set-theme').value);
-    
+    formData.append('theme', 'light'); // theme is now customer-controlled; keep DB default as light
+
     const logoFile = document.getElementById('set-logo').files[0];
-    const bgFile = document.getElementById('set-bg').files[0];
-    if(logoFile) formData.append('logo', logoFile);
-    if(bgFile) formData.append('background', bgFile);
+    if (logoFile) formData.append('logo', logoFile);
+
+    // Append per-page background files
+    const bgFields = [
+        { inputId: 'set-bg-login',     fieldName: 'bg_login' },
+        { inputId: 'set-bg-register',  fieldName: 'bg_register' },
+        { inputId: 'set-bg-index',     fieldName: 'bg_index' },
+        { inputId: 'set-bg-customer',  fieldName: 'bg_customer' },
+        { inputId: 'set-bg-admin',     fieldName: 'bg_admin' }
+    ];
+    bgFields.forEach(({ inputId, fieldName }) => {
+        const file = document.getElementById(inputId)?.files[0];
+        if (file) formData.append(fieldName, file);
+    });
 
     const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }, // no content-type for form-data
         body: formData
     });
-    if(res.ok) {
-        alert('Settings saved!');
+    if (res.ok) {
+        alert('Settings saved! Backgrounds will update immediately on each page.');
+        loadSettings(); // Refresh previews
     } else {
         alert('Failed to save settings.');
     }
@@ -461,3 +498,19 @@ function showQrModal() {
 
 // Init
 fetchStateInitial();
+
+// Apply admin page background on load
+(async function applyAdminBackground() {
+    try {
+        const res = await fetch('/api/settings');
+        if (res.ok) {
+            const data = await res.json();
+            if (data.bg_admin) {
+                document.body.style.backgroundImage = `url('${data.bg_admin}')`;
+                document.body.style.backgroundSize = 'cover';
+                document.body.style.backgroundPosition = 'center';
+                document.body.style.backgroundAttachment = 'fixed';
+            }
+        }
+    } catch (e) { /* keep default */ }
+})();

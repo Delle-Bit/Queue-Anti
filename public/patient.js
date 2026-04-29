@@ -3,6 +3,39 @@ if (!token) {
     window.location.href = '/login.html';
 }
 
+// ── THEME (Light / Dark) ────────────────────────────────────────
+// Apply immediately to avoid flash of wrong theme
+(function initTheme() {
+    const saved = localStorage.getItem('customerTheme') || 'light';
+    document.documentElement.setAttribute('data-theme', saved);
+    updateThemeButton(saved);
+})();
+
+function updateThemeButton(theme) {
+    const icon = document.getElementById('theme-icon');
+    const label = document.getElementById('theme-label');
+    if (!icon || !label) return;
+    if (theme === 'dark') {
+        icon.textContent = '\u2600\ufe0f';
+        label.textContent = 'Light Mode';
+    } else {
+        icon.textContent = '\ud83c\udf19';
+        label.textContent = 'Dark Mode';
+    }
+}
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('customerTheme', theme);
+    updateThemeButton(theme);
+}
+
+function toggleTheme() {
+    const current = localStorage.getItem('customerTheme') || 'light';
+    applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+// ────────────────────────────────────────────────────────────────
+
 const customerCategory = localStorage.getItem('customerCategory') || 'Regular';
 
 // Map 'Regular' -> 'Q', 'Elderly' -> 'E', 'PWD' -> 'D'
@@ -284,19 +317,12 @@ async function fetchSettings() {
                 logo.src = data.logo_path;
                 logo.style.display = 'inline-block';
             }
-            if (data.background_path) {
-                document.body.style.backgroundImage = `url('${data.background_path}')`;
+            // Use per-page customer background (fall back to legacy background_path)
+            const bgPath = data.bg_customer || data.background_path;
+            if (bgPath) {
+                document.body.style.backgroundImage = `url('${bgPath}')`;
                 document.body.style.backgroundSize = 'cover';
                 document.body.style.backgroundPosition = 'center';
-            }
-            if (data.theme === 'dark') {
-                document.body.style.background = '#222';
-                document.body.style.color = '#eee';
-                const mainContainer = document.getElementById('main-container');
-                if(mainContainer) {
-                    mainContainer.style.background = 'rgba(0, 0, 0, 0.8)';
-                    mainContainer.style.color = '#eee';
-                }
             }
         }
     } catch(err) { console.error('Failed to load settings', err); }

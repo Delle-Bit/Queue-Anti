@@ -11,12 +11,17 @@
 <body class="patient-body">
 
     <div class="container container-glass border-glow" id="main-container">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 10px;">
             <h2 style="margin: 0;">
                 <img id="site-logo" src="" style="max-height: 40px; display: none; vertical-align: middle; margin-right: 10px;">
                 <span id="site-name-display"><i class="fa-solid fa-hospital-user"></i> Medical Clinic</span>
             </h2>
-            <button class="btn btn-danger" onclick="logout()" style="padding: 8px 15px; margin: 0;"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <button class="theme-toggle-btn" id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle Light/Dark Mode">
+                    <span id="theme-icon">🌙</span> <span id="theme-label">Dark Mode</span>
+                </button>
+                <button class="btn btn-danger" onclick="logout()" style="padding: 8px 15px; margin: 0;"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+            </div>
         </div>
 
         <div id="offline-message" style="display:none; color: red; text-align: center;">Clinic operations are currently suspended.</div>

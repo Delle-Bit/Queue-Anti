@@ -14,6 +14,7 @@ const socketIo = require('socket.io');
 const aiServices = require('./ai_services.js');
 const queueAutomation = require('./queue_automation.js');
 const path = require('path');
+const fs = require('fs');
 
 dotenv.config();
 
@@ -632,7 +633,8 @@ app.post('/api/chat', async (req, res) => {
         Priority lanes (Elderly, PWD, Pregnant patients get priority).
         Keep responses short, warm, and professional. Do not diagnose illnesses.
         Always use Philippine Peso (₱) when mentioning prices. Never use dollar signs.
-        If asked something outside your scope, politely redirect to clinic staff.`;
+        If asked something outside your scope, politely redirect to clinic staff.
+        If you were asked who made you it is Wendelle Ortiz and His Freinds.`;
 
         try {
             const [faqs] = await pool.query('SELECT service_name, price, description FROM pricing_faqs');
@@ -676,23 +678,74 @@ app.get('/api/settings', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-app.post('/api/settings', authenticateToken, verifyAdmin, upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'background', maxCount: 1 }]), async (req, res) => {
-    try {
-        const { site_name, theme } = req.body;
-        let logo_path = req.files['logo'] ? '/uploads/' + req.files['logo'][0].filename : undefined;
-        let background_path = req.files['background'] ? '/uploads/' + req.files['background'][0].filename : undefined;
+// Helper: delete old file from uploads if it exists
+function deleteOldUpload(filePath) {
+    if (!filePath) return;
+    // Strip leading slash and resolve to disk path
+    const relative = filePath.startsWith('/') ? filePath.slice(1) : filePath;
+    const fullPath = path.join(__dirname, relative);
+    fs.unlink(fullPath, (err) => {
+        if (err && err.code !== 'ENOENT') {
+            console.warn('[Settings] Could not delete old file:', fullPath, err.message);
+        }
+    });
+}
 
-        let query = 'UPDATE settings SET site_name = ?, theme = ?';
-        let params = [site_name, theme];
+app.post('/api/settings', authenticateToken, verifyAdmin,
+    upload.fields([
+        { name: 'logo', maxCount: 1 },
+        { name: 'background', maxCount: 1 },
+        { name: 'bg_login', maxCount: 1 },
+        { name: 'bg_register', maxCount: 1 },
+        { name: 'bg_index', maxCount: 1 },
+        { name: 'bg_customer', maxCount: 1 },
+        { name: 'bg_admin', maxCount: 1 }
+    ]),
+    async (req, res) => {
+        try {
+            const { site_name, theme } = req.body;
 
-        if (logo_path !== undefined) { query += ', logo_path = ?'; params.push(logo_path); }
-        if (background_path !== undefined) { query += ', background_path = ?'; params.push(background_path); }
-        query += ' WHERE id = 1';
+            // Fetch existing settings to get old paths for deletion
+            const [existing] = await pool.query('SELECT * FROM settings WHERE id = 1');
+            const old = existing[0] || {};
 
-        await pool.query(query, params);
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
-});
+            // Build dynamic update query
+            let query = 'UPDATE settings SET site_name = ?, theme = ?';
+            let params = [site_name, theme];
+
+            // Handle logo
+            if (req.files['logo']) {
+                deleteOldUpload(old.logo_path);
+                query += ', logo_path = ?';
+                params.push('/uploads/' + req.files['logo'][0].filename);
+            }
+
+            // Handle legacy single background
+            if (req.files['background']) {
+                deleteOldUpload(old.background_path);
+                query += ', background_path = ?';
+                params.push('/uploads/' + req.files['background'][0].filename);
+            }
+
+            // Handle per-page backgrounds
+            const pageFields = ['bg_login', 'bg_register', 'bg_index', 'bg_customer', 'bg_admin'];
+            for (const field of pageFields) {
+                if (req.files[field]) {
+                    deleteOldUpload(old[field]);
+                    query += `, ${field} = ?`;
+                    params.push('/uploads/' + req.files[field][0].filename);
+                }
+            }
+
+            query += ' WHERE id = 1';
+            await pool.query(query, params);
+            res.json({ success: true });
+        } catch (err) {
+            console.error('[Settings] Save error:', err);
+            res.status(500).json({ error: 'Failed to save settings' });
+        }
+    }
+);
 
 
 // --- OCR MOCK API ---
@@ -702,7 +755,7 @@ app.post('/api/ocr', upload.single('idImage'), async (req, res) => {
         const ocrData = await aiServices.ocrScan(req.file ? req.file.path : null);
         res.json(ocrData);
     } catch (err) {
-        res.status(500).json({ error: 'Failed OCR Scan' });
+        res.status(500).json({ error: 'Failed to Scan' });
     }
 });
 

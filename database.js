@@ -156,6 +156,16 @@ async function initDB() {
         `);
         await pool.query(`INSERT IGNORE INTO settings (id, site_name, theme) VALUES (1, 'Medical Clinic', 'light')`);
 
+        // Migrate: Add per-page background columns
+        const bgColumns = ['bg_login', 'bg_register', 'bg_index', 'bg_customer', 'bg_admin'];
+        for (const col of bgColumns) {
+            try {
+                await pool.query(`ALTER TABLE settings ADD COLUMN ${col} VARCHAR(255) DEFAULT ''`);
+            } catch (e) {
+                // Column already exists — safe to skip
+            }
+        }
+
         // AI Settings Table 
         await pool.query(`
             CREATE TABLE IF NOT EXISTS ai_settings (

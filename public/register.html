@@ -7,6 +7,7 @@
     <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <link rel="stylesheet" href="style.css">
     <style>
+        * { box-sizing: border-box; }
         body {
             background-image: url('../images/samplebg.jpg');
             background-size: cover;
@@ -14,23 +15,29 @@
             background-repeat: no-repeat;
             display: flex;
             justify-content: center;
-            align-items: center;
-            height: 100vh;
+            align-items: flex-start;
+            min-height: 100vh;
             margin: 0;
+            padding: 20px 0;
+            overflow-y: auto;
+            transition: background-image 0.3s ease;
         }
         .login-card {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 40px;
+            background: rgba(255, 255, 255, 0.97);
+            padding: 36px 40px;
             border-radius: 10px;
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
             width: 100%;
             max-width: 450px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
             text-align: center;
+            margin: auto 0;
         }
-        .login-card input {
+        .login-card input, .login-card select {
             width: 100%;
             padding: 10px;
-            margin: 10px 0;
+            margin: 8px 0;
             border: 1px solid #ccc;
             border-radius: 5px;
             box-sizing: border-box;
@@ -38,6 +45,7 @@
         .error { color: red; margin-bottom: 10px; display: none; }
         .success { color: green; margin-bottom: 10px; display: none; }
     </style>
+
 </head>
 <body>
 
@@ -123,6 +131,19 @@
                 btn.disabled = false;
             }
         });
+
+        // Dynamic background from admin settings
+        (async function applyPageBackground() {
+            try {
+                const res = await fetch('/api/settings');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.bg_register) {
+                        document.body.style.backgroundImage = `url('${data.bg_register}')`;
+                    }
+                }
+            } catch (e) { /* keep fallback */ }
+        })();
     </script>
 </body>
 </html>

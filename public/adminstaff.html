@@ -193,25 +193,45 @@
                             <input type="text" id="set-site-name" required>
                         </div>
                         <div class="form-group">
-                            <label>Theme</label>
-                            <select id="set-theme">
-                                <option value="light">Light</option>
-                                <option value="dark">Dark</option>
-                                <option value="custom">Custom</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
                             <label>Logo Upload (Image)</label>
                             <input type="file" id="set-logo" accept="image/*">
                         </div>
+
+                        <hr style="margin: 15px 0;">
+                        <h4 style="margin: 0 0 12px;"><i class="fa-solid fa-image"></i> Page Backgrounds</h4>
+                        <p style="font-size: 0.85em; color: #666; margin: -8px 0 12px;">Upload an image to set the background for each page. Uploading a new image will automatically delete the old one.</p>
+
                         <div class="form-group">
-                            <label>Background Upload (Image)</label>
-                            <input type="file" id="set-bg" accept="image/*">
+                            <label><i class="fa-solid fa-right-to-bracket"></i> Login Page Background</label>
+                            <input type="file" id="set-bg-login" accept="image/*">
+                            <small id="prev-bg-login" style="color:#888; font-size:0.8em;"></small>
                         </div>
+                        <div class="form-group">
+                            <label><i class="fa-solid fa-user-plus"></i> Register Page Background</label>
+                            <input type="file" id="set-bg-register" accept="image/*">
+                            <small id="prev-bg-register" style="color:#888; font-size:0.8em;"></small>
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fa-solid fa-house"></i> Welcome/Index Page Background</label>
+                            <input type="file" id="set-bg-index" accept="image/*">
+                            <small id="prev-bg-index" style="color:#888; font-size:0.8em;"></small>
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fa-solid fa-hospital-user"></i> Customer Dashboard Background</label>
+                            <input type="file" id="set-bg-customer" accept="image/*">
+                            <small id="prev-bg-customer" style="color:#888; font-size:0.8em;"></small>
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fa-solid fa-shield-halved"></i> Admin Dashboard Background</label>
+                            <input type="file" id="set-bg-admin" accept="image/*">
+                            <small id="prev-bg-admin" style="color:#888; font-size:0.8em;"></small>
+                        </div>
+
                         <button type="submit" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save Settings</button>
                     </form>
                 </div>
                 </div>
+
             </div>
         </div>
     </div>
