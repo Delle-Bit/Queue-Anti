@@ -1,11 +1,10 @@
 const mysql = require('mysql2/promise');
 
-// Standard local configuration
 const pool = mysql.createPool({
     host: 'localhost',
     user: 'root',
     password: '',
-    database: 'clinic_db',
+    database: 'clinic_v2',
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
@@ -13,129 +12,177 @@ const pool = mysql.createPool({
 
 async function initDB() {
     try {
-        // Create DB if it doesn't exist
         const connection = await mysql.createConnection({
-            host: 'localhost',
-            user: 'root',
-            password: ''
+            host: 'localhost', user: 'root', password: ''
         });
-        await connection.query('CREATE DATABASE IF NOT EXISTS clinic_db;');
+        // Drop old database and create fresh
+        await connection.query('DROP DATABASE IF EXISTS clinic_v2;');
+        await connection.query('CREATE DATABASE clinic_v2;');
         await connection.end();
 
-        // Now connect and create tables
-        console.log('Database connected successfully.');
+        console.log('[DB] Database clinic_v2 created.');
 
-        // Departments Table
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS departments (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(100) NOT NULL,
-                start_time TIME DEFAULT NULL,
-                cutoff_time TIME DEFAULT NULL,
-                is_open BOOLEAN DEFAULT true
-            )
-        `);
-
-        // Users Table (Admin / Staff)
+        // Users
         await pool.query(`
             CREATE TABLE IF NOT EXISTS users (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 username VARCHAR(50) UNIQUE NOT NULL,
                 password_hash VARCHAR(255) NOT NULL,
-                role ENUM('admin', 'staff', 'frontdesk', 'doctor', 'secretary', 'customer', 'cashier') NOT NULL DEFAULT 'customer',
-                customer_category ENUM('Regular', 'Elderly', 'PWD') DEFAULT NULL,
+                role ENUM('admintechnical','admin','customer','frontdesk','laboratory','owner') NOT NULL DEFAULT 'customer',
+                customer_category ENUM('Regular','Senior','PWD','Pregnant') DEFAULT NULL,
+                full_name VARCHAR(255) DEFAULT '',
+                email VARCHAR(255) DEFAULT '',
+                birthday DATE DEFAULT NULL,
+                gender ENUM('Male','Female','Other') DEFAULT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 reset_token VARCHAR(255),
                 reset_expiry DATETIME
             )
         `);
 
-        // Migrate old role names if they exist
-        try {
-            // Step 1: Widen the ENUM to include all old and new values
-            await pool.query(`ALTER TABLE users MODIFY COLUMN role ENUM('admin', 'staff', 'frontdesk', 'doctor', 'secretary', 'customer', 'ultraadmin', 'cashier') NOT NULL DEFAULT 'customer'`);
-            // Step 2: Convert old role names to new ones
-            await pool.query(`UPDATE users SET role = 'admin' WHERE role = 'ultraadmin'`);
-            await pool.query(`UPDATE users SET role = 'frontdesk' WHERE role = 'staff'`);
-            // Step 3: Now that old values are gone, shrink the ENUM
-            await pool.query(`ALTER TABLE users MODIFY COLUMN role ENUM('admin', 'frontdesk', 'doctor', 'secretary', 'customer', 'cashier') NOT NULL DEFAULT 'customer'`);
-        } catch(e) {
-            console.log('[DB Migration] Role enum migration skipped or already done:', e.message);
-        }
-        // Ensure customer_category column exists for older tables
-        try {
-            await pool.query(`ALTER TABLE users ADD COLUMN customer_category ENUM('Regular', 'Elderly', 'PWD') DEFAULT NULL`);
-        } catch (err) {
-            // Column already exists — that's fine
-        }
+        // Laboratories
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS laboratories (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(150) NOT NULL,
+                service_type VARCHAR(100) DEFAULT '',
+                assigned_staff_id INT DEFAULT NULL,
+                is_open BOOLEAN DEFAULT true,
+                start_time TIME DEFAULT NULL,
+                cutoff_time TIME DEFAULT NULL,
+                FOREIGN KEY (assigned_staff_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+        `);
 
-        // Appointments Table
+        // Service Packages
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS service_packages (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(150) NOT NULL,
+                description TEXT,
+                price DECIMAL(10,2) NOT NULL DEFAULT 0,
+                est_time_minutes INT DEFAULT 15,
+                is_active BOOLEAN DEFAULT true,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Package-Laboratory mapping (sequence)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS package_laboratories (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                package_id INT NOT NULL,
+                laboratory_id INT NOT NULL,
+                sequence_order INT NOT NULL DEFAULT 1,
+                est_time_minutes INT DEFAULT 10,
+                FOREIGN KEY (package_id) REFERENCES service_packages(id) ON DELETE CASCADE,
+                FOREIGN KEY (laboratory_id) REFERENCES laboratories(id) ON DELETE CASCADE
+            )
+        `);
+
+        // Queue table
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS queue (
+                id VARCHAR(100) PRIMARY KEY,
+                station_type ENUM('frontdesk','laboratory') NOT NULL DEFAULT 'frontdesk',
+                station_id INT DEFAULT NULL,
+                number VARCHAR(30) NOT NULL,
+                type VARCHAR(10) NOT NULL,
+                status ENUM('waiting','serving','completed','cancelled') NOT NULL DEFAULT 'waiting',
+                customer_id INT DEFAULT NULL,
+                sequence_id INT DEFAULT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+        `);
+
+        // Queue Sequences (multi-step tracking)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS queue_sequences (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                customer_id INT NOT NULL,
+                package_id INT NOT NULL,
+                current_step INT DEFAULT 0,
+                total_steps INT NOT NULL DEFAULT 1,
+                status ENUM('in_progress','completed','cancelled') DEFAULT 'in_progress',
+                started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                completed_at DATETIME DEFAULT NULL,
+                FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (package_id) REFERENCES service_packages(id) ON DELETE CASCADE
+            )
+        `);
+
+        // Queue Logs
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS queue_logs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                station_type ENUM('frontdesk','laboratory') DEFAULT 'frontdesk',
+                station_id INT DEFAULT NULL,
+                ticket_number VARCHAR(30),
+                type VARCHAR(10),
+                customer_id INT DEFAULT NULL,
+                sequence_id INT DEFAULT NULL,
+                package_name VARCHAR(150) DEFAULT '',
+                price DECIMAL(10,2) DEFAULT 0,
+                join_time DATETIME,
+                serve_time DATETIME DEFAULT NULL,
+                complete_time DATETIME DEFAULT NULL
+            )
+        `);
+
+        // Appointments
         await pool.query(`
             CREATE TABLE IF NOT EXISTS appointments (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 customer_id INT NOT NULL,
-                department_id INT NOT NULL,
-                doctor_id INT DEFAULT NULL,
-                phone_number VARCHAR(20) NOT NULL,
-                status ENUM('scheduled', 'checked-in', 'cancelled') DEFAULT 'scheduled',
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                package_id INT NOT NULL,
+                appointment_date DATE NOT NULL,
+                appointment_time TIME NOT NULL,
+                status ENUM('scheduled','checked-in','completed','cancelled') DEFAULT 'scheduled',
+                payment_status ENUM('pending','paid','refunded') DEFAULT 'pending',
+                payment_method VARCHAR(50) DEFAULT 'mock',
+                payment_ref VARCHAR(100) DEFAULT '',
+                notes TEXT DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
-                FOREIGN KEY (doctor_id) REFERENCES users(id) ON DELETE SET NULL
+                FOREIGN KEY (package_id) REFERENCES service_packages(id) ON DELETE CASCADE
             )
         `);
 
-        // Create Default UltraAdmin if none exists
-        // (In a real app, use a strong password and bcrypt. We will inject one using bcrypt in server.js or default here if empty, but we'll do it securely in backend logic or here using raw SQL if we must. Since bcrypt is installed, let's just make the schema here and seed in server.js to use bcrypt)
-
-        // Pricing/FAQs Table
+        // Medical Records
         await pool.query(`
-            CREATE TABLE IF NOT EXISTS pricing_faqs (
+            CREATE TABLE IF NOT EXISTS medical_records (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                service_name VARCHAR(150) NOT NULL,
-                price DECIMAL(10, 2) NOT NULL,
-                description TEXT
+                customer_id INT NOT NULL,
+                birthplace VARCHAR(255) DEFAULT '',
+                address VARCHAR(255) DEFAULT '',
+                phone VARCHAR(50) DEFAULT '',
+                status VARCHAR(50) DEFAULT '',
+                occupation VARCHAR(100) DEFAULT '',
+                retiree BOOLEAN DEFAULT false,
+                emergency_contact VARCHAR(255) DEFAULT '',
+                current_health TEXT,
+                past_conditions TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE
             )
         `);
 
-        // Queue Table
+        // Lab Notes
         await pool.query(`
-            CREATE TABLE IF NOT EXISTS queue (
-                id VARCHAR(100) PRIMARY KEY,
-                department_id INT NOT NULL,
-                number VARCHAR(20) NOT NULL,
-                type VARCHAR(10) NOT NULL,
-                status VARCHAR(20) NOT NULL DEFAULT 'waiting', -- waiting, serving, completed, transferred, cancelled
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE
-            )
-        `);
-
-        // Queue Logs (Analytics)
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS queue_logs (
+            CREATE TABLE IF NOT EXISTS lab_notes (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                department_id INT,
-                ticket_number VARCHAR(20),
-                type VARCHAR(10),
-                join_time DATETIME,
-                serve_time DATETIME,
-                complete_time DATETIME,
-                FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL
+                customer_id INT NOT NULL,
+                staff_id INT DEFAULT NULL,
+                note TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (staff_id) REFERENCES users(id) ON DELETE SET NULL
             )
         `);
 
-        // Clinic State (Legacy/Global Annoucements)
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS clinic_state (
-                id INT PRIMARY KEY DEFAULT 1,
-                currentServing VARCHAR(20) DEFAULT '--',
-                isOpen BOOLEAN DEFAULT true
-            )
-        `);
-
-        // Initialize state row if none exists
-        await pool.query(`INSERT IGNORE INTO clinic_state (id, currentServing, isOpen) VALUES (1, '--', true)`);
-
+        // Announcements
         await pool.query(`
             CREATE TABLE IF NOT EXISTS announcements (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -144,64 +191,58 @@ async function initDB() {
             )
         `);
 
-        // Settings Table
+        // Settings
         await pool.query(`
             CREATE TABLE IF NOT EXISTS settings (
                 id INT PRIMARY KEY DEFAULT 1,
                 site_name VARCHAR(255) DEFAULT 'Medical Clinic',
-                logo_path VARCHAR(255) DEFAULT '',
-                background_path VARCHAR(255) DEFAULT '',
-                theme ENUM('light', 'dark', 'custom') DEFAULT 'light'
+                logo_path VARCHAR(255) DEFAULT '/images/examplelogo.svg',
+                theme VARCHAR(20) DEFAULT 'light',
+                navbar_color VARCHAR(50) DEFAULT '#ffffff',
+                background_image VARCHAR(255) DEFAULT ''
             )
         `);
-        await pool.query(`INSERT IGNORE INTO settings (id, site_name, theme) VALUES (1, 'Medical Clinic', 'light')`);
+        await pool.query(`INSERT IGNORE INTO settings (id) VALUES (1)`);
 
-        // Migrate: Add per-page background columns
-        const bgColumns = ['bg_login', 'bg_register', 'bg_index', 'bg_customer', 'bg_admin'];
-        for (const col of bgColumns) {
-            try {
-                await pool.query(`ALTER TABLE settings ADD COLUMN ${col} VARCHAR(255) DEFAULT ''`);
-            } catch (e) {
-                // Column already exists — safe to skip
-            }
-        }
-
-        // AI Settings Table 
+        // Audit Logs
         await pool.query(`
-            CREATE TABLE IF NOT EXISTS ai_settings (
-                id INT PRIMARY KEY DEFAULT 1,
-                chatbot_enabled BOOLEAN DEFAULT true,
-                ocr_enabled BOOLEAN DEFAULT true,
-                anomaly_enabled BOOLEAN DEFAULT true,
-                announcement_enabled BOOLEAN DEFAULT true,
-                cutoff_enabled BOOLEAN DEFAULT true,
-                estimation_enabled BOOLEAN DEFAULT true,
-                performance_enabled BOOLEAN DEFAULT true,
-                feedback_enabled BOOLEAN DEFAULT true,
-                report_enabled BOOLEAN DEFAULT true,
-                prediction_enabled BOOLEAN DEFAULT true
-            )
-        `);
-        await pool.query(`INSERT IGNORE INTO ai_settings (id) VALUES (1)`);
-
-        // AI Logs Table
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS ai_logs (
+            CREATE TABLE IF NOT EXISTS audit_logs (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                feature VARCHAR(50) NOT NULL,
-                input_data TEXT,
-                output_data TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                action VARCHAR(100) NOT NULL,
+                entity_type VARCHAR(50),
+                entity_id INT DEFAULT NULL,
+                details TEXT,
+                performed_by INT DEFAULT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (performed_by) REFERENCES users(id) ON DELETE SET NULL
             )
         `);
 
-        console.log('Tables initialized successfully.');
+        // Staff Sessions (login/logout tracking)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS staff_sessions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                login_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                logout_time DATETIME DEFAULT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
+        // Pricing FAQs (kept for chatbot reference)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS pricing_faqs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                service_name VARCHAR(150) NOT NULL,
+                price DECIMAL(10,2) NOT NULL,
+                description TEXT
+            )
+        `);
+
+        console.log('[DB] All tables created successfully.');
     } catch (err) {
-        console.error('Failed to initialize database. Ensure MySQL is running on localhost:3306 with root / no password.', err.message);
+        console.error('[DB] Failed to initialize:', err.message);
     }
 }
 
-module.exports = {
-    pool,
-    initDB
-};
+module.exports = { pool, initDB };

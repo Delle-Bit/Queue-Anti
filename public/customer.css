@@ -1,0 +1,67 @@
+.packages-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 20px; }
+.pkg-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 24px; cursor: pointer; transition: var(--transition); position: relative; overflow: hidden;
+}
+.pkg-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); border-color: var(--primary-light); }
+.pkg-card-badge { position: absolute; top: 16px; right: 16px; }
+.pkg-card h3 { font-size: 1.1em; font-weight: 700; margin: 0 0 8px; color: var(--text-primary); }
+.pkg-card p { font-size: 0.8em; color: var(--text-secondary); margin: 0 0 16px; line-height: 1.5; }
+.pkg-card-footer { display: flex; align-items: center; justify-content: space-between; }
+.pkg-price { font-size: 1.3em; font-weight: 700; color: var(--primary); }
+.pkg-time { font-size: 0.8em; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; }
+.pkg-labs-list { display: flex; flex-direction: column; gap: 8px; }
+.pkg-lab-item {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    background: var(--bg-input); border-radius: var(--radius-sm);
+}
+.pkg-lab-num { width: 28px; height: 28px; border-radius: 50%; background: var(--primary); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 0.75em; font-weight: 700; flex-shrink: 0; }
+.pkg-lab-info { flex: 1; }
+.pkg-lab-info strong { font-size: 0.85em; }
+.pkg-lab-info small { display: block; font-size: 0.75em; color: var(--text-secondary); }
+
+.time-slots-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.time-slot {
+    padding: 8px;
+    text-align: center;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    background: var(--bg-card);
+    transition: all 0.2s;
+    font-size: 0.85em;
+}
+
+.time-slot:hover:not(.disabled):not(.full):not(.closed) {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.time-slot.selected {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
+.time-slot.disabled, .time-slot.full, .time-slot.closed {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: var(--bg-body);
+}
+
+.time-slot.full {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.time-slot.closed {
+    border-color: var(--warning);
+    color: var(--warning);
+}

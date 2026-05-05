@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Front Desk — Medical Clinic</title>
+    <link rel="icon" href="/images/examplelogo.svg">
+    <link rel="stylesheet" href="shared.css">
+    <link rel="stylesheet" href="frontdesk.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <button class="hamburger"><i class="fa-solid fa-bars"></i></button>
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main-content">
+        <!-- QUEUE -->
+        <div id="section-queue" class="content-section">
+            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-cash-register"></i> Payment Queue</div><div class="page-subtitle">Process customer payments</div></div></div>
+            <div class="grid-2">
+                <div>
+                    <div class="card">
+                        <div class="card-header"><div class="card-title"><i class="fa-solid fa-bell"></i> Now Serving</div></div>
+                        <div class="text-center" style="padding:20px 0;">
+                            <div style="font-size:3em;font-weight:700;color:var(--primary);" id="fd-serving">--</div>
+                            <div class="text-muted mt-sm" id="fd-serving-name"></div>
+                        </div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button class="btn btn-success" style="flex:1" onclick="fdCallNext()"><i class="fa-solid fa-bell"></i> Call Next</button>
+                            <button class="btn btn-primary" style="flex:1" onclick="fdComplete()"><i class="fa-solid fa-check"></i> Complete</button>
+                        </div>
+                    </div>
+                    <div class="card mt-md">
+                        <div class="card-header"><div class="card-title"><i class="fa-solid fa-list"></i> Waiting Queue</div></div>
+                        <div class="table-wrapper"><table><thead><tr><th>Ticket</th><th>Type</th><th>Customer</th><th>Time</th></tr></thead><tbody id="fd-queue-list"></tbody></table></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="stats-grid" style="grid-template-columns:1fr 1fr;">
+                        <div class="stat-card"><div class="stat-icon green"><i class="fa-solid fa-clock"></i></div><div class="stat-info"><div class="stat-label">Avg Time</div><div class="stat-value" id="fd-avg">0m</div></div></div>
+                        <div class="stat-card"><div class="stat-icon blue"><i class="fa-solid fa-bolt"></i></div><div class="stat-info"><div class="stat-label">Per Hour</div><div class="stat-value" id="fd-perhr">0</div></div></div>
+                        <div class="stat-card"><div class="stat-icon orange"><i class="fa-solid fa-trophy"></i></div><div class="stat-info"><div class="stat-label">Fastest</div><div class="stat-value" id="fd-fastest">--</div></div></div>
+                        <div class="stat-card"><div class="stat-icon red"><i class="fa-solid fa-hourglass"></i></div><div class="stat-info"><div class="stat-label">Slowest</div><div class="stat-value" id="fd-slowest">--</div></div></div>
+                    </div>
+                    <div class="card"><div class="card-header"><div class="card-title"><i class="fa-solid fa-chart-pie"></i> Category Distribution</div></div><div id="fd-dist-chart" style="min-height:150px;"></div></div>
+                </div>
+            </div>
+            <div class="card mt-md">
+                <div class="card-header"><div class="card-title"><i class="fa-solid fa-history"></i> Queue History</div>
+                <div class="search-bar" style="width:250px;"><i class="fa-solid fa-search"></i><input type="text" placeholder="Search tickets..." oninput="filterFdLogs(this.value)"></div></div>
+                <div class="table-wrapper" style="max-height:300px;overflow-y:auto;">
+                    <table>
+                        <thead><tr><th>Ticket</th><th>Type</th><th>Package</th><th>Price</th><th>Joined</th><th>Served</th><th>Completed</th></tr></thead>
+                        <tbody id="fd-logs-list"></tbody>
+                        <tfoot id="fd-logs-footer" style="display:none; font-weight:bold; background:var(--bg-input);">
+                            <tr><td colspan="3" style="text-align:right">Total:</td><td id="fd-logs-total-price">₱0.00</td><td colspan="3"></td></tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- SERVICE MANAGEMENT -->
+        <div id="section-services" class="content-section" style="display:none;">
+            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-box-open"></i> Service Management</div></div>
+            <button class="btn btn-primary" onclick="openModal('svc-modal')"><i class="fa-solid fa-plus"></i> Add Package</button></div>
+            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Name</th><th>Price</th><th>Est. Time</th><th>Labs</th><th>Active</th><th>Actions</th></tr></thead><tbody id="svc-list"></tbody></table></div></div>
+        </div>
+
+        <!-- APPOINTMENTS -->
+        <div id="section-appointments" class="content-section" style="display:none;">
+            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-calendar"></i> Appointments</div></div></div>
+            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Customer</th><th>Service</th><th>Date</th><th>Time</th><th>Status</th><th>Payment</th></tr></thead><tbody id="fd-appt-list"></tbody></table></div></div>
+        </div>
+    </main>
+
+    <!-- Add/Edit Service Modal -->
+    <div id="svc-modal" class="modal-overlay">
+        <div class="modal-box" style="max-width:560px;">
+            <div class="modal-header"><div class="modal-title"><i class="fa-solid fa-box-open"></i> <span id="svc-modal-title">Add Service Package</span></div><button class="modal-close" onclick="closeModal('svc-modal')">&times;</button></div>
+            <div class="modal-body">
+                <input type="hidden" id="svc-edit-id">
+                <div class="form-group"><label class="form-label">Package Name</label><input type="text" class="form-input" id="svc-name"></div>
+                <div class="form-group"><label class="form-label">Description</label><input type="text" class="form-input" id="svc-desc"></div>
+                <div class="grid-2"><div class="form-group"><label class="form-label">Price (₱)</label><input type="number" class="form-input" id="svc-price" step="0.01"></div>
+                <div class="form-group"><label class="form-label">Est. Time (min)</label><input type="number" class="form-input" id="svc-time" disabled placeholder="AI Calculated"></div></div>
+                <div class="form-group"><label class="form-label">Laboratory Sequence</label><div id="svc-lab-list"></div>
+                <button class="btn btn-sm btn-outline mt-sm" onclick="addLabToSequence()"><i class="fa-solid fa-plus"></i> Add Lab Step</button></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('svc-modal')">Cancel</button><button class="btn btn-success" onclick="saveService()">Save</button></div>
+        </div>
+    </div>
+
+    <!-- Select Lab Modal -->
+    <div id="select-lab-modal" class="modal-overlay" style="z-index: 10000;">
+        <div class="modal-box" style="max-width:400px;">
+            <div class="modal-header"><div class="modal-title">Select Laboratory</div><button class="modal-close" onclick="closeModal('select-lab-modal')">&times;</button></div>
+            <div class="modal-body">
+                <select id="lab-select-dropdown" class="form-select"></select>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('select-lab-modal')">Cancel</button><button class="btn btn-primary" onclick="confirmAddLab()">Add</button></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="shared.js"></script>
+    <script src="frontdesk.js"></script>
+</body>
+</html>

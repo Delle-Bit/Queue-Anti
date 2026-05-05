@@ -1,47 +1,34 @@
 const { pool } = require('./database.js');
 
 async function calculateScore(patient) {
-    // Formula: score = base + category_weight + waiting_time + appointment_weight
     let base = 10;
     let category_weight = 0;
-    
-    // Priorities based on user specific rules (E = Elderly, P = PWD, Q = Regular)
-    if (patient.type === 'E') category_weight = 50; 
-    if (patient.type === 'P') category_weight = 40;
-    if (patient.type === 'A') category_weight = 30; // Appointment
-    
-    // Waiting time weight (1 point per minute)
+    // S=Senior, D=PWD, P=Pregnant, Q=Regular
+    if (patient.type === 'S') category_weight = 50;
+    else if (patient.type === 'D') category_weight = 45;
+    else if (patient.type === 'P') category_weight = 40;
+
     let waiting_time = 0;
     if (patient.timestamp) {
-        const diffMs = new Date() - new Date(patient.timestamp);
-        waiting_time = Math.floor(diffMs / 60000);
+        waiting_time = Math.floor((new Date() - new Date(patient.timestamp)) / 60000);
     }
-    
-    let appointment_weight = patient.type === 'A' ? 20 : 0;
-    
-    return base + category_weight + waiting_time + appointment_weight;
+    return base + category_weight + waiting_time;
 }
 
-async function getNextPatient(departmentId) {
-    const [queueRows] = await pool.query(
-        `SELECT * FROM queue WHERE department_id = ? AND status = 'waiting' ORDER BY timestamp ASC`, 
-        [departmentId]
-    );
-
+async function getNextFromList(queueRows) {
     if (queueRows.length === 0) return null;
-
-    // Calculate scores for all waiting patients
-    for (let patient of queueRows) {
-        patient.score = await calculateScore(patient);
-    }
-
-    // Sort by highest score first
+    for (let p of queueRows) { p.score = await calculateScore(p); }
     queueRows.sort((a, b) => b.score - a.score);
-    
-    return queueRows[0]; // the one with highest score
+    return queueRows[0];
 }
 
-module.exports = {
-    getNextPatient,
-    calculateScore
-};
+async function getNextPatient(stationType, stationId) {
+    let query = `SELECT * FROM queue WHERE station_type=? AND status='waiting'`;
+    const params = [stationType];
+    if (stationId) { query += ' AND station_id=?'; params.push(stationId); }
+    query += ' ORDER BY timestamp ASC';
+    const [rows] = await pool.query(query, params);
+    return getNextFromList(rows);
+}
+
+module.exports = { calculateScore, getNextPatient, getNextFromList };

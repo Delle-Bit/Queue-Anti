@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laboratory — Medical Clinic</title>
+    <link rel="icon" href="/images/examplelogo.svg">
+    <link rel="stylesheet" href="shared.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <button class="hamburger"><i class="fa-solid fa-bars"></i></button>
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main-content">
+        <div id="section-queue" class="content-section">
+            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-microscope"></i> Laboratory Queue</div><div class="page-subtitle" id="lab-subtitle">Manage your laboratory queue</div></div></div>
+            <div class="grid-2">
+                <div>
+                    <div class="card">
+                        <div class="card-header"><div class="card-title"><i class="fa-solid fa-bell"></i> Now Serving</div></div>
+                        <div class="text-center" style="padding:20px 0;">
+                            <div style="font-size:3em;font-weight:700;color:var(--primary);" id="lab-serving">--</div>
+                            <div class="text-muted mt-sm" id="lab-serving-name"></div>
+                        </div>
+                        <div style="display:flex;gap:8px;">
+                            <button class="btn btn-secondary" style="flex:1" onclick="viewPatient()"><i class="fa-solid fa-notes-medical"></i> Patient File</button>
+                            <button class="btn btn-success" style="flex:1" onclick="labCallNext()"><i class="fa-solid fa-bell"></i> Call Next</button>
+                            <button class="btn btn-primary" style="flex:1" onclick="labComplete()"><i class="fa-solid fa-check"></i> Complete</button>
+                        </div>
+                    </div>
+                    <div class="card mt-md">
+                        <div class="card-header"><div class="card-title"><i class="fa-solid fa-list"></i> Waiting</div></div>
+                        <div class="table-wrapper"><table><thead><tr><th>Ticket</th><th>Category</th><th>Customer</th><th>Time</th></tr></thead><tbody id="lab-queue-list"></tbody></table></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="stats-grid" style="grid-template-columns:1fr 1fr;">
+                        <div class="stat-card"><div class="stat-icon green"><i class="fa-solid fa-clock"></i></div><div class="stat-info"><div class="stat-label">Avg Time</div><div class="stat-value" id="lab-avg">0m</div></div></div>
+                        <div class="stat-card"><div class="stat-icon blue"><i class="fa-solid fa-bolt"></i></div><div class="stat-info"><div class="stat-label">Per Hour</div><div class="stat-value" id="lab-perhr">0</div></div></div>
+                        <div class="stat-card"><div class="stat-icon orange"><i class="fa-solid fa-hourglass-half"></i></div><div class="stat-info"><div class="stat-label">Est. Finish All</div><div class="stat-value" id="lab-finish">0m</div></div></div>
+                        <div class="stat-card"><div class="stat-icon red"><i class="fa-solid fa-users"></i></div><div class="stat-info"><div class="stat-label">Waiting</div><div class="stat-value" id="lab-waiting">0</div></div></div>
+                    </div>
+                    <div class="card"><div class="card-header"><div class="card-title"><i class="fa-solid fa-chart-bar"></i> Distribution</div></div><div id="lab-dist"></div></div>
+                </div>
+            </div>
+            <div class="card mt-md">
+                <div class="card-header"><div class="card-title"><i class="fa-solid fa-history"></i> History</div>
+                <div class="search-bar" style="width:220px;"><i class="fa-solid fa-search"></i><input type="text" placeholder="Search..." oninput="filterLabLogs(this.value)"></div></div>
+                <div class="table-wrapper" style="max-height:300px;overflow-y:auto;"><table><thead><tr><th>Ticket</th><th>Type</th><th>Package</th><th>Joined</th><th>Served</th><th>Done</th></tr></thead><tbody id="lab-logs"></tbody></table></div>
+            </div>
+        </div>
+        <div id="section-appointments" class="content-section" style="display:none;">
+            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-calendar"></i> Appointments</div></div></div>
+            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Patient</th><th>Service</th><th>Date</th><th>Time</th><th>Status</th></tr></thead><tbody id="lab-appt-list"></tbody></table></div></div>
+        </div>
+    </main>
+
+    <!-- Patient View Modal -->
+    <div id="patient-modal" class="modal-overlay">
+        <div class="modal-box" style="max-width:600px;">
+            <div class="modal-header"><div class="modal-title"><i class="fa-solid fa-notes-medical"></i> Patient Medical File</div><button class="modal-close" onclick="closeModal('patient-modal')">&times;</button></div>
+            <div class="modal-body">
+                <input type="hidden" id="patient-user-id">
+                <div class="card mb-sm" style="background:var(--bg-input)">
+                    <h4>Medical Data</h4>
+                    <div id="patient-medical-data" style="margin-top:10px;font-size:0.9em;">Loading...</div>
+                </div>
+                <div class="form-group mt-md">
+                    <label class="form-label">Add Lab Note</label>
+                    <textarea class="form-input" id="patient-lab-note" rows="3" placeholder="Enter findings or observations..."></textarea>
+                </div>
+                <div class="card" style="max-height:200px;overflow-y:auto;background:var(--bg-input);">
+                    <h4>Previous Notes</h4>
+                    <div id="patient-lab-notes-list" style="margin-top:10px;font-size:0.9em;">Loading...</div>
+                </div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('patient-modal')">Close</button><button class="btn btn-primary" onclick="saveLabNote()">Save Note</button></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="shared.js"></script>
+    <script src="laboratory.js"></script>
+</body>
+</html>
