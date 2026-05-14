@@ -68,7 +68,7 @@
         <!-- APPOINTMENTS -->
         <div id="section-appointments" class="content-section" style="display:none;">
             <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-calendar"></i> Appointments</div></div></div>
-            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Customer</th><th>Service</th><th>Date</th><th>Time</th><th>Status</th><th>Payment</th></tr></thead><tbody id="fd-appt-list"></tbody></table></div></div>
+            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Customer</th><th>Service</th><th>Date</th><th>Time</th><th>Status</th><th>Payment</th><th>QR</th></tr></thead><tbody id="fd-appt-list"></tbody></table></div></div>
         </div>
     </main>
 
@@ -97,6 +97,21 @@
                 <select id="lab-select-dropdown" class="form-select"></select>
             </div>
             <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('select-lab-modal')">Cancel</button><button class="btn btn-primary" onclick="confirmAddLab()">Add</button></div>
+        </div>
+    </div>
+
+    <!-- Appointment QR Modal -->
+    <div id="qr-modal" class="modal-overlay">
+        <div class="modal-box" style="max-width:420px;">
+            <div class="modal-header"><div class="modal-title"><i class="fa-solid fa-qrcode"></i> Patient Check-In QR</div><button class="modal-close" onclick="closeModal('qr-modal')">&times;</button></div>
+            <div class="modal-body text-center">
+                <img id="qr-image" alt="Appointment QR code" style="width:280px;max-width:100%;border:1px solid var(--border);border-radius:8px;padding:10px;background:#fff;">
+                <div class="text-sm text-muted mt-sm" id="qr-link"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="printQr()"><i class="fa-solid fa-print"></i> Print</button>
+                <a class="btn btn-primary" id="qr-download" download="appointment-checkin-qr.png"><i class="fa-solid fa-download"></i> Download</a>
+            </div>
         </div>
     </div>
 

@@ -10,14 +10,50 @@ const pool = mysql.createPool({
     queueLimit: 0
 });
 
+const DEFAULT_SERVICES = [
+    { name: 'Hematology (CBC)', price: 450, description: 'Complete blood count screening.', est_time_minutes: 15 },
+    { name: 'Clinical Microscopy', price: 300, description: 'Routine clinical microscopy service.', est_time_minutes: 15 },
+    { name: 'Ultrasound', price: 2800, description: 'Diagnostic ultrasound imaging.', est_time_minutes: 30 },
+    { name: 'X-ray', price: 900, description: 'Diagnostic X-ray imaging.', est_time_minutes: 20 },
+    { name: '2D Echocardiography', price: 6000, description: '2D echocardiography heart imaging.', est_time_minutes: 45 },
+    { name: 'Venous Duplex Scan', price: 4500, description: 'Venous duplex vascular scan.', est_time_minutes: 45 },
+    { name: 'Arterial Duplex Scan', price: 5800, description: 'Arterial duplex vascular scan.', est_time_minutes: 45 },
+    { name: 'Carotid Duplex Scan', price: 6000, description: 'Carotid duplex vascular scan.', est_time_minutes: 45 },
+    { name: 'Holter Monitoring', price: 6500, description: 'Holter cardiac monitoring service.', est_time_minutes: 30 },
+    { name: '24-Hour Ambulatory BP Monitoring', price: 5000, description: '24-hour ambulatory blood pressure monitoring.', est_time_minutes: 30 },
+    { name: 'ECG / FCG', price: 1300, description: 'Electrocardiogram / FCG service.', est_time_minutes: 20 },
+    { name: 'Blood Chemistry', price: 4500, description: 'Blood chemistry laboratory panel.', est_time_minutes: 25 },
+    { name: 'Serology Exams', price: 2500, description: 'Serology laboratory exams.', est_time_minutes: 25 },
+    { name: 'Drug Testing', price: 900, description: 'Drug testing service.', est_time_minutes: 20 },
+    { name: 'HIV Screening', price: 1200, description: 'HIV screening test.', est_time_minutes: 20 },
+    { name: 'Annual Physical Exam', price: 3500, description: 'Annual physical examination package.', est_time_minutes: 45 },
+    { name: 'Pre-Employment Medical', price: 3500, description: 'Pre-employment medical examination package.', est_time_minutes: 45 },
+    { name: 'Rapid Antibody Test', price: 1500, description: 'Rapid antibody testing service.', est_time_minutes: 20 }
+];
+
+async function addColumnIfMissing(table, column, definition) {
+    try {
+        await pool.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    } catch (err) {
+        if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+    }
+}
+
+async function addIndexIfMissing(table, indexName, definition) {
+    try {
+        await pool.query(`ALTER TABLE ${table} ADD INDEX ${indexName} ${definition}`);
+    } catch (err) {
+        if (err.code !== 'ER_DUP_KEYNAME') throw err;
+    }
+}
+
 async function initDB() {
     try {
         const connection = await mysql.createConnection({
             host: 'localhost', user: 'root', password: ''
         });
-        // Drop old database and create fresh
-        await connection.query('DROP DATABASE IF EXISTS clinic_v2;');
-        await connection.query('CREATE DATABASE clinic_v2;');
+
+        await connection.query('CREATE DATABASE IF NOT EXISTS clinic_v2;');
         await connection.end();
 
         console.log('[DB] Database clinic_v2 created.');
@@ -31,12 +67,18 @@ async function initDB() {
                 role ENUM('admintechnical','admin','customer','frontdesk','laboratory','owner') NOT NULL DEFAULT 'customer',
                 customer_category ENUM('Regular','Senior','PWD','Pregnant') DEFAULT NULL,
                 full_name VARCHAR(255) DEFAULT '',
+                surname VARCHAR(100) DEFAULT '',
+                first_name VARCHAR(100) DEFAULT '',
+                middle_name VARCHAR(100) DEFAULT '',
+                no_middle_name BOOLEAN DEFAULT false,
                 email VARCHAR(255) DEFAULT '',
                 birthday DATE DEFAULT NULL,
                 gender ENUM('Male','Female','Other') DEFAULT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 reset_token VARCHAR(255),
-                reset_expiry DATETIME
+                reset_expiry DATETIME,
+                archived BOOLEAN DEFAULT false,
+                archived_at DATETIME DEFAULT NULL
             )
         `);
 
@@ -50,6 +92,8 @@ async function initDB() {
                 is_open BOOLEAN DEFAULT true,
                 start_time TIME DEFAULT NULL,
                 cutoff_time TIME DEFAULT NULL,
+                archived BOOLEAN DEFAULT false,
+                archived_at DATETIME DEFAULT NULL,
                 FOREIGN KEY (assigned_staff_id) REFERENCES users(id) ON DELETE SET NULL
             )
         `);
@@ -63,6 +107,8 @@ async function initDB() {
                 price DECIMAL(10,2) NOT NULL DEFAULT 0,
                 est_time_minutes INT DEFAULT 15,
                 is_active BOOLEAN DEFAULT true,
+                archived BOOLEAN DEFAULT false,
+                archived_at DATETIME DEFAULT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         `);
@@ -75,6 +121,8 @@ async function initDB() {
                 laboratory_id INT NOT NULL,
                 sequence_order INT NOT NULL DEFAULT 1,
                 est_time_minutes INT DEFAULT 10,
+                archived BOOLEAN DEFAULT false,
+                archived_at DATETIME DEFAULT NULL,
                 FOREIGN KEY (package_id) REFERENCES service_packages(id) ON DELETE CASCADE,
                 FOREIGN KEY (laboratory_id) REFERENCES laboratories(id) ON DELETE CASCADE
             )
@@ -92,6 +140,8 @@ async function initDB() {
                 customer_id INT DEFAULT NULL,
                 sequence_id INT DEFAULT NULL,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                archived BOOLEAN DEFAULT false,
+                archived_at DATETIME DEFAULT NULL,
                 FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE SET NULL
             )
         `);
@@ -107,6 +157,8 @@ async function initDB() {
                 status ENUM('in_progress','completed','cancelled') DEFAULT 'in_progress',
                 started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 completed_at DATETIME DEFAULT NULL,
+                archived BOOLEAN DEFAULT false,
+                archived_at DATETIME DEFAULT NULL,
                 FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (package_id) REFERENCES service_packages(id) ON DELETE CASCADE
             )
@@ -126,7 +178,9 @@ async function initDB() {
                 price DECIMAL(10,2) DEFAULT 0,
                 join_time DATETIME,
                 serve_time DATETIME DEFAULT NULL,
-                complete_time DATETIME DEFAULT NULL
+                complete_time DATETIME DEFAULT NULL,
+                archived BOOLEAN DEFAULT false,
+                archived_at DATETIME DEFAULT NULL
             )
         `);
 
@@ -143,6 +197,10 @@ async function initDB() {
                 payment_method VARCHAR(50) DEFAULT 'mock',
                 payment_ref VARCHAR(100) DEFAULT '',
                 notes TEXT DEFAULT '',
+                qr_token VARCHAR(120) DEFAULT NULL,
+                checked_in_at DATETIME DEFAULT NULL,
+                archived BOOLEAN DEFAULT false,
+                archived_at DATETIME DEFAULT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (package_id) REFERENCES service_packages(id) ON DELETE CASCADE
@@ -165,6 +223,8 @@ async function initDB() {
                 past_conditions TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                archived BOOLEAN DEFAULT false,
+                archived_at DATETIME DEFAULT NULL,
                 FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE
             )
         `);
@@ -177,6 +237,8 @@ async function initDB() {
                 staff_id INT DEFAULT NULL,
                 note TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                archived BOOLEAN DEFAULT false,
+                archived_at DATETIME DEFAULT NULL,
                 FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (staff_id) REFERENCES users(id) ON DELETE SET NULL
             )
@@ -239,10 +301,38 @@ async function initDB() {
             )
         `);
 
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS archived_records (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                entity_type VARCHAR(60) NOT NULL,
+                entity_id VARCHAR(100) NOT NULL,
+                snapshot JSON DEFAULT NULL,
+                archived_by INT DEFAULT NULL,
+                archived_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                restored_at DATETIME DEFAULT NULL,
+                permanently_deleted_at DATETIME DEFAULT NULL,
+                INDEX idx_archive_entity (entity_type, entity_id),
+                FOREIGN KEY (archived_by) REFERENCES users(id) ON DELETE SET NULL
+            )
+        `);
+
+        const archiveTables = ['users', 'laboratories', 'service_packages', 'package_laboratories', 'queue', 'queue_sequences', 'queue_logs', 'appointments', 'medical_records', 'lab_notes'];
+        for (const table of archiveTables) {
+            await addColumnIfMissing(table, 'archived', 'BOOLEAN DEFAULT false');
+            await addColumnIfMissing(table, 'archived_at', 'DATETIME DEFAULT NULL');
+        }
+        await addColumnIfMissing('users', 'surname', "VARCHAR(100) DEFAULT ''");
+        await addColumnIfMissing('users', 'first_name', "VARCHAR(100) DEFAULT ''");
+        await addColumnIfMissing('users', 'middle_name', "VARCHAR(100) DEFAULT ''");
+        await addColumnIfMissing('users', 'no_middle_name', 'BOOLEAN DEFAULT false');
+        await addColumnIfMissing('appointments', 'qr_token', 'VARCHAR(120) DEFAULT NULL');
+        await addColumnIfMissing('appointments', 'checked_in_at', 'DATETIME DEFAULT NULL');
+        await addIndexIfMissing('appointments', 'idx_appointments_qr_token', '(qr_token)');
+
         console.log('[DB] All tables created successfully.');
     } catch (err) {
         console.error('[DB] Failed to initialize:', err.message);
     }
 }
 
-module.exports = { pool, initDB };
+module.exports = { pool, initDB, DEFAULT_SERVICES };

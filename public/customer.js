@@ -10,6 +10,9 @@ renderSidebar(navItems, 'dashboard');
 initDefaultSection();
 
 let selectedPackageId = null;
+let medicalFormComplete = false;
+let calendarDate = new Date();
+const APPT_SLOTS = ['08:00', '09:00', '10:00', '11:00', '13:00', '14:00'];
 window.onSectionLoad = {
     dashboard: loadDashboard,
     services: loadServices,
@@ -18,7 +21,7 @@ window.onSectionLoad = {
 
 // ── DASHBOARD ──────────────────────────────────────────────────
 async function loadDashboard() {
-    await checkMandatoryMedicalForm();
+    await checkMandatoryMedicalForm(false);
     try {
         const res = await fetch('/api/queue/my-status', { headers: authHeaders() });
         const data = await res.json();
@@ -78,6 +81,7 @@ async function loadServices() {
 }
 
 async function showPackageDetail(id) {
+    if (!(await ensureMedicalFormComplete(true))) return;
     selectedPackageId = id;
     try {
         const res = await fetch(`/api/packages/${id}/details`);
@@ -100,6 +104,7 @@ async function showPackageDetail(id) {
 
 async function confirmPackage() {
     if (!selectedPackageId) return;
+    if (!(await ensureMedicalFormComplete(true))) return;
     const btn = document.getElementById('pkg-confirm-btn');
     btn.disabled = true;
     try {
@@ -114,6 +119,7 @@ async function confirmPackage() {
             navigateTo('dashboard');
             loadDashboard();
         } else {
+            if (data.medical_form_required) openModal('mandatory-med-modal');
             showToast(data.error || 'Failed to queue', 'error');
         }
     } catch (err) { showToast('Connection error', 'error'); }
@@ -158,10 +164,7 @@ async function loadAppointments() {
         };
         if (sel.options.length > 0) sel.onchange();
 
-        // Set min date to tomorrow
-        const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-        document.getElementById('appt-date').min = tomorrow.toISOString().split('T')[0];
-        document.getElementById('appt-date').value = tomorrow.toISOString().split('T')[0];
+        renderAppointmentCalendar();
     } catch (err) { console.error(err); }
 }
 
@@ -171,6 +174,7 @@ function selectPayMethod(method) {
 }
 
 async function bookAppointment() {
+    if (!(await ensureMedicalFormComplete(true))) return;
     const pkg = document.getElementById('appt-package').value;
     const date = document.getElementById('appt-date').value;
     const time = selectedTimeSlot;
@@ -189,7 +193,11 @@ async function bookAppointment() {
             closeModal('appt-modal');
             showToast('Appointment booked!', 'success');
             loadAppointments();
-        } else { showToast('Failed to book', 'error'); }
+        } else {
+            const data = await res.json();
+            if (data.medical_form_required) openModal('mandatory-med-modal');
+            showToast(data.error || 'Failed to book', 'error');
+        }
     } catch (err) { showToast('Connection error', 'error'); }
     btn.disabled = false;
 }
@@ -208,6 +216,7 @@ let selectedTimeSlot = null;
 function resetApptModal() {
     apptStep = 1;
     selectedTimeSlot = null;
+    document.getElementById('selected-appt-time').textContent = '';
     document.getElementById('appt-step-1').style.display = 'block';
     document.getElementById('appt-step-2').style.display = 'none';
     document.getElementById('appt-prev-btn').style.display = 'none';
@@ -240,28 +249,19 @@ function updateApptModalView() {
 async function fetchTimeSlots() {
     const dateInput = document.getElementById('appt-date').value;
     if (!dateInput) return;
-    const dateObj = new Date(dateInput);
-    const day = dateObj.getDay();
     const grid = document.getElementById('appt-time-slots');
-    
-    if (day === 0) {
-        grid.innerHTML = '<div class="text-warning"><i class="fa-solid fa-triangle-exclamation"></i> Closed on Sundays</div>';
-        selectedTimeSlot = null;
-        return;
-    }
 
     try {
         const res = await fetch(`/api/queue/booked-slots?date=${dateInput}`, { headers: authHeaders() });
         const booked = await res.json();
         
         let slotsHtml = '';
-        for (let h = 8; h <= 15; h++) {
-            const timeStr = `${h.toString().padStart(2, '0')}:00`;
+        APPT_SLOTS.forEach(timeStr => {
             const isBooked = booked.includes(timeStr);
             const className = isBooked ? 'time-slot full' : 'time-slot';
             const clickAttr = isBooked ? '' : `onclick="selectTimeSlot('${timeStr}')"`;
             slotsHtml += `<div class="${className}" id="ts-${timeStr}" ${clickAttr}>${timeStr}</div>`;
-        }
+        });
         grid.innerHTML = slotsHtml;
         selectedTimeSlot = null;
     } catch (err) { grid.innerHTML = '<div class="text-danger">Failed to load slots</div>'; }
@@ -271,37 +271,122 @@ function selectTimeSlot(timeStr) {
     document.querySelectorAll('.time-slot').forEach(el => el.classList.remove('selected'));
     document.getElementById(`ts-${timeStr}`).classList.add('selected');
     selectedTimeSlot = timeStr;
+    document.getElementById('selected-appt-time').textContent = `at ${timeStr}`;
+    closeModal('slot-modal');
+}
+
+function formatLocalDate(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+async function renderAppointmentCalendar() {
+    const cal = document.getElementById('appointment-calendar');
+    if (!cal) return;
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth();
+    document.getElementById('calendar-title').textContent = calendarDate.toLocaleDateString([], { month: 'long', year: 'numeric' });
+    const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+    let bookedDates = new Set();
+    try {
+        const res = await fetch(`/api/queue/booked-dates?month=${monthKey}`, { headers: authHeaders() });
+        const rows = await res.json();
+        bookedDates = new Set((rows || []).map(r => r.date));
+    } catch (err) {}
+    const first = new Date(year, month, 1);
+    const start = new Date(first);
+    start.setDate(first.getDate() - first.getDay());
+    const heads = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => `<div class="calendar-head">${d}</div>`).join('');
+    let days = '';
+    for (let i = 0; i < 42; i++) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        const iso = formatLocalDate(d);
+        const muted = d.getMonth() !== month ? 'muted' : '';
+        const selected = document.getElementById('appt-date').value === iso ? 'selected' : '';
+        const hasBooking = bookedDates.has(iso) ? 'has-booking' : '';
+        days += `<button type="button" class="calendar-day ${muted} ${selected} ${hasBooking}" onclick="selectAppointmentDate('${iso}')">${d.getDate()}</button>`;
+    }
+    cal.innerHTML = heads + days;
+}
+
+function changeCalendarMonth(delta) {
+    calendarDate.setMonth(calendarDate.getMonth() + delta);
+    renderAppointmentCalendar();
+}
+
+function selectAppointmentDate(iso) {
+    document.getElementById('appt-date').value = iso;
+    document.getElementById('selected-appt-date').textContent = iso;
+    selectedTimeSlot = null;
+    document.getElementById('selected-appt-time').textContent = '';
+    renderAppointmentCalendar();
+    document.getElementById('slot-modal-title').textContent = `Slots for ${iso}`;
+    openModal('slot-modal');
+    fetchTimeSlots();
 }
 
 // ── MANDATORY MEDICAL FORM ─────────────────────────────────────────
 
-async function checkMandatoryMedicalForm() {
+async function checkMandatoryMedicalForm(force = false) {
     try {
         const res = await fetch('/api/medical-records/my', { headers: authHeaders() });
         const data = await res.json();
-        
-        if (!data.id) {
+        medicalFormComplete = !!data.id;
+
+        if (!data.id && force) {
             // No medical record found, show modal and prefill user data
             if (data.user) {
-                document.getElementById('req-med-name').value = data.user.full_name || '';
+                const parts = (data.user.full_name || '').trim().split(/\s+/).filter(Boolean);
+                if (parts.length > 1 && !document.getElementById('req-med-first-name').value) {
+                    document.getElementById('req-med-first-name').value = parts.slice(0, -1).join(' ');
+                    document.getElementById('req-med-surname').value = parts[parts.length - 1];
+                }
                 document.getElementById('req-med-gender').value = data.user.gender || '';
                 if (data.user.birthday) {
                     const d = new Date(data.user.birthday);
                     document.getElementById('req-med-birthdate').value = d.toISOString().split('T')[0];
-                    calculateAge();
                 }
             }
-            document.getElementById('mandatory-med-modal').style.display = 'flex';
+            openModal('mandatory-med-modal');
         }
+        return medicalFormComplete;
     } catch (err) { console.error('Failed to check medical form', err); }
+    return false;
 }
 
-function calculateAge() {
-    const dob = document.getElementById('req-med-birthdate').value;
-    if (dob) {
-        const age = new Date().getFullYear() - new Date(dob).getFullYear();
-        document.getElementById('req-med-age').value = age > 0 ? age : 0;
+async function ensureMedicalFormComplete(force = false) {
+    const complete = await checkMandatoryMedicalForm(force);
+    if (!complete && force) showToast('Please complete the medical form before continuing.', 'warning');
+    return complete;
+}
+
+function skipMandatoryMedicalForm() {
+    closeModal('mandatory-med-modal');
+}
+
+function toggleMiddleName() {
+    const noMiddle = document.getElementById('req-med-no-middle').checked;
+    const middle = document.getElementById('req-med-middle-name');
+    middle.disabled = noMiddle;
+    if (noMiddle) middle.value = '';
+    middle.classList.remove('field-error');
+}
+
+function validateRequiredMedicalFields() {
+    document.querySelectorAll('#mandatory-med-modal [data-required="true"], #mandatory-med-modal select[required]').forEach(el => el.classList.remove('field-error'));
+    const required = Array.from(document.querySelectorAll('#mandatory-med-modal [data-required="true"], #mandatory-med-modal select[required]'));
+    const missing = required.filter(el => !el.disabled && !String(el.value || '').trim());
+    missing.forEach(el => el.classList.add('field-error'));
+    if (missing.length > 0) {
+        missing[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        missing[0].focus({ preventScroll: true });
+        showToast('Please complete the highlighted required fields.', 'error');
+        return false;
     }
+    return true;
 }
 
 function toggleSurgeryInput() {
@@ -323,11 +408,14 @@ async function scanReqID() {
         const res = await fetch('/api/auth/ocr', { method: 'POST', body: formData });
         const data = await res.json();
         if (data.success) {
-            if (data.name) document.getElementById('req-med-name').value = data.name;
+            if (data.name) {
+                const parts = data.name.trim().split(/\s+/).filter(Boolean);
+                document.getElementById('req-med-first-name').value = parts.slice(0, -1).join(' ');
+                document.getElementById('req-med-surname').value = parts[parts.length - 1] || '';
+            }
             if (data.gender) document.getElementById('req-med-gender').value = data.gender;
             if (data.birthday) {
                 document.getElementById('req-med-birthdate').value = data.birthday;
-                calculateAge();
             }
             status.textContent = 'Scan complete! Fields auto-filled.';
         } else { status.textContent = 'Scan failed.'; }
@@ -335,11 +423,14 @@ async function scanReqID() {
 }
 
 async function submitMandatoryMedicalForm() {
-    const name = document.getElementById('req-med-name').value;
+    if (!validateRequiredMedicalFields()) return;
+    const surname = document.getElementById('req-med-surname').value.trim();
+    const firstName = document.getElementById('req-med-first-name').value.trim();
+    const noMiddleName = document.getElementById('req-med-no-middle').checked;
+    const middleName = noMiddleName ? '' : document.getElementById('req-med-middle-name').value.trim();
+    const name = [firstName, middleName, surname].filter(Boolean).join(' ');
     const gender = document.getElementById('req-med-gender').value;
     const birthdate = document.getElementById('req-med-birthdate').value;
-    
-    if (!name || !gender || !birthdate) return showToast('Please complete Personal Details', 'error');
 
     const birthplace = document.getElementById('req-med-birthplace').value;
     const status = document.getElementById('req-med-status').value;
@@ -347,8 +438,6 @@ async function submitMandatoryMedicalForm() {
     const phone = document.getElementById('req-med-phone').value;
     const occupation = document.getElementById('req-med-occupation').value;
     const emergency = document.getElementById('req-med-emergency').value;
-
-    if (!birthplace || !status || !address || !phone || !occupation || !emergency) return showToast('Please complete all text fields', 'error');
 
     const retiree = document.getElementById('req-med-retiree').checked ? 1 : 0;
     const allergies = document.getElementById('req-med-allergies').value;
@@ -372,6 +461,10 @@ async function submitMandatoryMedicalForm() {
 
     const payload = {
         full_name: name,
+        surname,
+        first_name: firstName,
+        middle_name: middleName,
+        no_middle_name: noMiddleName,
         gender: gender,
         birthday: birthdate,
         birthplace,
@@ -391,7 +484,8 @@ async function submitMandatoryMedicalForm() {
             body: JSON.stringify(payload)
         });
         if (res.ok) {
-            document.getElementById('mandatory-med-modal').style.display = 'none';
+            closeModal('mandatory-med-modal');
+            medicalFormComplete = true;
             showToast('Medical record saved successfully!', 'success');
         } else {
             showToast('Failed to save medical form', 'error');
@@ -400,10 +494,11 @@ async function submitMandatoryMedicalForm() {
 }
 
 const origOpenModal = window.openModal;
-window.openModal = function(id) {
+window.openModal = async function(id) {
     if (id === 'appt-modal') {
+        if (!(await ensureMedicalFormComplete(true))) return;
         resetApptModal();
-        if (document.getElementById('appt-date').value) fetchTimeSlots();
+        renderAppointmentCalendar();
     }
     if (origOpenModal) origOpenModal(id);
     else document.getElementById(id)?.classList.add('active');

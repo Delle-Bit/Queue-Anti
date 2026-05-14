@@ -194,7 +194,30 @@ async function loadFdAppointments() {
         <td>${a.full_name||a.username}</td><td>${a.package_name}</td><td>${a.appointment_date}</td>
         <td>${a.appointment_time}</td><td><span class="badge ${a.status==='scheduled'?'badge-warning':'badge-success'}">${a.status}</span></td>
         <td><span class="badge ${a.payment_status==='paid'?'badge-success':'badge-warning'}">${a.payment_status}</span></td>
+        <td><button class="btn btn-sm btn-secondary" onclick="generateAppointmentQr(${a.id})"><i class="fa-solid fa-qrcode"></i> QR</button></td>
     </tr>`).join('');
+}
+
+async function generateAppointmentQr(id) {
+    try {
+        const res = await fetch(`/api/appointments/${id}/qr`, { method: 'POST', headers: authHeaders() });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error || 'Failed to generate QR', 'error');
+        document.getElementById('qr-image').src = data.qrDataUrl;
+        document.getElementById('qr-download').href = data.qrDataUrl;
+        document.getElementById('qr-link').textContent = data.url;
+        openModal('qr-modal');
+    } catch (err) {
+        showToast('Failed to generate QR', 'error');
+    }
+}
+
+function printQr() {
+    const src = document.getElementById('qr-image').src;
+    const link = document.getElementById('qr-link').textContent;
+    const win = window.open('', '_blank');
+    win.document.write(`<html><head><title>Appointment QR</title></head><body style="font-family:Arial;text-align:center;padding:24px;"><h2>Patient Check-In QR</h2><img src="${src}" style="width:320px"><p>${link}</p><script>window.onload=()=>window.print();<\/script></body></html>`);
+    win.document.close();
 }
 
 loadFdQueue();

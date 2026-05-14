@@ -7,6 +7,7 @@ renderSidebar([
     { id: 'accounts', label: 'Manage Accounts', icon: 'fa-solid fa-users-gear' },
     { id: 'labs', label: 'Manage Laboratories', icon: 'fa-solid fa-flask-vial' },
     { id: 'services', label: 'Service Management', icon: 'fa-solid fa-box-open' },
+    { id: 'archives', label: 'Archives', icon: 'fa-solid fa-box-archive' },
     { id: 'create', label: 'Create Account', icon: 'fa-solid fa-user-plus' },
     { id: 'audit', label: 'Audit Logs', icon: 'fa-solid fa-history' },
     { id: 'customize', label: 'Customize', icon: 'fa-solid fa-palette' }
@@ -18,6 +19,7 @@ window.onSectionLoad = {
     accounts: loadAccounts,
     labs: loadLabs,
     services: loadServiceMgmt,
+    archives: loadArchives,
     create: initCreateForm,
     audit: loadAuditLogs,
     customize: loadCustomization
@@ -84,9 +86,9 @@ async function updateUser() {
 }
 
 async function deleteUser(id) {
-    if (!confirm('Delete this user?')) return;
+    if (!confirm('Archive this user?')) return;
     const res = await fetch(`/api/users/${id}`, { method: 'DELETE', headers: authHeaders() });
-    if (res.ok) { showToast('Deleted', 'success'); loadAccounts(); }
+    if (res.ok) { showToast('Archived', 'success'); loadAccounts(); }
 }
 
 // ── LABS ──
@@ -122,9 +124,9 @@ async function saveLab() {
 }
 
 async function deleteLab(id) {
-    if (!confirm('Delete this laboratory?')) return;
+    if (!confirm('Archive this laboratory?')) return;
     await fetch(`/api/laboratories/${id}`, { method: 'DELETE', headers: authHeaders() });
-    showToast('Deleted', 'success'); loadLabs();
+    showToast('Archived', 'success'); loadLabs();
 }
 
 function editLab(id) {
@@ -180,13 +182,13 @@ async function loadAuditLogs() {
     try {
         const res = await fetch('/api/analytics/admin', { headers: authHeaders() });
         const data = await res.json();
-        const logs = data.auditLogs || []; // Wait, the endpoint may not return auditLogs. We need to fetch from /api/admin/audit-logs
+            const logs = data.auditLogs || [];
     } catch(err) {}
 }
 
 async function fetchAuditLogs() {
     try {
-        const res = await fetch('/api/admin/audit-logs', { headers: authHeaders() });
+            const res = await fetch('/api/audit-logs', { headers: authHeaders() });
         if(res.ok) {
             const logs = await res.json();
             document.getElementById('audit-table').innerHTML = logs.map(l => `<tr>
@@ -202,10 +204,40 @@ async function fetchAuditLogs() {
 }
 window.loadAuditLogs = fetchAuditLogs;
 
+async function loadArchives() {
+    try {
+        const res = await fetch('/api/archives', { headers: authHeaders() });
+        const rows = await res.json();
+        document.getElementById('archive-table').innerHTML = (rows || []).map(r => `<tr>
+            <td>${formatDateTime(r.archived_at)}</td>
+            <td><span class="badge badge-neutral">${r.entity_type}</span></td>
+            <td>${r.entity_id}</td>
+            <td>${r.archived_by_name || 'System'}</td>
+            <td>
+                <button class="btn btn-sm btn-success" onclick="restoreArchive(${r.id})"><i class="fa-solid fa-rotate-left"></i> Restore</button>
+                <button class="btn btn-sm btn-danger" onclick="purgeArchive(${r.id})"><i class="fa-solid fa-trash"></i> Delete</button>
+            </td>
+        </tr>`).join('') || '<tr><td colspan="5" class="text-center text-muted">No archived records</td></tr>';
+    } catch (err) { showToast('Failed to load archives', 'error'); }
+}
+
+async function restoreArchive(id) {
+    const res = await fetch(`/api/archives/${id}/restore`, { method: 'POST', headers: authHeaders() });
+    if (res.ok) { showToast('Record restored', 'success'); loadArchives(); }
+    else showToast('Restore failed', 'error');
+}
+
+async function purgeArchive(id) {
+    if (!confirm('Permanently delete this archived record? This cannot be undone.')) return;
+    const res = await fetch(`/api/archives/${id}`, { method: 'DELETE', headers: authHeaders() });
+    if (res.ok) { showToast('Permanently deleted', 'success'); loadArchives(); }
+    else showToast('Delete failed', 'error');
+}
+
 // ── CUSTOMIZATION ──
 async function loadCustomization() {
     try {
-        const res = await fetch('/api/settings');
+        const res = await fetch('/api/settings', { headers: authHeaders() });
         const settings = await res.json();
         if(settings) {
             document.getElementById('cust-nav-color').value = settings.navbar_color || '#1e293b';
@@ -219,7 +251,7 @@ async function saveCustomization() {
     const navColor = document.getElementById('cust-nav-color').value;
     const bgUrl = document.getElementById('cust-bg-url').value;
     try {
-        const res = await fetch('/api/admin/settings', {
+        const res = await fetch('/api/settings', {
             method: 'PUT', headers: authHeaders(),
             body: JSON.stringify({ navbar_color: navColor, background_image: bgUrl })
         });

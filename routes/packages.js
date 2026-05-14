@@ -14,13 +14,13 @@ function authRequired(req, res, next) {
 // GET all packages with lab details
 router.get('/', async (req, res) => {
     try {
-        const [packages] = await pool.query('SELECT * FROM service_packages WHERE is_active = true ORDER BY name');
+        const [packages] = await pool.query('SELECT * FROM service_packages WHERE is_active = true AND archived = false ORDER BY name');
         for (let pkg of packages) {
             const [labs] = await pool.query(
                 `SELECT pl.*, l.name as lab_name, l.service_type
                  FROM package_laboratories pl
                  JOIN laboratories l ON pl.laboratory_id = l.id
-                 WHERE pl.package_id = ? ORDER BY pl.sequence_order`, [pkg.id]
+                 WHERE pl.package_id = ? AND pl.archived = false AND l.archived = false ORDER BY pl.sequence_order`, [pkg.id]
             );
             pkg.laboratories = labs;
         }
@@ -31,14 +31,14 @@ router.get('/', async (req, res) => {
 // GET package details with real-time ETA
 router.get('/:id/details', async (req, res) => {
     try {
-        const [pkgs] = await pool.query('SELECT * FROM service_packages WHERE id = ?', [req.params.id]);
+        const [pkgs] = await pool.query('SELECT * FROM service_packages WHERE id = ? AND archived = false', [req.params.id]);
         if (pkgs.length === 0) return res.status(404).json({ error: 'Package not found' });
         const pkg = pkgs[0];
 
         const [labs] = await pool.query(
             `SELECT pl.*, l.name as lab_name, l.service_type
              FROM package_laboratories pl JOIN laboratories l ON pl.laboratory_id = l.id
-             WHERE pl.package_id = ? ORDER BY pl.sequence_order`, [pkg.id]
+             WHERE pl.package_id = ? AND pl.archived = false AND l.archived = false ORDER BY pl.sequence_order`, [pkg.id]
         );
         pkg.laboratories = labs;
 
@@ -91,7 +91,7 @@ router.put('/:id', authRequired, async (req, res) => {
             [name, description, price, est_time_minutes, is_active !== false, req.params.id]
         );
         if (laboratories) {
-            await pool.query('DELETE FROM package_laboratories WHERE package_id = ?', [req.params.id]);
+            await pool.query('UPDATE package_laboratories SET archived=true, archived_at=NOW() WHERE package_id = ?', [req.params.id]);
             for (let i = 0; i < laboratories.length; i++) {
                 await pool.query(
                     'INSERT INTO package_laboratories (package_id, laboratory_id, sequence_order, est_time_minutes) VALUES (?, ?, ?, ?)',

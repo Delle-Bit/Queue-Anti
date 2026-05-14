@@ -2,11 +2,28 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../database');
 const bcrypt = require('bcrypt');
+const QRCode = require('qrcode');
+const crypto = require('crypto');
+
+async function archiveRecord(table, idColumn, idValue, entityType, userId) {
+    const [rows] = await pool.query(`SELECT * FROM ${table} WHERE ${idColumn} = ?`, [idValue]);
+    if (rows.length === 0) return false;
+    await pool.query(
+        `INSERT INTO archived_records (entity_type, entity_id, snapshot, archived_by) VALUES (?, ?, ?, ?)`,
+        [entityType, String(idValue), JSON.stringify(rows[0]), userId || null]
+    );
+    await pool.query(`UPDATE ${table} SET archived=true, archived_at=NOW() WHERE ${idColumn} = ?`, [idValue]);
+    await pool.query(
+        'INSERT INTO audit_logs (action, entity_type, entity_id, details, performed_by) VALUES (?, ?, ?, ?, ?)',
+        ['archive', entityType, Number(idValue) || null, JSON.stringify({ table }), userId || null]
+    );
+    return true;
+}
 
 // --- USERS ---
 router.get('/users/staff', async (req, res) => {
     try {
-        const [rows] = await pool.query(`SELECT id, username, role, full_name, email, created_at FROM users WHERE role != 'customer' ORDER BY created_at DESC`);
+        const [rows] = await pool.query(`SELECT id, username, role, full_name, email, created_at FROM users WHERE role != 'customer' AND archived = false ORDER BY created_at DESC`);
         res.json(rows);
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
@@ -17,7 +34,7 @@ router.get('/users/customers', async (req, res) => {
             SELECT u.id, u.username, u.full_name, u.email, u.customer_category, u.created_at,
                    COUNT(qs.id) as total_services
             FROM users u LEFT JOIN queue_sequences qs ON u.id = qs.customer_id AND qs.status='completed'
-            WHERE u.role = 'customer' GROUP BY u.id ORDER BY u.created_at DESC
+            WHERE u.role = 'customer' AND u.archived = false GROUP BY u.id ORDER BY u.created_at DESC
         `);
         res.json(rows);
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
@@ -56,7 +73,7 @@ router.put('/users/:id', async (req, res) => {
 
 router.delete('/users/:id', async (req, res) => {
     try {
-        await pool.query('DELETE FROM users WHERE id = ?', [req.params.id]);
+        await archiveRecord('users', 'id', req.params.id, 'user', req.user.id);
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'Failed to delete user' }); }
 });
@@ -66,7 +83,7 @@ router.get('/laboratories', async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT l.*, u.username as staff_name FROM laboratories l
-            LEFT JOIN users u ON l.assigned_staff_id = u.id ORDER BY l.name
+            LEFT JOIN users u ON l.assigned_staff_id = u.id WHERE l.archived = false ORDER BY l.name
         `);
         res.json(rows);
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
@@ -96,7 +113,7 @@ router.put('/laboratories/:id', async (req, res) => {
 
 router.delete('/laboratories/:id', async (req, res) => {
     try {
-        await pool.query('DELETE FROM laboratories WHERE id = ?', [req.params.id]);
+        await archiveRecord('laboratories', 'id', req.params.id, 'laboratory', req.user.id);
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
@@ -107,7 +124,9 @@ router.get('/appointments', async (req, res) => {
         let query = `SELECT a.*, sp.name as package_name, sp.price, u.username, u.full_name
                      FROM appointments a
                      JOIN service_packages sp ON a.package_id = sp.id
-                     JOIN users u ON a.customer_id = u.id ORDER BY a.appointment_date, a.appointment_time`;
+                     JOIN users u ON a.customer_id = u.id
+                     WHERE a.archived = false
+                     ORDER BY a.appointment_date, a.appointment_time`;
         const [rows] = await pool.query(query);
         res.json(rows);
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
@@ -118,7 +137,7 @@ router.get('/appointments/my', async (req, res) => {
         const [rows] = await pool.query(
             `SELECT a.*, sp.name as package_name, sp.price FROM appointments a
              JOIN service_packages sp ON a.package_id = sp.id
-             WHERE a.customer_id = ? ORDER BY a.appointment_date DESC`, [req.user.id]
+             WHERE a.customer_id = ? AND a.archived = false ORDER BY a.appointment_date DESC`, [req.user.id]
         );
         res.json(rows);
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
@@ -127,6 +146,18 @@ router.get('/appointments/my', async (req, res) => {
 router.post('/appointments', async (req, res) => {
     const { package_id, appointment_date, appointment_time, payment_method, payment_ref, notes } = req.body;
     try {
+        const [medical] = await pool.query('SELECT id FROM medical_records WHERE customer_id=? AND archived=false', [req.user.id]);
+        if (medical.length === 0) return res.status(409).json({ error: 'Please complete your medical form before booking.', medical_form_required: true });
+        const [slotCount] = await pool.query(
+            `SELECT COUNT(*) as cnt FROM appointments WHERE appointment_date=? AND status != 'cancelled' AND archived=false`,
+            [appointment_date]
+        );
+        if (slotCount[0].cnt >= 6) return res.status(400).json({ error: 'This date is fully booked.' });
+        const [slotTaken] = await pool.query(
+            `SELECT id FROM appointments WHERE appointment_date=? AND appointment_time=? AND status != 'cancelled' AND archived=false`,
+            [appointment_date, appointment_time]
+        );
+        if (slotTaken.length > 0) return res.status(400).json({ error: 'This appointment slot is already booked.' });
         await pool.query(
             `INSERT INTO appointments (customer_id, package_id, appointment_date, appointment_time, payment_status, payment_method, payment_ref, notes)
              VALUES (?, ?, ?, ?, 'paid', ?, ?, ?)`,
@@ -134,6 +165,31 @@ router.post('/appointments', async (req, res) => {
         );
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+router.post('/appointments/:id/qr', async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT a.*, sp.name as package_name, u.full_name, u.username
+             FROM appointments a
+             JOIN service_packages sp ON a.package_id = sp.id
+             JOIN users u ON a.customer_id = u.id
+             WHERE a.id=? AND a.archived=false`,
+            [req.params.id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Appointment not found' });
+        let token = rows[0].qr_token;
+        if (!token) {
+            token = crypto.randomBytes(24).toString('hex');
+            await pool.query('UPDATE appointments SET qr_token=? WHERE id=?', [token, req.params.id]);
+        }
+        const url = `${req.protocol}://${req.get('host')}/checkin/${token}`;
+        const dataUrl = await QRCode.toDataURL(url, { margin: 1, width: 320 });
+        res.json({ success: true, token, url, qrDataUrl: dataUrl, appointment: rows[0] });
+    } catch (err) {
+        console.error('QR generation error:', err);
+        res.status(500).json({ error: 'Failed to generate QR code' });
+    }
 });
 
 // --- ANALYTICS ---
@@ -177,8 +233,8 @@ router.get('/analytics/laboratory/:id', async (req, res) => {
 
 router.get('/analytics/admin', async (req, res) => {
     try {
-        const [userCounts] = await pool.query(`SELECT role, COUNT(*) as cnt FROM users GROUP BY role`);
-        const [catCounts] = await pool.query(`SELECT customer_category, COUNT(*) as cnt FROM users WHERE role='customer' GROUP BY customer_category`);
+        const [userCounts] = await pool.query(`SELECT role, COUNT(*) as cnt FROM users WHERE archived=false GROUP BY role`);
+        const [catCounts] = await pool.query(`SELECT customer_category, COUNT(*) as cnt FROM users WHERE role='customer' AND archived=false GROUP BY customer_category`);
         const [sessions] = await pool.query(`SELECT ss.*, u.username FROM staff_sessions ss JOIN users u ON ss.user_id=u.id ORDER BY ss.login_time DESC LIMIT 20`);
         const [labVolume] = await pool.query(`SELECT station_id, COUNT(*) as cnt FROM queue_logs WHERE station_type='laboratory' AND DATE(join_time)=CURDATE() GROUP BY station_id`);
         const [fdVolume] = await pool.query(`SELECT COUNT(*) as cnt FROM queue_logs WHERE station_type='frontdesk' AND DATE(join_time)=CURDATE()`);
@@ -240,7 +296,7 @@ router.put('/settings', async (req, res) => {
 router.get('/medical-records/my', async (req, res) => {
     try {
         const [user] = await pool.query('SELECT full_name, gender, birthday FROM users WHERE id = ?', [req.user.id]);
-        const [rows] = await pool.query('SELECT * FROM medical_records WHERE customer_id = ?', [req.user.id]);
+        const [rows] = await pool.query('SELECT * FROM medical_records WHERE customer_id = ? AND archived=false', [req.user.id]);
         
         if (rows.length > 0) {
             res.json({ ...rows[0], user: user[0] });
@@ -251,12 +307,15 @@ router.get('/medical-records/my', async (req, res) => {
 });
 
 router.post('/medical-records/my', async (req, res) => {
-    const { full_name, gender, birthday, birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions } = req.body;
+    const { full_name, surname, first_name, middle_name, no_middle_name, gender, birthday, birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions } = req.body;
     const customer_id = req.user.id;
     try {
-        await pool.query('UPDATE users SET full_name=?, gender=?, birthday=? WHERE id=?', [full_name, gender || null, birthday || null, customer_id]);
+        await pool.query(
+            'UPDATE users SET full_name=?, surname=?, first_name=?, middle_name=?, no_middle_name=?, gender=?, birthday=? WHERE id=?',
+            [full_name, surname || '', first_name || '', middle_name || '', no_middle_name ? 1 : 0, gender || null, birthday || null, customer_id]
+        );
 
-        const [existing] = await pool.query('SELECT id FROM medical_records WHERE customer_id = ?', [customer_id]);
+        const [existing] = await pool.query('SELECT id FROM medical_records WHERE customer_id = ? AND archived=false', [customer_id]);
         if (existing.length > 0) {
             await pool.query(
                 `UPDATE medical_records SET birthplace=?, address=?, phone=?, status=?, occupation=?, retiree=?, emergency_contact=?, current_health=?, past_conditions=? WHERE customer_id=?`,
@@ -276,7 +335,7 @@ router.post('/medical-records/my', async (req, res) => {
 router.get('/medical-records/:customerId', async (req, res) => {
     try {
         const [user] = await pool.query('SELECT full_name, gender, birthday FROM users WHERE id = ?', [req.params.customerId]);
-        const [rows] = await pool.query('SELECT * FROM medical_records WHERE customer_id = ?', [req.params.customerId]);
+        const [rows] = await pool.query('SELECT * FROM medical_records WHERE customer_id = ? AND archived=false', [req.params.customerId]);
         
         if (rows.length > 0) {
             res.json({ ...rows[0], user: user[0] });
@@ -289,7 +348,7 @@ router.get('/medical-records/:customerId', async (req, res) => {
 router.post('/medical-records', async (req, res) => {
     const { customer_id, birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions } = req.body;
     try {
-        const [existing] = await pool.query('SELECT id FROM medical_records WHERE customer_id = ?', [customer_id]);
+        const [existing] = await pool.query('SELECT id FROM medical_records WHERE customer_id = ? AND archived=false', [customer_id]);
         if (existing.length > 0) {
             await pool.query(
                 `UPDATE medical_records SET birthplace=?, address=?, phone=?, status=?, occupation=?, retiree=?, emergency_contact=?, current_health=?, past_conditions=? WHERE customer_id=?`,
@@ -312,7 +371,7 @@ router.get('/lab-notes/:customerId', async (req, res) => {
         const [rows] = await pool.query(
             `SELECT ln.*, u.username as staff_name FROM lab_notes ln
              LEFT JOIN users u ON ln.staff_id = u.id
-             WHERE ln.customer_id = ? ORDER BY ln.created_at DESC`,
+             WHERE ln.customer_id = ? AND ln.archived=false ORDER BY ln.created_at DESC`,
             [req.params.customerId]
         );
         res.json(rows);
@@ -336,6 +395,64 @@ router.get('/faqs', async (req, res) => {
         const [rows] = await pool.query('SELECT * FROM pricing_faqs');
         res.json(rows);
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+router.get('/archives', async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT ar.*, u.username as archived_by_name
+             FROM archived_records ar LEFT JOIN users u ON ar.archived_by=u.id
+             WHERE ar.restored_at IS NULL AND ar.permanently_deleted_at IS NULL
+             ORDER BY ar.archived_at DESC LIMIT 200`
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+router.post('/archives/:id/restore', async (req, res) => {
+    const map = {
+        user: ['users', 'id'],
+        laboratory: ['laboratories', 'id'],
+        service_package: ['service_packages', 'id'],
+        appointment: ['appointments', 'id'],
+        queue: ['queue', 'id'],
+        queue_sequence: ['queue_sequences', 'id'],
+        queue_log: ['queue_logs', 'id'],
+        medical_record: ['medical_records', 'id'],
+        lab_note: ['lab_notes', 'id']
+    };
+    try {
+        const [rows] = await pool.query('SELECT * FROM archived_records WHERE id=? AND restored_at IS NULL AND permanently_deleted_at IS NULL', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Archive record not found' });
+        const [table, idColumn] = map[rows[0].entity_type] || [];
+        if (!table) return res.status(400).json({ error: 'Unsupported archive type' });
+        await pool.query(`UPDATE ${table} SET archived=false, archived_at=NULL WHERE ${idColumn}=?`, [rows[0].entity_id]);
+        await pool.query('UPDATE archived_records SET restored_at=NOW() WHERE id=?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Failed to restore' }); }
+});
+
+router.delete('/archives/:id', async (req, res) => {
+    const map = {
+        user: ['users', 'id'],
+        laboratory: ['laboratories', 'id'],
+        service_package: ['service_packages', 'id'],
+        appointment: ['appointments', 'id'],
+        queue: ['queue', 'id'],
+        queue_sequence: ['queue_sequences', 'id'],
+        queue_log: ['queue_logs', 'id'],
+        medical_record: ['medical_records', 'id'],
+        lab_note: ['lab_notes', 'id']
+    };
+    try {
+        const [rows] = await pool.query('SELECT * FROM archived_records WHERE id=? AND permanently_deleted_at IS NULL', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Archive record not found' });
+        const [table, idColumn] = map[rows[0].entity_type] || [];
+        if (!table) return res.status(400).json({ error: 'Unsupported archive type' });
+        await pool.query(`DELETE FROM ${table} WHERE ${idColumn}=? AND archived=true`, [rows[0].entity_id]);
+        await pool.query('UPDATE archived_records SET permanently_deleted_at=NOW() WHERE id=?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Failed to permanently delete' }); }
 });
 
 module.exports = router;

@@ -13,22 +13,18 @@
 </head>
 
 <body>
+    <header class="landing-header">
+        <div class="header-logo-wrap">
+            <img src="/images/examplelogo.svg" alt="Logo" class="header-logo">
+        </div>
+        <div class="header-name-wrap">
+            <h1>Medical Clinic</h1>
+            <p>Making healthcare accessible to everyone</p>
+        </div>
+    </header>
+
     <div class="landing-container">
         <div class="landing-left">
-            <div class="landing-brand">
-                <img src="/images/examplelogo.svg" alt="Logo" class="landing-logo">
-                <h1>Medical Clinic</h1>
-                <p>Professional Queue Management System</p>
-            </div>
-            <div class="landing-features">
-                <div class="feature"><i class="fa-solid fa-clock"></i><span>OPEN 8AM to 3PM (Mon-Sat)</span></div>
-                <div class="feature"><i class="fa-solid fa-calendar-check"></i><span>Online appointments</span></div>
-                <div class="feature"><i class="fa-solid fa-user-shield"></i><span>Priority for Senior, PWD &
-                        Pregnant</span></div>
-                <div class="feature"><i class="fa-solid fa-flask"></i><span>Multiple laboratory services</span></div>
-            </div>
-        </div>
-        <div class="landing-right">
             <div class="auth-card">
                 <div class="auth-tabs">
                     <button class="auth-tab active" onclick="switchAuthTab('login')" id="tab-login">Sign In</button>
@@ -93,7 +89,7 @@
                                 <input type="file" id="reg-id-photo" accept="image/*" required style="display:none"
                                     onchange="document.getElementById('file-label').textContent=this.files[0]?.name||'Click to upload'">
                             </div>
-                            <small class="text-muted">Senior Card, PWD ID, or any valid ID</small>
+                            <small class="text-muted">Any Valid ID</small>
                         </div>
                         <button type="submit" class="btn btn-primary btn-block btn-lg" id="reg-btn">
                             <i class="fa-solid fa-user-plus"></i> Register
@@ -101,6 +97,18 @@
                     </form>
                 </div>
             </div>
+        </div>
+        <div class="landing-right">
+            <section class="services-gallery" aria-labelledby="services-gallery-title">
+                <div class="gallery-header">
+                    <div>
+                        <h2 id="services-gallery-title">Available Services</h2>
+                        <p>Open 8AM to 3PM, Monday to Saturday</p>
+                    </div>
+                    <i class="fa-solid fa-flask-vial"></i>
+                </div>
+                <div class="services-scroll" id="landing-services-list"></div>
+            </section>
         </div>
     </div>
 

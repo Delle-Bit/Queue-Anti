@@ -1,4 +1,38 @@
 // Landing page JS — Login + Registration
+const LANDING_SERVICES = [
+    ['Hematology (CBC)', 450],
+    ['Clinical Microscopy', 300],
+    ['Ultrasound', 2800],
+    ['X-ray', 900],
+    ['2D Echocardiography', 6000],
+    ['Venous Duplex Scan', 4500],
+    ['Arterial Duplex Scan', 5800],
+    ['Carotid Duplex Scan', 6000],
+    ['Holter Monitoring', 6500],
+    ['24-Hour Ambulatory BP Monitoring', 5000],
+    ['ECG / FCG', 1300],
+    ['Blood Chemistry', 4500],
+    ['Serology Exams', 2500],
+    ['Drug Testing', 900],
+    ['HIV Screening', 1200],
+    ['Annual Physical Exam', 3500],
+    ['Pre-Employment Medical', 3500],
+    ['Rapid Antibody Test', 1500]
+];
+
+function renderLandingServices() {
+    const list = document.getElementById('landing-services-list');
+    if (!list) return;
+    list.innerHTML = LANDING_SERVICES.map(([name, price]) => `
+        <article class="service-card">
+            <strong>${name}</strong>
+            <span>₱${price.toLocaleString('en-PH')}</span>
+        </article>
+    `).join('');
+}
+
+renderLandingServices();
+
 function switchAuthTab(tab) {
     document.getElementById('form-login').style.display = tab === 'login' ? 'block' : 'none';
     document.getElementById('form-register').style.display = tab === 'register' ? 'block' : 'none';

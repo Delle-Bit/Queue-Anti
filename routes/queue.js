@@ -7,17 +7,19 @@ const queueAutomation = require('../queue_automation');
 router.post('/start-package', async (req, res) => {
     const { package_id } = req.body;
     try {
-        const [pkgs] = await pool.query('SELECT * FROM service_packages WHERE id = ? AND is_active = true', [package_id]);
+        const [medical] = await pool.query('SELECT id FROM medical_records WHERE customer_id=? AND archived=false', [req.user.id]);
+        if (medical.length === 0) return res.status(409).json({ error: 'Please complete your medical form before selecting a service.', medical_form_required: true });
+        const [pkgs] = await pool.query('SELECT * FROM service_packages WHERE id = ? AND is_active = true AND archived = false', [package_id]);
         if (pkgs.length === 0) return res.status(404).json({ error: 'Package not found' });
 
         // Check if customer already has active sequence
         const [existing] = await pool.query(
-            `SELECT * FROM queue_sequences WHERE customer_id = ? AND status = 'in_progress'`, [req.user.id]
+            `SELECT * FROM queue_sequences WHERE customer_id = ? AND status = 'in_progress' AND archived = false`, [req.user.id]
         );
         if (existing.length > 0) return res.status(400).json({ error: 'You already have an active queue. Please complete or cancel it first.' });
 
         // Count labs in package
-        const [labs] = await pool.query('SELECT * FROM package_laboratories WHERE package_id = ? ORDER BY sequence_order', [package_id]);
+        const [labs] = await pool.query('SELECT * FROM package_laboratories WHERE package_id = ? AND archived = false ORDER BY sequence_order', [package_id]);
         const totalSteps = 1 + labs.length; // frontdesk + labs
 
         // Create sequence
@@ -35,7 +37,7 @@ router.post('/start-package', async (req, res) => {
 
         // Generate ticket number for frontdesk
         const [countRows] = await pool.query(
-            `SELECT COUNT(*) as cnt FROM queue_logs WHERE station_type='frontdesk' AND DATE(join_time) = CURDATE()`
+            `SELECT COUNT(*) as cnt FROM queue_logs WHERE station_type='frontdesk' AND DATE(join_time) = CURDATE() AND archived = false`
         );
         const ticketNum = `${type}-${String(countRows[0].cnt + 1).padStart(3, '0')}`;
         const queueId = `cust_${req.user.id}_${seqId}`;
@@ -64,7 +66,7 @@ router.post('/start-package', async (req, res) => {
 router.post('/complete-step', async (req, res) => {
     const { queue_id } = req.body;
     try {
-        const [qRows] = await pool.query('SELECT * FROM queue WHERE id = ?', [queue_id]);
+        const [qRows] = await pool.query('SELECT * FROM queue WHERE id = ? AND archived = false', [queue_id]);
         if (qRows.length === 0) return res.status(404).json({ error: 'Queue entry not found' });
         const q = qRows[0];
 
@@ -76,7 +78,7 @@ router.post('/complete-step', async (req, res) => {
         );
 
         // Advance sequence
-        const [seqs] = await pool.query('SELECT * FROM queue_sequences WHERE id = ?', [q.sequence_id]);
+        const [seqs] = await pool.query('SELECT * FROM queue_sequences WHERE id = ? AND archived = false', [q.sequence_id]);
         if (seqs.length === 0) return res.json({ success: true, finished: true });
         const seq = seqs[0];
         const nextStep = seq.current_step + 1;
@@ -93,7 +95,7 @@ router.post('/complete-step', async (req, res) => {
 
         // Get next lab from package_laboratories (step 1 = first lab, etc.)
         const [labs] = await pool.query(
-            'SELECT pl.*, l.name as lab_name FROM package_laboratories pl JOIN laboratories l ON pl.laboratory_id = l.id WHERE pl.package_id = ? AND pl.sequence_order = ?',
+            'SELECT pl.*, l.name as lab_name FROM package_laboratories pl JOIN laboratories l ON pl.laboratory_id = l.id WHERE pl.package_id = ? AND pl.sequence_order = ? AND pl.archived=false AND l.archived=false',
             [seq.package_id, nextStep]
         );
 
@@ -108,7 +110,7 @@ router.post('/complete-step', async (req, res) => {
 
         // Generate new ticket for lab
         const [cnt] = await pool.query(
-            `SELECT COUNT(*) as cnt FROM queue_logs WHERE station_type='laboratory' AND station_id=? AND DATE(join_time)=CURDATE()`,
+            `SELECT COUNT(*) as cnt FROM queue_logs WHERE station_type='laboratory' AND station_id=? AND DATE(join_time)=CURDATE() AND archived=false`,
             [lab.laboratory_id]
         );
         const newTicket = `${type}-${String(cnt[0].cnt + 1).padStart(3, '0')}`;
@@ -137,7 +139,7 @@ router.post('/complete-step', async (req, res) => {
 router.post('/next', async (req, res) => {
     const { station_type, station_id } = req.body;
     try {
-        let query = `SELECT * FROM queue WHERE station_type=? AND status='waiting'`;
+        let query = `SELECT * FROM queue WHERE station_type=? AND status='waiting' AND archived=false`;
         const params = [station_type];
         if (station_id) { query += ' AND station_id=?'; params.push(station_id); }
         query += ' ORDER BY timestamp ASC';
@@ -162,7 +164,7 @@ router.get('/my-status', async (req, res) => {
         const [seqs] = await pool.query(
             `SELECT qs.*, sp.name as package_name, sp.price FROM queue_sequences qs
              JOIN service_packages sp ON qs.package_id = sp.id
-             WHERE qs.customer_id = ? AND qs.status = 'in_progress'`, [req.user.id]
+             WHERE qs.customer_id = ? AND qs.status = 'in_progress' AND qs.archived=false`, [req.user.id]
         );
         if (seqs.length === 0) return res.json({ active: false });
 
@@ -170,19 +172,19 @@ router.get('/my-status', async (req, res) => {
         const [labs] = await pool.query(
             `SELECT pl.*, l.name as lab_name, l.service_type FROM package_laboratories pl
              JOIN laboratories l ON pl.laboratory_id = l.id
-             WHERE pl.package_id = ? ORDER BY pl.sequence_order`, [seq.package_id]
+             WHERE pl.package_id = ? AND pl.archived=false AND l.archived=false ORDER BY pl.sequence_order`, [seq.package_id]
         );
 
         // Current queue entry
         const [currentQ] = await pool.query(
-            `SELECT * FROM queue WHERE sequence_id = ? AND status IN ('waiting','serving') LIMIT 1`, [seq.id]
+            `SELECT * FROM queue WHERE sequence_id = ? AND status IN ('waiting','serving') AND archived=false LIMIT 1`, [seq.id]
         );
 
         // Calculate position and ETA
         let position = 0, eta = 0;
         if (currentQ.length > 0) {
             const cq = currentQ[0];
-            let countQuery = `SELECT COUNT(*) as cnt FROM queue WHERE station_type=? AND status='waiting' AND timestamp < ?`;
+            let countQuery = `SELECT COUNT(*) as cnt FROM queue WHERE station_type=? AND status='waiting' AND archived=false AND timestamp < ?`;
             const countParams = [cq.station_type, cq.timestamp];
             if (cq.station_id) { countQuery += ' AND station_id=?'; countParams.push(cq.station_id); }
             const [posRows] = await pool.query(countQuery, countParams);
@@ -245,7 +247,7 @@ router.get('/station', async (req, res) => {
     try {
         let query = `SELECT q.*, u.username, u.full_name, u.customer_category
                      FROM queue q LEFT JOIN users u ON q.customer_id = u.id
-                     WHERE q.station_type=? AND q.status IN ('waiting','serving')`;
+                     WHERE q.station_type=? AND q.status IN ('waiting','serving') AND q.archived=false`;
         const params = [type];
         if (id) { query += ' AND q.station_id=?'; params.push(id); }
         query += ' ORDER BY q.timestamp ASC';
@@ -260,7 +262,7 @@ router.get('/booked-slots', async (req, res) => {
     try {
         if (!date) return res.status(400).json({ error: 'Date is required' });
         const [rows] = await pool.query(
-            `SELECT appointment_time FROM appointments WHERE appointment_date = ? AND status != 'cancelled'`,
+            `SELECT appointment_time FROM appointments WHERE appointment_date = ? AND status != 'cancelled' AND archived=false`,
             [date]
         );
         const slots = rows.map(r => r.appointment_time.substring(0, 5));
@@ -268,6 +270,27 @@ router.get('/booked-slots', async (req, res) => {
     } catch (err) {
         console.error('Booked slots error:', err);
         res.status(500).json({ error: 'Failed to fetch booked slots' });
+    }
+});
+
+router.get('/booked-dates', async (req, res) => {
+    const { month } = req.query;
+    try {
+        if (!month || !/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({ error: 'Month must be YYYY-MM' });
+        const [rows] = await pool.query(
+            `SELECT appointment_date, COUNT(*) as booked_count
+             FROM appointments
+             WHERE DATE_FORMAT(appointment_date, '%Y-%m') = ? AND status != 'cancelled' AND archived=false
+             GROUP BY appointment_date`,
+            [month]
+        );
+        res.json(rows.map(r => ({
+            date: typeof r.appointment_date === 'string' ? r.appointment_date.substring(0, 10) : new Date(r.appointment_date).toLocaleDateString('en-CA'),
+            booked_count: r.booked_count
+        })));
+    } catch (err) {
+        console.error('Booked dates error:', err);
+        res.status(500).json({ error: 'Failed to fetch booked dates' });
     }
 });
 
