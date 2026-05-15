@@ -1,105 +1,291 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin — Medical Clinic</title>
     <link rel="icon" href="/images/examplelogo.svg">
     <link rel="stylesheet" href="shared.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
+
 <body>
     <button class="hamburger"><i class="fa-solid fa-bars"></i></button>
     <aside class="sidebar" id="sidebar"></aside>
     <main class="main-content">
         <!-- DASHBOARD -->
         <div id="section-dashboard" class="content-section">
-            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-chart-line"></i> Analytics Dashboard</div></div></div>
+            <div class="page-header">
+                <div>
+                    <div class="page-title"><i class="fa-solid fa-chart-line"></i> Analytics Dashboard</div>
+                </div>
+            </div>
             <div class="stats-grid" id="admin-stats"></div>
             <div class="grid-2 mt-md">
-                <div class="card"><div class="card-header"><div class="card-title"><i class="fa-solid fa-users"></i> Accounts by Role</div></div><div id="admin-role-dist"></div></div>
-                <div class="card"><div class="card-header"><div class="card-title"><i class="fa-solid fa-clock"></i> Staff Sessions</div></div>
-                <div class="table-wrapper" style="max-height:250px;overflow-y:auto;"><table><thead><tr><th>Staff</th><th>Login</th><th>Logout</th></tr></thead><tbody id="admin-sessions"></tbody></table></div></div>
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title"><i class="fa-solid fa-users"></i> Accounts by Role</div>
+                    </div>
+                    <div id="admin-role-dist"></div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title"><i class="fa-solid fa-clock"></i> Staff Sessions</div>
+                    </div>
+                    <div class="table-wrapper" style="max-height:250px;overflow-y:auto;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Staff</th>
+                                    <th>Login</th>
+                                    <th>Logout</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-sessions"></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
 
         <!-- MANAGE ACCOUNTS -->
         <div id="section-accounts" class="content-section" style="display:none;">
-            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-users-gear"></i> Manage Accounts</div></div></div>
+            <div class="page-header">
+                <div>
+                    <div class="page-title"><i class="fa-solid fa-users-gear"></i> Manage Accounts</div>
+                </div>
+            </div>
             <div class="card mb-lg">
-                <div class="card-header"><div class="card-title"><i class="fa-solid fa-user-tie"></i> Staff Accounts</div></div>
-                <div class="table-wrapper"><table><thead><tr><th>ID</th><th>Username</th><th>Name</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead><tbody id="staff-table"></tbody></table></div>
+                <div class="card-header">
+                    <div class="card-title"><i class="fa-solid fa-user-tie"></i> Staff Accounts</div>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Username</th>
+                                <th>Name</th>
+                                <th>Role</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="staff-table"></tbody>
+                    </table>
+                </div>
             </div>
             <div class="card">
-                <div class="card-header"><div class="card-title"><i class="fa-solid fa-user"></i> Customer Accounts</div></div>
-                <div class="table-wrapper"><table><thead><tr><th>Username</th><th>Name</th><th>Category</th><th>Services</th><th>Since</th></tr></thead><tbody id="cust-table"></tbody></table></div>
+                <div class="card-header">
+                    <div class="card-title"><i class="fa-solid fa-user"></i> Customer Accounts</div>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Name</th>
+                                <th>Category</th>
+                                <th>Services</th>
+                                <th>Since</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cust-table"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
         <!-- MANAGE LABS -->
         <div id="section-labs" class="content-section" style="display:none;">
-            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-flask-vial"></i> Manage Laboratories</div></div>
-            <button class="btn btn-primary" onclick="openModal('lab-modal')"><i class="fa-solid fa-plus"></i> Add Lab</button></div>
-            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Name</th><th>Service</th><th>Assigned Staff</th><th>Status</th><th>Actions</th></tr></thead><tbody id="labs-table"></tbody></table></div></div>
+            <div class="page-header">
+                <div>
+                    <div class="page-title"><i class="fa-solid fa-flask-vial"></i> Manage Laboratories</div>
+                </div>
+                <button class="btn btn-primary" onclick="openModal('lab-modal')"><i class="fa-solid fa-plus"></i>
+                    Add</button>
+            </div>
+            <div class="card">
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Service</th>
+                                <th>Assigned Staff</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="labs-table"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <!-- SERVICE MANAGEMENT -->
         <div id="section-services" class="content-section" style="display:none;">
-            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-box-open"></i> Service Management</div></div>
-            <button class="btn btn-primary" onclick="openModal('svc-modal')"><i class="fa-solid fa-plus"></i> Add Package</button></div>
-            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Name</th><th>Price</th><th>Est. Time</th><th>Labs</th><th>Active</th><th>Actions</th></tr></thead><tbody id="svc-list"></tbody></table></div></div>
+            <div class="page-header">
+                <div>
+                    <div class="page-title"><i class="fa-solid fa-box-open"></i> Service Management</div>
+                </div>
+                <button class="btn btn-primary" onclick="openModal('svc-modal')"><i class="fa-solid fa-plus"></i> Add
+                    Package</button>
+            </div>
+            <div class="card">
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Price</th>
+                                <th>Est. Time</th>
+                                <th>Labs</th>
+                                <th>Active</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="svc-list"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <!-- AUDIT LOGS -->
         <div id="section-audit" class="content-section" style="display:none;">
-            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-history"></i> Audit Logs</div></div></div>
-            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Entity Type</th><th>Entity ID</th><th>Details</th></tr></thead><tbody id="audit-table"></tbody></table></div></div>
+            <div class="page-header">
+                <div>
+                    <div class="page-title"><i class="fa-solid fa-history"></i> Audit Logs</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>User</th>
+                                <th>Action</th>
+                                <th>Entity Type</th>
+                                <th>Entity ID</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="audit-table"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <!-- ARCHIVES -->
         <div id="section-archives" class="content-section" style="display:none;">
-            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-box-archive"></i> Archives</div><div class="page-subtitle">View, restore, or permanently delete archived records</div></div></div>
-            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Archived</th><th>Type</th><th>Record ID</th><th>Archived By</th><th>Actions</th></tr></thead><tbody id="archive-table"></tbody></table></div></div>
+            <div class="page-header">
+                <div>
+                    <div class="page-title"><i class="fa-solid fa-box-archive"></i> Archives</div>
+                    <div class="page-subtitle">View, restore, or permanently delete archived records</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Archived</th>
+                                <th>Type</th>
+                                <th>Record ID</th>
+                                <th>Archived By</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="archive-table"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <!-- CREATE ACCOUNTS -->
         <div id="section-create" class="content-section" style="display:none;">
-            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-user-plus"></i> Create Account</div></div></div>
+            <div class="page-header">
+                <div>
+                    <div class="page-title"><i class="fa-solid fa-user-plus"></i> Create Account</div>
+                </div>
+            </div>
             <div class="card" style="max-width:500px;">
-                <div class="form-group"><label class="form-label">Username</label><input type="text" class="form-input" id="new-username"></div>
-                <div class="form-group"><label class="form-label">Full Name</label><input type="text" class="form-input" id="new-fullname"></div>
-                <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input" id="new-email"></div>
-                <div class="form-group"><label class="form-label">Password</label><input type="password" class="form-input" id="new-password"></div>
-                <div class="form-group"><label class="form-label">Role</label><select class="form-select" id="new-role"></select></div>
-                <button class="btn btn-success btn-lg" onclick="createAccount()"><i class="fa-solid fa-user-plus"></i> Create Account</button>
+                <div class="form-group"><label class="form-label">Username</label><input type="text" class="form-input"
+                        id="new-username"></div>
+                <div class="form-group"><label class="form-label">Full Name</label><input type="text" class="form-input"
+                        id="new-fullname"></div>
+                <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input"
+                        id="new-email"></div>
+                <div class="form-group"><label class="form-label">Password</label><input type="password"
+                        class="form-input" id="new-password"></div>
+                <div class="form-group"><label class="form-label">Role</label><select class="form-select"
+                        id="new-role"></select></div>
+                <button class="btn btn-success btn-lg" onclick="createAccount()"><i class="fa-solid fa-user-plus"></i>
+                    Create Account</button>
             </div>
         </div>
 
         <!-- CUSTOMIZE -->
         <div id="section-customize" class="content-section" style="display:none;">
-            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-palette"></i> Customize</div></div></div>
+            <div class="page-header">
+                <div>
+                    <div class="page-title"><i class="fa-solid fa-palette"></i> Customize</div>
+                </div>
+            </div>
             <div class="grid-2">
                 <div class="card">
-                    <div class="card-header"><div class="card-title"><i class="fa-solid fa-paint-roller"></i> Global Styles</div></div>
+                    <div class="card-header">
+                        <div class="card-title"><i class="fa-solid fa-paint-roller"></i> Global Styles</div>
+                    </div>
                     <div class="form-group">
                         <label class="form-label">Navbar Color (Hex)</label>
                         <div style="display:flex;gap:8px;">
                             <input type="color" id="cust-nav-color" class="form-input" style="width:50px;padding:2px;">
-                            <input type="text" id="cust-nav-color-text" class="form-input" onchange="document.getElementById('cust-nav-color').value = this.value">
+                            <input type="text" id="cust-nav-color-text" class="form-input"
+                                onchange="document.getElementById('cust-nav-color').value = this.value">
                         </div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Background Image URL</label>
                         <input type="text" id="cust-bg-url" class="form-input" placeholder="/images/bg.jpg">
                     </div>
-                    <button class="btn btn-success" onclick="saveCustomization()"><i class="fa-solid fa-save"></i> Save Styles</button>
+                    <button class="btn btn-success" onclick="saveCustomization()"><i class="fa-solid fa-save"></i> Save
+                        Styles</button>
                 </div>
                 <div class="card">
                     <h3 class="mb-md">Page Previews</h3>
                     <div class="stats-grid">
-                        <div class="stat-card" onclick="window.open('/customer.html','_blank')" style="cursor:pointer"><div class="stat-icon blue"><i class="fa-solid fa-user"></i></div><div class="stat-info"><div class="stat-label">Preview</div><div class="stat-value" style="font-size:1em">Customer</div></div></div>
-                        <div class="stat-card" onclick="window.open('/frontdesk.html','_blank')" style="cursor:pointer"><div class="stat-icon green"><i class="fa-solid fa-cash-register"></i></div><div class="stat-info"><div class="stat-label">Preview</div><div class="stat-value" style="font-size:1em">Frontdesk</div></div></div>
-                        <div class="stat-card" onclick="window.open('/laboratory.html','_blank')" style="cursor:pointer"><div class="stat-icon orange"><i class="fa-solid fa-microscope"></i></div><div class="stat-info"><div class="stat-label">Preview</div><div class="stat-value" style="font-size:1em">Laboratory</div></div></div>
-                        <div class="stat-card" onclick="window.open('/owner.html','_blank')" style="cursor:pointer"><div class="stat-icon purple"><i class="fa-solid fa-building"></i></div><div class="stat-info"><div class="stat-label">Preview</div><div class="stat-value" style="font-size:1em">Owner</div></div></div>
+                        <div class="stat-card" onclick="window.open('/customer.html','_blank')" style="cursor:pointer">
+                            <div class="stat-icon blue"><i class="fa-solid fa-user"></i></div>
+                            <div class="stat-info">
+                                <div class="stat-label">Preview</div>
+                                <div class="stat-value" style="font-size:1em">Customer</div>
+                            </div>
+                        </div>
+                        <div class="stat-card" onclick="window.open('/frontdesk.html','_blank')" style="cursor:pointer">
+                            <div class="stat-icon green"><i class="fa-solid fa-cash-register"></i></div>
+                            <div class="stat-info">
+                                <div class="stat-label">Preview</div>
+                                <div class="stat-value" style="font-size:1em">Frontdesk</div>
+                            </div>
+                        </div>
+                        <div class="stat-card" onclick="window.open('/laboratory.html','_blank')"
+                            style="cursor:pointer">
+                            <div class="stat-icon orange"><i class="fa-solid fa-microscope"></i></div>
+                            <div class="stat-info">
+                                <div class="stat-label">Preview</div>
+                                <div class="stat-value" style="font-size:1em">Laboratory</div>
+                            </div>
+                        </div>
+                        <div class="stat-card" onclick="window.open('/owner.html','_blank')" style="cursor:pointer">
+                            <div class="stat-icon purple"><i class="fa-solid fa-building"></i></div>
+                            <div class="stat-info">
+                                <div class="stat-label">Preview</div>
+                                <div class="stat-value" style="font-size:1em">Owner</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -108,53 +294,95 @@
 
     <!-- Lab Modal -->
     <div id="lab-modal" class="modal-overlay">
-        <div class="modal-box"><div class="modal-header"><div class="modal-title"><i class="fa-solid fa-flask-vial"></i> Add Laboratory</div><button class="modal-close" onclick="closeModal('lab-modal')">&times;</button></div>
-        <div class="modal-body">
-            <input type="hidden" id="lab-edit-id">
-            <div class="form-group"><label class="form-label">Name</label><input type="text" class="form-input" id="lab-name"></div>
-            <div class="form-group"><label class="form-label">Service Type</label><input type="text" class="form-input" id="lab-type" placeholder="e.g., X-Ray, Blood Test"></div>
-            <div class="form-group"><label class="form-label">Assign Staff</label><select class="form-select" id="lab-staff"><option value="">Unassigned</option></select></div>
+        <div class="modal-box">
+            <div class="modal-header">
+                <div class="modal-title"><i class="fa-solid fa-flask-vial"></i> Add Laboratory</div><button
+                    class="modal-close" onclick="closeModal('lab-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="lab-edit-id">
+                <div class="form-group"><label class="form-label">Name</label><input type="text" class="form-input"
+                        id="lab-name"></div>
+                <div class="form-group"><label class="form-label">Service Type</label><input type="text"
+                        class="form-input" id="lab-type" placeholder="e.g., X-Ray, Blood Test"></div>
+                <div class="form-group"><label class="form-label">Assign Staff</label><select class="form-select"
+                        id="lab-staff">
+                        <option value="">Unassigned</option>
+                    </select></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary"
+                    onclick="closeModal('lab-modal')">Cancel</button><button class="btn btn-success"
+                    onclick="saveLab()">Save</button></div>
         </div>
-        <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('lab-modal')">Cancel</button><button class="btn btn-success" onclick="saveLab()">Save</button></div></div>
     </div>
 
     <!-- Edit User Modal -->
     <div id="user-modal" class="modal-overlay">
-        <div class="modal-box"><div class="modal-header"><div class="modal-title">Edit User</div><button class="modal-close" onclick="closeModal('user-modal')">&times;</button></div>
-        <div class="modal-body">
-            <input type="hidden" id="edit-user-id">
-            <div class="form-group"><label class="form-label">Username</label><input type="text" class="form-input" id="edit-username" disabled></div>
-            <div class="form-group"><label class="form-label">New Password (optional)</label><input type="password" class="form-input" id="edit-password"></div>
-            <div class="form-group"><label class="form-label">Role</label><select class="form-select" id="edit-role"></select></div>
+        <div class="modal-box">
+            <div class="modal-header">
+                <div class="modal-title">Edit User</div><button class="modal-close"
+                    onclick="closeModal('user-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-user-id">
+                <div class="form-group"><label class="form-label">Username</label><input type="text" class="form-input"
+                        id="edit-username" disabled></div>
+                <div class="form-group"><label class="form-label">New Password (optional)</label><input type="password"
+                        class="form-input" id="edit-password"></div>
+                <div class="form-group"><label class="form-label">Role</label><select class="form-select"
+                        id="edit-role"></select></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary"
+                    onclick="closeModal('user-modal')">Cancel</button><button class="btn btn-success"
+                    onclick="updateUser()">Save</button></div>
         </div>
-        <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('user-modal')">Cancel</button><button class="btn btn-success" onclick="updateUser()">Save</button></div></div>
     </div>
 
     <!-- Add/Edit Service Modal -->
     <div id="svc-modal" class="modal-overlay">
         <div class="modal-box" style="max-width:560px;">
-            <div class="modal-header"><div class="modal-title"><i class="fa-solid fa-box-open"></i> <span id="svc-modal-title">Add Service Package</span></div><button class="modal-close" onclick="closeModal('svc-modal')">&times;</button></div>
+            <div class="modal-header">
+                <div class="modal-title"><i class="fa-solid fa-box-open"></i> <span id="svc-modal-title">Add Service
+                        Package</span></div><button class="modal-close"
+                    onclick="closeModal('svc-modal')">&times;</button>
+            </div>
             <div class="modal-body">
                 <input type="hidden" id="svc-edit-id">
-                <div class="form-group"><label class="form-label">Package Name</label><input type="text" class="form-input" id="svc-name"></div>
-                <div class="form-group"><label class="form-label">Description</label><input type="text" class="form-input" id="svc-desc"></div>
-                <div class="grid-2"><div class="form-group"><label class="form-label">Price (₱)</label><input type="number" class="form-input" id="svc-price" step="0.01"></div>
-                <div class="form-group"><label class="form-label">Est. Time (min)</label><input type="number" class="form-input" id="svc-time" disabled placeholder="AI Calculated"></div></div>
-                <div class="form-group"><label class="form-label">Laboratory Sequence</label><div id="svc-lab-list"></div>
-                <button class="btn btn-sm btn-outline mt-sm" onclick="addLabToSequence()"><i class="fa-solid fa-plus"></i> Add Lab Step</button></div>
+                <div class="form-group"><label class="form-label">Package Name</label><input type="text"
+                        class="form-input" id="svc-name"></div>
+                <div class="form-group"><label class="form-label">Description</label><input type="text"
+                        class="form-input" id="svc-desc"></div>
+                <div class="grid-2">
+                    <div class="form-group"><label class="form-label">Price (₱)</label><input type="number"
+                            class="form-input" id="svc-price" step="0.01"></div>
+                    <div class="form-group"><label class="form-label">Est. Time (min)</label><input type="number"
+                            class="form-input" id="svc-time" disabled placeholder="AI Calculated"></div>
+                </div>
+                <div class="form-group"><label class="form-label">Laboratory Sequence</label>
+                    <div id="svc-lab-list"></div>
+                    <button class="btn btn-sm btn-outline mt-sm" onclick="addLabToSequence()"><i
+                            class="fa-solid fa-plus"></i> Add Lab Step</button>
+                </div>
             </div>
-            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('svc-modal')">Cancel</button><button class="btn btn-success" onclick="saveService()">Save</button></div>
+            <div class="modal-footer"><button class="btn btn-secondary"
+                    onclick="closeModal('svc-modal')">Cancel</button><button class="btn btn-success"
+                    onclick="saveService()">Save</button></div>
         </div>
     </div>
 
     <!-- Select Lab Modal -->
     <div id="select-lab-modal" class="modal-overlay" style="z-index: 10000;">
         <div class="modal-box" style="max-width:400px;">
-            <div class="modal-header"><div class="modal-title">Select Laboratory</div><button class="modal-close" onclick="closeModal('select-lab-modal')">&times;</button></div>
+            <div class="modal-header">
+                <div class="modal-title">Select Laboratory</div><button class="modal-close"
+                    onclick="closeModal('select-lab-modal')">&times;</button>
+            </div>
             <div class="modal-body">
                 <select id="lab-select-dropdown" class="form-select"></select>
             </div>
-            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('select-lab-modal')">Cancel</button><button class="btn btn-primary" onclick="confirmAddLab()">Add</button></div>
+            <div class="modal-footer"><button class="btn btn-secondary"
+                    onclick="closeModal('select-lab-modal')">Cancel</button><button class="btn btn-primary"
+                    onclick="confirmAddLab()">Add</button></div>
         </div>
     </div>
 
@@ -162,4 +390,5 @@
     <script src="shared.js"></script>
     <script src="admintechnical.js"></script>
 </body>
+
 </html>
