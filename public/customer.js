@@ -364,6 +364,10 @@ async function ensureMedicalFormComplete(force = false) {
 }
 
 function skipMandatoryMedicalForm() {
+    if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+    }
     closeModal('mandatory-med-modal');
 }
 
@@ -394,32 +398,85 @@ function toggleSurgeryInput() {
     document.getElementById('surgery-spec-div').style.display = val === 'Yes' ? 'block' : 'none';
 }
 
-async function scanReqID() {
-    const fileInput = document.getElementById('req-id-scan');
-    if (!fileInput.files.length) return;
-    
+let cameraStream = null;
+
+async function toggleCamera() {
+    const btn = document.getElementById('camera-toggle-btn');
+    const captureBtn = document.getElementById('camera-capture-btn');
+    const video = document.getElementById('camera-stream');
     const status = document.getElementById('req-scan-status');
-    status.textContent = 'Scanning...';
-    
-    const formData = new FormData();
-    formData.append('idImage', fileInput.files[0]);
-    
-    try {
-        const res = await fetch('/api/auth/ocr', { method: 'POST', body: formData });
-        const data = await res.json();
-        if (data.success) {
-            if (data.name) {
-                const parts = data.name.trim().split(/\s+/).filter(Boolean);
-                document.getElementById('req-med-first-name').value = parts.slice(0, -1).join(' ');
-                document.getElementById('req-med-surname').value = parts[parts.length - 1] || '';
+
+    if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+        video.style.display = 'none';
+        captureBtn.style.display = 'none';
+        btn.innerHTML = '<i class="fa-solid fa-camera"></i> Start Camera';
+        status.textContent = '';
+    } else {
+        try {
+            status.textContent = 'Requesting camera access...';
+            cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            video.srcObject = cameraStream;
+            video.style.display = 'block';
+            captureBtn.style.display = 'inline-block';
+            btn.innerHTML = '<i class="fa-solid fa-camera-slash"></i> Stop Camera';
+            status.textContent = 'Camera ready — position your ID and click Capture';
+        } catch (err) {
+            status.textContent = 'Camera access denied or not available';
+            console.error(err);
+        }
+    }
+}
+
+async function captureIDPhoto() {
+    const video = document.getElementById('camera-stream');
+    const canvas = document.getElementById('capture-canvas');
+    const status = document.getElementById('req-scan-status');
+
+    if (!video.srcObject) {
+        status.textContent = 'Camera not active';
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+
+    status.textContent = 'Processing ID...';
+
+    canvas.toBlob(async (blob) => {
+        const formData = new FormData();
+        formData.append('idImage', blob, 'id-photo.jpg');
+
+        try {
+            const res = await fetch('/api/auth/ocr', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.success) {
+                if (data.name) {
+                    const parts = data.name.trim().split(/\s+/).filter(Boolean);
+                    document.getElementById('req-med-first-name').value = parts.slice(0, -1).join(' ');
+                    document.getElementById('req-med-surname').value = parts[parts.length - 1] || '';
+                }
+                if (data.gender) document.getElementById('req-med-gender').value = data.gender;
+                if (data.birthday) {
+                    document.getElementById('req-med-birthdate').value = data.birthday;
+                }
+                status.textContent = 'ID scan complete! Fields auto-filled.';
+                cameraStream.getTracks().forEach(track => track.stop());
+                cameraStream = null;
+                document.getElementById('camera-stream').style.display = 'none';
+                document.getElementById('camera-capture-btn').style.display = 'none';
+                document.getElementById('camera-toggle-btn').innerHTML = '<i class="fa-solid fa-camera"></i> Start Camera';
+            } else {
+                status.textContent = 'Scan failed. Try again.';
             }
-            if (data.gender) document.getElementById('req-med-gender').value = data.gender;
-            if (data.birthday) {
-                document.getElementById('req-med-birthdate').value = data.birthday;
-            }
-            status.textContent = 'Scan complete! Fields auto-filled.';
-        } else { status.textContent = 'Scan failed.'; }
-    } catch (err) { status.textContent = 'Scan error.'; }
+        } catch (err) {
+            status.textContent = 'Scan error. Try again.';
+            console.error(err);
+        }
+    }, 'image/jpeg', 0.9);
 }
 
 async function submitMandatoryMedicalForm() {

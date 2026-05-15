@@ -1,4 +1,7 @@
 // Landing page JS — Login + Registration
+let regCameraStream = null;
+let regCapturedBlob = null;
+
 const LANDING_SERVICES = [
     ['Hematology (CBC)', 450],
     ['Clinical Microscopy', 300],
@@ -39,6 +42,62 @@ function switchAuthTab(tab) {
     document.getElementById('tab-login').classList.toggle('active', tab === 'login');
     document.getElementById('tab-register').classList.toggle('active', tab === 'register');
 }
+
+async function toggleRegCamera() {
+    const btn = document.getElementById('reg-camera-toggle');
+    const captureBtn = document.getElementById('reg-camera-capture');
+    const video = document.getElementById('reg-camera-stream');
+    const status = document.getElementById('reg-camera-status');
+
+    if (regCameraStream) {
+        regCameraStream.getTracks().forEach(track => track.stop());
+        regCameraStream = null;
+        video.style.display = 'none';
+        captureBtn.style.display = 'none';
+        btn.innerHTML = '<i class="fa-solid fa-camera"></i> Start Camera';
+        status.textContent = 'Any Valid ID';
+    } else {
+        try {
+            status.textContent = 'Requesting camera access...';
+            regCameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            video.srcObject = regCameraStream;
+            video.style.display = 'block';
+            captureBtn.style.display = 'inline-block';
+            btn.innerHTML = '<i class="fa-solid fa-camera-slash"></i> Stop Camera';
+            status.textContent = 'Position your ID and click Capture';
+        } catch (err) {
+            status.textContent = 'Camera access denied or not available';
+            console.error(err);
+        }
+    }
+}
+
+async function captureRegID() {
+    const video = document.getElementById('reg-camera-stream');
+    const canvas = document.getElementById('reg-capture-canvas');
+    const status = document.getElementById('reg-camera-status');
+
+    if (!video.srcObject) {
+        status.textContent = 'Camera not active';
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+
+    canvas.toBlob((blob) => {
+        regCapturedBlob = blob;
+        status.textContent = 'Photo captured successfully ✓';
+        regCameraStream.getTracks().forEach(track => track.stop());
+        regCameraStream = null;
+        video.style.display = 'none';
+        document.getElementById('reg-camera-capture').style.display = 'none';
+        document.getElementById('reg-camera-toggle').innerHTML = '<i class="fa-solid fa-camera"></i> Retake Photo';
+    }, 'image/jpeg', 0.9);
+}
+
 
 async function handleLogin(e) {
     e.preventDefault();
@@ -82,9 +141,8 @@ async function handleRegister(e) {
     const btn = document.getElementById('reg-btn');
     btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing ID...';
 
-    const fileInput = document.getElementById('reg-id-photo');
-    if (!fileInput.files.length) {
-        errEl.textContent = 'ID Photo is required'; errEl.classList.add('show');
+    if (!regCapturedBlob) {
+        errEl.textContent = 'ID Photo is required. Please capture your ID using the camera.'; errEl.classList.add('show');
         btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Register';
         return;
     }
@@ -93,7 +151,7 @@ async function handleRegister(e) {
     formData.append('username', document.getElementById('reg-username').value);
     formData.append('password', document.getElementById('reg-password').value);
     formData.append('email', document.getElementById('reg-email').value);
-    formData.append('idImage', fileInput.files[0]);
+    formData.append('idImage', regCapturedBlob, 'id-photo.jpg');
 
     try {
         const res = await fetch('/api/auth/register', { method: 'POST', body: formData });
@@ -101,6 +159,7 @@ async function handleRegister(e) {
         if (res.ok) {
             sucEl.textContent = `Registration complete! Category: ${data.category}. Redirecting to login...`;
             sucEl.classList.add('show');
+            regCapturedBlob = null;
             setTimeout(() => switchAuthTab('login'), 2500);
         } else {
             errEl.textContent = data.error || 'Registration failed';
