@@ -72,10 +72,29 @@ router.put('/users/:id', async (req, res) => {
 });
 
 router.delete('/users/:id', async (req, res) => {
+    const { reason } = req.body;
     try {
-        await archiveRecord('users', 'id', req.params.id, 'user', req.user.id);
+        const [userRows] = await pool.query('SELECT username, full_name FROM users WHERE id=?', [req.params.id]);
+        if (userRows.length === 0) return res.status(404).json({ error: 'User not found' });
+        const user = userRows[0];
+
+        const archived = await archiveRecord('users', 'id', req.params.id, 'user', req.user.id);
+        if (archived) {
+            await pool.query(
+                `INSERT INTO account_deletion_logs (account_id, account_name, deleted_by, deleted_by_name, reason)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [req.params.id, user.full_name || user.username, req.user.id, req.user.username, reason || 'No reason provided']
+            );
+        }
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'Failed to delete user' }); }
+});
+
+router.get('/users/deletion-logs', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM account_deletion_logs ORDER BY deleted_at DESC LIMIT 100');
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
 // --- LABORATORIES ---
@@ -117,6 +136,47 @@ router.delete('/laboratories/:id', async (req, res) => {
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
+
+// --- DOCTORS ---
+router.get('/doctors', async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT d.*, u.username as staff_name FROM doctors d
+            LEFT JOIN users u ON d.assigned_staff_id = u.id WHERE d.archived = false ORDER BY d.name
+        `);
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+router.post('/doctors', async (req, res) => {
+    const { name, specialty, assigned_staff_id } = req.body;
+    try {
+        await pool.query(
+            'INSERT INTO doctors (name, specialty, assigned_staff_id) VALUES (?, ?, ?)',
+            [name, specialty || '', assigned_staff_id || null]
+        );
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+router.put('/doctors/:id', async (req, res) => {
+    const { name, specialty, assigned_staff_id, is_open } = req.body;
+    try {
+        await pool.query(
+            'UPDATE doctors SET name=?, specialty=?, assigned_staff_id=?, is_open=? WHERE id=?',
+            [name, specialty || '', assigned_staff_id || null, is_open !== false, req.params.id]
+        );
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+router.delete('/doctors/:id', async (req, res) => {
+    try {
+        await archiveRecord('doctors', 'id', req.params.id, 'doctor', req.user.id);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
 
 // --- APPOINTMENTS ---
 router.get('/appointments', async (req, res) => {
@@ -231,6 +291,24 @@ router.get('/analytics/laboratory/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+router.get('/analytics/doctor/:id', async (req, res) => {
+    try {
+        const sid = req.params.id;
+        const [avg] = await pool.query(`SELECT AVG(TIMESTAMPDIFF(MINUTE,serve_time,complete_time)) as v FROM queue_logs WHERE station_type='doctor' AND station_id=? AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE()`, [sid]);
+        const [waiting] = await pool.query(`SELECT COUNT(*) as v FROM queue WHERE station_type='doctor' AND station_id=? AND status='waiting'`, [sid]);
+        const [perHour] = await pool.query(`SELECT COUNT(*)/GREATEST(1,TIMESTAMPDIFF(HOUR,MIN(serve_time),MAX(complete_time))) as v FROM queue_logs WHERE station_type='doctor' AND station_id=? AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE()`, [sid]);
+        const estFinish = (waiting[0].v) * (parseFloat(avg[0].v) || 10);
+        const [logs] = await pool.query(`SELECT ql.*, u.full_name, u.customer_category FROM queue_logs ql LEFT JOIN users u ON ql.customer_id=u.id WHERE ql.station_type='doctor' AND ql.station_id=? AND DATE(ql.join_time)=CURDATE() ORDER BY ql.join_time DESC`, [sid]);
+        res.json({
+            avg_time: parseFloat(avg[0].v || 0).toFixed(1),
+            waiting_count: waiting[0].v,
+            per_hour: parseFloat(perHour[0].v || 0).toFixed(1),
+            est_finish: Math.ceil(estFinish),
+            logs
+        });
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
 router.get('/analytics/admin', async (req, res) => {
     try {
         const [userCounts] = await pool.query(`SELECT role, COUNT(*) as cnt FROM users WHERE archived=false GROUP BY role`);
@@ -295,9 +373,9 @@ router.put('/settings', async (req, res) => {
 // --- MEDICAL RECORDS ---
 router.get('/medical-records/my', async (req, res) => {
     try {
-        const [user] = await pool.query('SELECT full_name, gender, birthday FROM users WHERE id = ?', [req.user.id]);
+        const [user] = await pool.query('SELECT id, customer_uid, full_name, surname, first_name, middle_name, no_middle_name, gender, birthday, customer_category, verification_method, is_underage, guardian_name, guardian_contact, guardian_relationship FROM users WHERE id = ?', [req.user.id]);
         const [rows] = await pool.query('SELECT * FROM medical_records WHERE customer_id = ? AND archived=false', [req.user.id]);
-        
+
         if (rows.length > 0) {
             res.json({ ...rows[0], user: user[0] });
         } else {
@@ -310,6 +388,14 @@ router.post('/medical-records/my', async (req, res) => {
     const { full_name, surname, first_name, middle_name, no_middle_name, gender, birthday, birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions } = req.body;
     const customer_id = req.user.id;
     try {
+        const missing = [];
+        const required = { surname, first_name, gender, birthday, birthplace, status, address, phone, occupation, emergency_contact };
+        Object.entries(required).forEach(([key, value]) => {
+            if (!String(value || '').trim()) missing.push(key);
+        });
+        if (!no_middle_name && !String(middle_name || '').trim()) missing.push('middle_name');
+        if (missing.length > 0) return res.status(400).json({ error: 'Missing required fields', fields: missing });
+
         await pool.query(
             'UPDATE users SET full_name=?, surname=?, first_name=?, middle_name=?, no_middle_name=?, gender=?, birthday=? WHERE id=?',
             [full_name, surname || '', first_name || '', middle_name || '', no_middle_name ? 1 : 0, gender || null, birthday || null, customer_id]
@@ -334,9 +420,9 @@ router.post('/medical-records/my', async (req, res) => {
 
 router.get('/medical-records/:customerId', async (req, res) => {
     try {
-        const [user] = await pool.query('SELECT full_name, gender, birthday FROM users WHERE id = ?', [req.params.customerId]);
+        const [user] = await pool.query('SELECT id, customer_uid, full_name, surname, first_name, middle_name, no_middle_name, gender, birthday, customer_category, verification_method, is_underage, guardian_name, guardian_contact, guardian_relationship FROM users WHERE id = ?', [req.params.customerId]);
         const [rows] = await pool.query('SELECT * FROM medical_records WHERE customer_id = ? AND archived=false', [req.params.customerId]);
-        
+
         if (rows.length > 0) {
             res.json({ ...rows[0], user: user[0] });
         } else {
@@ -346,8 +432,13 @@ router.get('/medical-records/:customerId', async (req, res) => {
 });
 
 router.post('/medical-records', async (req, res) => {
-    const { customer_id, birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions } = req.body;
+    const { customer_id, full_name, surname, first_name, middle_name, no_middle_name, gender, birthday, customer_category, birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions } = req.body;
     try {
+        await pool.query(
+            'UPDATE users SET full_name=?, surname=?, first_name=?, middle_name=?, no_middle_name=?, gender=?, birthday=?, customer_category=? WHERE id=?',
+            [full_name, surname || '', first_name || '', middle_name || '', no_middle_name ? 1 : 0, gender || null, birthday || null, customer_category || 'Regular', customer_id]
+        );
+
         const [existing] = await pool.query('SELECT id FROM medical_records WHERE customer_id = ? AND archived=false', [customer_id]);
         if (existing.length > 0) {
             await pool.query(
@@ -362,7 +453,10 @@ router.post('/medical-records', async (req, res) => {
             );
         }
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    } catch (err) {
+        console.error('Error updating patient record:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
 // --- LAB NOTES ---
@@ -389,7 +483,49 @@ router.post('/lab-notes', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-// --- FAQS (for chatbot) ---
+// --- CLINICAL RECORDS ---
+router.post('/clinical-records', async (req, res) => {
+    const { customer_id, sequence_id, record_type, data, notes } = req.body;
+    try {
+        await pool.query(
+            `INSERT INTO clinical_records (customer_id, sequence_id, record_type, data, notes, staff_id)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [customer_id, sequence_id || null, record_type, data ? JSON.stringify(data) : null, notes || null, req.user.id]
+        );
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Failed to save clinical record' }); }
+});
+
+router.get('/clinical-records/my', async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT cr.*, u.username as staff_name, u.full_name as staff_full_name
+             FROM clinical_records cr
+             LEFT JOIN users u ON cr.staff_id = u.id
+             WHERE cr.customer_id = ? AND cr.archived = false
+             ORDER BY cr.created_at DESC`,
+            [req.user.id]
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+router.get('/clinical-records/:customerId', async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT cr.*, u.username as staff_name, u.full_name as staff_full_name
+             FROM clinical_records cr
+             LEFT JOIN users u ON cr.staff_id = u.id
+             WHERE cr.customer_id = ? AND cr.archived = false
+             ORDER BY cr.created_at DESC`,
+            [req.params.customerId]
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+
+// --- FAQS / SERVICE PRICE REFERENCE ---
 router.get('/faqs', async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM pricing_faqs');
@@ -413,6 +549,7 @@ router.post('/archives/:id/restore', async (req, res) => {
     const map = {
         user: ['users', 'id'],
         laboratory: ['laboratories', 'id'],
+        doctor: ['doctors', 'id'],
         service_package: ['service_packages', 'id'],
         appointment: ['appointments', 'id'],
         queue: ['queue', 'id'],
@@ -436,6 +573,7 @@ router.delete('/archives/:id', async (req, res) => {
     const map = {
         user: ['users', 'id'],
         laboratory: ['laboratories', 'id'],
+        doctor: ['doctors', 'id'],
         service_package: ['service_packages', 'id'],
         appointment: ['appointments', 'id'],
         queue: ['queue', 'id'],

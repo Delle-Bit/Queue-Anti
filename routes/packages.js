@@ -14,7 +14,13 @@ function authRequired(req, res, next) {
 // GET all packages with lab details
 router.get('/', async (req, res) => {
     try {
-        const [packages] = await pool.query('SELECT * FROM service_packages WHERE is_active = true AND archived = false ORDER BY name');
+        const [packages] = await pool.query(`
+            SELECT sp.*, d.name as doctor_name, d.specialty as doctor_specialty
+            FROM service_packages sp
+            LEFT JOIN doctors d ON sp.doctor_id = d.id AND d.archived = false
+            WHERE sp.is_active = true AND sp.archived = false
+            ORDER BY sp.name
+        `);
         for (let pkg of packages) {
             const [labs] = await pool.query(
                 `SELECT pl.*, l.name as lab_name, l.service_type
@@ -31,7 +37,12 @@ router.get('/', async (req, res) => {
 // GET package details with real-time ETA
 router.get('/:id/details', async (req, res) => {
     try {
-        const [pkgs] = await pool.query('SELECT * FROM service_packages WHERE id = ? AND archived = false', [req.params.id]);
+        const [pkgs] = await pool.query(`
+            SELECT sp.*, d.name as doctor_name, d.specialty as doctor_specialty
+            FROM service_packages sp
+            LEFT JOIN doctors d ON sp.doctor_id = d.id AND d.archived = false
+            WHERE sp.id = ? AND sp.archived = false
+        `, [req.params.id]);
         if (pkgs.length === 0) return res.status(404).json({ error: 'Package not found' });
         const pkg = pkgs[0];
 
@@ -53,6 +64,11 @@ router.get('/:id/details', async (req, res) => {
             const [labAvg] = await pool.query(`SELECT AVG(TIMESTAMPDIFF(MINUTE, serve_time, complete_time)) as avg_mins FROM queue_logs WHERE station_type='laboratory' AND station_id=? AND complete_time IS NOT NULL AND DATE(join_time) = CURDATE()`, [lab.laboratory_id]);
             totalEta += (labQueue[0].cnt + 1) * (parseFloat(labAvg[0].avg_mins) || lab.est_time_minutes || 10);
         }
+        if (pkg.doctor_id) {
+            const [docQueue] = await pool.query(`SELECT COUNT(*) as cnt FROM queue WHERE station_type='doctor' AND station_id=? AND status='waiting'`, [pkg.doctor_id]);
+            const [docAvg] = await pool.query(`SELECT AVG(TIMESTAMPDIFF(MINUTE, serve_time, complete_time)) as avg_mins FROM queue_logs WHERE station_type='doctor' AND station_id=? AND complete_time IS NOT NULL AND DATE(join_time) = CURDATE()`, [pkg.doctor_id]);
+            totalEta += (docQueue[0].cnt + 1) * (parseFloat(docAvg[0].avg_mins) || 15);
+        }
 
         pkg.estimated_total_time = Math.ceil(totalEta);
         res.json(pkg);
@@ -61,11 +77,11 @@ router.get('/:id/details', async (req, res) => {
 
 // POST create package (frontdesk/admin)
 router.post('/', authRequired, async (req, res) => {
-    const { name, description, price, est_time_minutes, laboratories } = req.body;
+    const { name, description, price, est_time_minutes, laboratories, doctor_id } = req.body;
     try {
         const [result] = await pool.query(
-            'INSERT INTO service_packages (name, description, price, est_time_minutes) VALUES (?, ?, ?, ?)',
-            [name, description || '', price, est_time_minutes || 15]
+            'INSERT INTO service_packages (name, description, price, est_time_minutes, doctor_id) VALUES (?, ?, ?, ?, ?)',
+            [name, description || '', price, est_time_minutes || 15, doctor_id || null]
         );
         const pkgId = result.insertId;
         if (laboratories && laboratories.length > 0) {
@@ -84,11 +100,11 @@ router.post('/', authRequired, async (req, res) => {
 
 // PUT update package
 router.put('/:id', authRequired, async (req, res) => {
-    const { name, description, price, est_time_minutes, laboratories, is_active } = req.body;
+    const { name, description, price, est_time_minutes, laboratories, is_active, doctor_id } = req.body;
     try {
         await pool.query(
-            'UPDATE service_packages SET name=?, description=?, price=?, est_time_minutes=?, is_active=? WHERE id=?',
-            [name, description, price, est_time_minutes, is_active !== false, req.params.id]
+            'UPDATE service_packages SET name=?, description=?, price=?, est_time_minutes=?, doctor_id=?, is_active=? WHERE id=?',
+            [name, description, price, est_time_minutes, doctor_id || null, is_active !== false, req.params.id]
         );
         if (laboratories) {
             await pool.query('UPDATE package_laboratories SET archived=true, archived_at=NOW() WHERE package_id = ?', [req.params.id]);

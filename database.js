@@ -64,8 +64,9 @@ async function initDB() {
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 username VARCHAR(50) UNIQUE NOT NULL,
                 password_hash VARCHAR(255) NOT NULL,
-                role ENUM('admintechnical','admin','customer','frontdesk','laboratory','owner') NOT NULL DEFAULT 'customer',
+                role ENUM('admintechnical','admin','customer','frontdesk','laboratory','owner','doctor') NOT NULL DEFAULT 'customer',
                 customer_category ENUM('Regular','Senior','PWD','Pregnant') DEFAULT NULL,
+                customer_uid VARCHAR(30) DEFAULT NULL UNIQUE,
                 full_name VARCHAR(255) DEFAULT '',
                 surname VARCHAR(100) DEFAULT '',
                 first_name VARCHAR(100) DEFAULT '',
@@ -74,6 +75,11 @@ async function initDB() {
                 email VARCHAR(255) DEFAULT '',
                 birthday DATE DEFAULT NULL,
                 gender ENUM('Male','Female','Other') DEFAULT NULL,
+                verification_method ENUM('id','guardian') DEFAULT 'id',
+                is_underage BOOLEAN DEFAULT false,
+                guardian_name VARCHAR(255) DEFAULT '',
+                guardian_contact VARCHAR(100) DEFAULT '',
+                guardian_relationship VARCHAR(100) DEFAULT '',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 reset_token VARCHAR(255),
                 reset_expiry DATETIME,
@@ -98,6 +104,20 @@ async function initDB() {
             )
         `);
 
+        // Doctors
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS doctors (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(150) NOT NULL,
+                specialty VARCHAR(100) DEFAULT '',
+                assigned_staff_id INT DEFAULT NULL,
+                is_open BOOLEAN DEFAULT true,
+                archived BOOLEAN DEFAULT false,
+                archived_at DATETIME DEFAULT NULL,
+                FOREIGN KEY (assigned_staff_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+        `);
+
         // Service Packages
         await pool.query(`
             CREATE TABLE IF NOT EXISTS service_packages (
@@ -106,10 +126,12 @@ async function initDB() {
                 description TEXT,
                 price DECIMAL(10,2) NOT NULL DEFAULT 0,
                 est_time_minutes INT DEFAULT 15,
+                doctor_id INT DEFAULT NULL,
                 is_active BOOLEAN DEFAULT true,
                 archived BOOLEAN DEFAULT false,
                 archived_at DATETIME DEFAULT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE SET NULL
             )
         `);
 
@@ -132,7 +154,7 @@ async function initDB() {
         await pool.query(`
             CREATE TABLE IF NOT EXISTS queue (
                 id VARCHAR(100) PRIMARY KEY,
-                station_type ENUM('frontdesk','laboratory') NOT NULL DEFAULT 'frontdesk',
+                station_type ENUM('frontdesk','laboratory','doctor') NOT NULL DEFAULT 'frontdesk',
                 station_id INT DEFAULT NULL,
                 number VARCHAR(30) NOT NULL,
                 type VARCHAR(10) NOT NULL,
@@ -168,7 +190,7 @@ async function initDB() {
         await pool.query(`
             CREATE TABLE IF NOT EXISTS queue_logs (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                station_type ENUM('frontdesk','laboratory') DEFAULT 'frontdesk',
+                station_type ENUM('frontdesk','laboratory','doctor') DEFAULT 'frontdesk',
                 station_id INT DEFAULT NULL,
                 ticket_number VARCHAR(30),
                 type VARCHAR(10),
@@ -244,6 +266,24 @@ async function initDB() {
             )
         `);
 
+        // Clinical Records
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS clinical_records (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                customer_id INT NOT NULL,
+                sequence_id INT DEFAULT NULL,
+                record_type ENUM('lab_result','examination','diagnostic','prescription') NOT NULL,
+                data JSON DEFAULT NULL,
+                notes TEXT DEFAULT NULL,
+                staff_id INT DEFAULT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                archived BOOLEAN DEFAULT false,
+                archived_at DATETIME DEFAULT NULL,
+                FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (staff_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+        `);
+
         // Announcements
         await pool.query(`
             CREATE TABLE IF NOT EXISTS announcements (
@@ -291,7 +331,21 @@ async function initDB() {
             )
         `);
 
-        // Pricing FAQs (kept for chatbot reference)
+        // Account Deletion Logs
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS account_deletion_logs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                account_id INT NOT NULL,
+                account_name VARCHAR(255),
+                deleted_by INT,
+                deleted_by_name VARCHAR(255),
+                reason TEXT,
+                deleted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE SET NULL
+            )
+        `);
+
+        // Pricing FAQs / service price reference
         await pool.query(`
             CREATE TABLE IF NOT EXISTS pricing_faqs (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -316,7 +370,7 @@ async function initDB() {
             )
         `);
 
-        const archiveTables = ['users', 'laboratories', 'service_packages', 'package_laboratories', 'queue', 'queue_sequences', 'queue_logs', 'appointments', 'medical_records', 'lab_notes'];
+        const archiveTables = ['users', 'laboratories', 'doctors', 'service_packages', 'package_laboratories', 'queue', 'queue_sequences', 'queue_logs', 'appointments', 'medical_records', 'lab_notes'];
         for (const table of archiveTables) {
             await addColumnIfMissing(table, 'archived', 'BOOLEAN DEFAULT false');
             await addColumnIfMissing(table, 'archived_at', 'DATETIME DEFAULT NULL');
@@ -325,9 +379,23 @@ async function initDB() {
         await addColumnIfMissing('users', 'first_name', "VARCHAR(100) DEFAULT ''");
         await addColumnIfMissing('users', 'middle_name', "VARCHAR(100) DEFAULT ''");
         await addColumnIfMissing('users', 'no_middle_name', 'BOOLEAN DEFAULT false');
+        await addColumnIfMissing('users', 'customer_uid', 'VARCHAR(30) DEFAULT NULL UNIQUE');
+        await addColumnIfMissing('users', 'verification_method', "ENUM('id','guardian') DEFAULT 'id'");
+        await addColumnIfMissing('users', 'is_underage', 'BOOLEAN DEFAULT false');
+        await addColumnIfMissing('users', 'guardian_name', "VARCHAR(255) DEFAULT ''");
+        await addColumnIfMissing('users', 'guardian_contact', "VARCHAR(100) DEFAULT ''");
+        await addColumnIfMissing('users', 'guardian_relationship', "VARCHAR(100) DEFAULT ''");
         await addColumnIfMissing('appointments', 'qr_token', 'VARCHAR(120) DEFAULT NULL');
         await addColumnIfMissing('appointments', 'checked_in_at', 'DATETIME DEFAULT NULL');
         await addIndexIfMissing('appointments', 'idx_appointments_qr_token', '(qr_token)');
+        await addColumnIfMissing('service_packages', 'doctor_id', 'INT DEFAULT NULL');
+        await addColumnIfMissing('queue_sequences', 'has_doctor_step', 'BOOLEAN DEFAULT false');
+        await addColumnIfMissing('queue_sequences', 'doctor_id', 'INT DEFAULT NULL');
+
+        // Alter ENUMs to include 'doctor' safely (ignore if already present)
+        try { await pool.query(`ALTER TABLE users MODIFY COLUMN role ENUM('admintechnical','admin','customer','frontdesk','laboratory','owner','doctor') NOT NULL DEFAULT 'customer'`); } catch(e) {}
+        try { await pool.query(`ALTER TABLE queue MODIFY COLUMN station_type ENUM('frontdesk','laboratory','doctor') NOT NULL DEFAULT 'frontdesk'`); } catch(e) {}
+        try { await pool.query(`ALTER TABLE queue_logs MODIFY COLUMN station_type ENUM('frontdesk','laboratory','doctor') DEFAULT 'frontdesk'`); } catch(e) {}
 
         console.log('[DB] All tables created successfully.');
     } catch (err) {

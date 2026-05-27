@@ -4,7 +4,8 @@ const navItems = [
     { section: 'MENU' },
     { id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-gauge-high' },
     { id: 'services', label: 'Services', icon: 'fa-solid fa-flask' },
-    { id: 'appointments', label: 'Appointments', icon: 'fa-solid fa-calendar-check' }
+    { id: 'appointments', label: 'Appointments', icon: 'fa-solid fa-calendar-check' },
+    { id: 'medical', label: 'Medical History', icon: 'fa-solid fa-notes-medical' }
 ];
 renderSidebar(navItems, 'dashboard');
 initDefaultSection();
@@ -12,52 +13,76 @@ initDefaultSection();
 let selectedPackageId = null;
 let medicalFormComplete = false;
 let calendarDate = new Date();
+let latestQueuePreview = null;
 const APPT_SLOTS = ['08:00', '09:00', '10:00', '11:00', '13:00', '14:00'];
 window.onSectionLoad = {
     dashboard: loadDashboard,
     services: loadServices,
-    appointments: loadAppointments
+    appointments: loadAppointments,
+    medical: loadMyMedicalRecords
+};
+
+window.onQueueUpdate = () => {
+    // Only refresh if current section needs it
+    const activeSection = document.querySelector('.content-section[style*="display: block"]');
+    if (activeSection) {
+        const id = activeSection.id.replace('section-', '');
+        if (id === 'dashboard') loadDashboard();
+        if (id === 'appointments') loadAppointments();
+        if (id === 'medical') loadMyMedicalRecords();
+    }
 };
 
 // ── DASHBOARD ──────────────────────────────────────────────────
 async function loadDashboard() {
     await checkMandatoryMedicalForm(false);
+    showSectionLoader('active-queue-panel', 'Updating queue status...');
     try {
         const res = await fetch('/api/queue/my-status', { headers: authHeaders() });
         const data = await res.json();
         if (!data.active) {
             document.getElementById('no-active-queue').style.display = 'block';
             document.getElementById('active-queue-panel').style.display = 'none';
+            hideSectionLoader('active-queue-panel');
             return;
         }
         document.getElementById('no-active-queue').style.display = 'none';
         document.getElementById('active-queue-panel').style.display = 'block';
 
-        document.getElementById('dash-position').textContent = data.position || '--';
         document.getElementById('dash-ahead').textContent = data.people_ahead;
-        document.getElementById('dash-eta').textContent = data.estimated_time > 0 ? data.estimated_time + 'm' : '--';
+        document.getElementById('dash-eta').textContent = data.estimated_total_time > 0 ? data.estimated_total_time + ' minutes' : '--';
         document.getElementById('dash-ticket').textContent = data.current_queue ? data.current_queue.number : '--';
+        document.getElementById('dash-current-processing').textContent = data.current_processing || '--';
 
         const stationLabel = data.current_queue
             ? (data.current_queue.station_type === 'frontdesk' ? 'Front Desk' : data.steps.find(s=>s.status==='active')?.name || 'Processing')
             : '--';
         document.getElementById('dash-current-station').textContent = 'Currently at: ' + stationLabel;
 
-        // Render stepper
-        let stepperHtml = '<div class="queue-stepper">';
-        data.steps.forEach((step, i) => {
-            if (i > 0) stepperHtml += `<div class="step-line ${step.status==='completed'?'completed':''}"></div>`;
-            const icon = step.status==='completed' ? '<i class="fa-solid fa-check"></i>' : (i+1);
-            stepperHtml += `<div class="step ${step.status}"><div class="step-circle">${icon}</div><div class="step-label">${step.name}</div></div>`;
-        });
-        stepperHtml += '</div>';
-        document.getElementById('queue-stepper-container').innerHTML = stepperHtml;
+        document.getElementById('queue-stepper-container').innerHTML = renderQueueProgressList(data.steps);
     } catch (err) { console.error('Dashboard error:', err); }
+    hideSectionLoader('active-queue-panel');
+}
+
+function renderQueueProgressList(steps = []) {
+    const labels = { pending: 'Pending', active: 'On Process', completed: 'Done' };
+    const icons = { pending: 'fa-clock', active: 'fa-spinner fa-spin', completed: 'fa-check' };
+    return `<div class="queue-progress-list">${steps.map((step, index) => `
+        <div class="queue-progress-item ${step.status}">
+            <div class="queue-progress-icon"><i class="fa-solid ${icons[step.status] || icons.pending}"></i></div>
+            <div class="queue-progress-copy">
+                <strong>${index + 1}. ${step.name}</strong>
+                <span>${step.type === 'frontdesk' ? 'Frontdesk verification and payment' : step.type === 'doctor' ? 'Doctor consultation' : 'Laboratory service'}</span>
+            </div>
+            <span class="queue-progress-status">${labels[step.status] || 'Pending'}</span>
+        </div>
+    `).join('')}</div>`;
 }
 
 // ── SERVICES ───────────────────────────────────────────────────
 async function loadServices() {
     try {
+        showSectionLoader('packages-grid', 'Loading services...');
         const res = await fetch('/api/packages');
         const packages = await res.json();
         const grid = document.getElementById('packages-grid');
@@ -78,6 +103,7 @@ async function loadServices() {
             </div>
         `).join('');
     } catch (err) { console.error(err); }
+    hideSectionLoader('packages-grid');
 }
 
 async function showPackageDetail(id) {
@@ -107,6 +133,32 @@ async function confirmPackage() {
     if (!(await ensureMedicalFormComplete(true))) return;
     const btn = document.getElementById('pkg-confirm-btn');
     btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Preparing Preview...';
+    try {
+        const res = await fetch(`/api/queue/preview-package/${selectedPackageId}`, { headers: authHeaders() });
+        const data = await res.json();
+        if (res.ok) {
+            latestQueuePreview = data;
+            closeModal('pkg-modal');
+            document.getElementById('preview-ticket').textContent = data.ticket || '--';
+            document.getElementById('preview-current-processing').textContent = data.current_processing || '--';
+            document.getElementById('preview-estimated-time').textContent = data.estimated_total_time ? `${data.estimated_total_time} minutes` : '--';
+            document.getElementById('preview-steps').innerHTML = renderQueueProgressList((data.steps || []).map(step => ({ ...step, status: 'pending' })));
+            openModal('queue-preview-modal');
+        } else {
+            if (data.medical_form_required) openModal('mandatory-med-modal');
+            showToast(data.error || 'Failed to prepare queue preview', 'error');
+        }
+    } catch (err) { showToast('Connection error', 'error'); }
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Confirm & Queue';
+}
+
+async function startPackageAfterPreview() {
+    if (!selectedPackageId) return;
+    const btn = document.getElementById('queue-preview-confirm-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Joining...';
     try {
         const res = await fetch('/api/queue/start-package', {
             method: 'POST', headers: authHeaders(),
@@ -114,16 +166,18 @@ async function confirmPackage() {
         });
         const data = await res.json();
         if (res.ok && data.success) {
-            closeModal('pkg-modal');
+            closeModal('queue-preview-modal');
             showToast('Queued successfully! Ticket: ' + data.ticket, 'success');
             navigateTo('dashboard');
             loadDashboard();
         } else {
-            if (data.medical_form_required) openModal('mandatory-med-modal');
-            showToast(data.error || 'Failed to queue', 'error');
+            showToast(data.error || 'Failed to join queue', 'error');
         }
-    } catch (err) { showToast('Connection error', 'error'); }
+    } catch (err) {
+        showToast('Connection error', 'error');
+    }
     btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Confirm & Join Queue';
 }
 
 async function cancelQueue() {
@@ -138,9 +192,10 @@ async function cancelQueue() {
 // ── APPOINTMENTS ───────────────────────────────────────────────
 async function loadAppointments() {
     try {
+        const tbody = document.getElementById('appointments-list');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="6"><div class="medical-inline-loader"><span class="medical-loader-heart"></span> Loading appointments...</div></td></tr>';
         const res = await fetch('/api/appointments/my', { headers: authHeaders() });
         const appts = await res.json();
-        const tbody = document.getElementById('appointments-list');
         if (appts.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted" style="padding:32px;">No appointments yet</td></tr>';
         } else {
@@ -150,6 +205,9 @@ async function loadAppointments() {
                 <td>${a.appointment_time}</td>
                 <td><span class="badge ${a.status==='scheduled'?'badge-warning':a.status==='paid'||a.status==='checked-in'?'badge-success':'badge-neutral'}">${a.status}</span></td>
                 <td>${formatCurrency(a.price)}</td>
+                <td>
+                    ${a.status === 'scheduled' ? `<button class="btn btn-sm btn-primary" onclick="openCheckInScanner(${a.id})"><i class="fa-solid fa-qrcode"></i> Check-In</button>` : '--'}
+                </td>
             </tr>`).join('');
         }
 
@@ -240,7 +298,7 @@ function apptPrevStep() {
 function updateApptModalView() {
     document.getElementById('appt-step-1').style.display = apptStep === 1 ? 'block' : 'none';
     document.getElementById('appt-step-2').style.display = apptStep === 2 ? 'block' : 'none';
-    
+
     document.getElementById('appt-prev-btn').style.display = apptStep > 1 ? 'inline-block' : 'none';
     document.getElementById('appt-next-btn').style.display = apptStep < 2 ? 'inline-block' : 'none';
     document.getElementById('appt-confirm-btn').style.display = apptStep === 2 ? 'inline-block' : 'none';
@@ -254,7 +312,7 @@ async function fetchTimeSlots() {
     try {
         const res = await fetch(`/api/queue/booked-slots?date=${dateInput}`, { headers: authHeaders() });
         const booked = await res.json();
-        
+
         let slotsHtml = '';
         APPT_SLOTS.forEach(timeStr => {
             const isBooked = booked.includes(timeStr);
@@ -336,22 +394,7 @@ async function checkMandatoryMedicalForm(force = false) {
         const data = await res.json();
         medicalFormComplete = !!data.id;
 
-        if (!data.id && force) {
-            // No medical record found, show modal and prefill user data
-            if (data.user) {
-                const parts = (data.user.full_name || '').trim().split(/\s+/).filter(Boolean);
-                if (parts.length > 1 && !document.getElementById('req-med-first-name').value) {
-                    document.getElementById('req-med-first-name').value = parts.slice(0, -1).join(' ');
-                    document.getElementById('req-med-surname').value = parts[parts.length - 1];
-                }
-                document.getElementById('req-med-gender').value = data.user.gender || '';
-                if (data.user.birthday) {
-                    const d = new Date(data.user.birthday);
-                    document.getElementById('req-med-birthdate').value = d.toISOString().split('T')[0];
-                }
-            }
-            openModal('mandatory-med-modal');
-        }
+        if (!data.id && force) openModal('mandatory-med-modal');
         return medicalFormComplete;
     } catch (err) { console.error('Failed to check medical form', err); }
     return false;
@@ -364,10 +407,6 @@ async function ensureMedicalFormComplete(force = false) {
 }
 
 function skipMandatoryMedicalForm() {
-    if (cameraStream) {
-        cameraStream.getTracks().forEach(track => track.stop());
-        cameraStream = null;
-    }
     closeModal('mandatory-med-modal');
 }
 
@@ -398,87 +437,6 @@ function toggleSurgeryInput() {
     document.getElementById('surgery-spec-div').style.display = val === 'Yes' ? 'block' : 'none';
 }
 
-let cameraStream = null;
-
-async function toggleCamera() {
-    const btn = document.getElementById('camera-toggle-btn');
-    const captureBtn = document.getElementById('camera-capture-btn');
-    const video = document.getElementById('camera-stream');
-    const status = document.getElementById('req-scan-status');
-
-    if (cameraStream) {
-        cameraStream.getTracks().forEach(track => track.stop());
-        cameraStream = null;
-        video.style.display = 'none';
-        captureBtn.style.display = 'none';
-        btn.innerHTML = '<i class="fa-solid fa-camera"></i> Start Camera';
-        status.textContent = '';
-    } else {
-        try {
-            status.textContent = 'Requesting camera access...';
-            cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            video.srcObject = cameraStream;
-            video.style.display = 'block';
-            captureBtn.style.display = 'inline-block';
-            btn.innerHTML = '<i class="fa-solid fa-camera-slash"></i> Stop Camera';
-            status.textContent = 'Camera ready — position your ID and click Capture';
-        } catch (err) {
-            status.textContent = 'Camera access denied or not available';
-            console.error(err);
-        }
-    }
-}
-
-async function captureIDPhoto() {
-    const video = document.getElementById('camera-stream');
-    const canvas = document.getElementById('capture-canvas');
-    const status = document.getElementById('req-scan-status');
-
-    if (!video.srcObject) {
-        status.textContent = 'Camera not active';
-        return;
-    }
-
-    const ctx = canvas.getContext('2d');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0);
-
-    status.textContent = 'Processing ID...';
-
-    canvas.toBlob(async (blob) => {
-        const formData = new FormData();
-        formData.append('idImage', blob, 'id-photo.jpg');
-
-        try {
-            const res = await fetch('/api/auth/ocr', { method: 'POST', body: formData });
-            const data = await res.json();
-            if (data.success) {
-                if (data.name) {
-                    const parts = data.name.trim().split(/\s+/).filter(Boolean);
-                    document.getElementById('req-med-first-name').value = parts.slice(0, -1).join(' ');
-                    document.getElementById('req-med-surname').value = parts[parts.length - 1] || '';
-                }
-                if (data.gender) document.getElementById('req-med-gender').value = data.gender;
-                if (data.birthday) {
-                    document.getElementById('req-med-birthdate').value = data.birthday;
-                }
-                status.textContent = 'ID scan complete! Fields auto-filled.';
-                cameraStream.getTracks().forEach(track => track.stop());
-                cameraStream = null;
-                document.getElementById('camera-stream').style.display = 'none';
-                document.getElementById('camera-capture-btn').style.display = 'none';
-                document.getElementById('camera-toggle-btn').innerHTML = '<i class="fa-solid fa-camera"></i> Start Camera';
-            } else {
-                status.textContent = 'Scan failed. Try again.';
-            }
-        } catch (err) {
-            status.textContent = 'Scan error. Try again.';
-            console.error(err);
-        }
-    }, 'image/jpeg', 0.9);
-}
-
 async function submitMandatoryMedicalForm() {
     if (!validateRequiredMedicalFields()) return;
     const surname = document.getElementById('req-med-surname').value.trim();
@@ -498,11 +456,11 @@ async function submitMandatoryMedicalForm() {
 
     const retiree = document.getElementById('req-med-retiree').checked ? 1 : 0;
     const allergies = document.getElementById('req-med-allergies').value;
-    
+
     // Gather current health checkboxes
     const currentHealthArr = Array.from(document.querySelectorAll('.req-ch-checkbox:checked')).map(cb => cb.value);
     if (allergies.trim()) currentHealthArr.push(`Allergies: ${allergies}`);
-    
+
     // Gather past conditions
     const pastConditionsObj = {
         heart_problems: document.getElementById('pc-heart').value,
@@ -540,14 +498,44 @@ async function submitMandatoryMedicalForm() {
             method: 'POST', headers: authHeaders(),
             body: JSON.stringify(payload)
         });
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
             closeModal('mandatory-med-modal');
             medicalFormComplete = true;
             showToast('Medical record saved successfully!', 'success');
+            loadMyMedicalRecords();
         } else {
-            showToast('Failed to save medical form', 'error');
+            showToast(data.error || 'Failed to save medical form', 'error');
         }
     } catch (err) { console.error(err); showToast('Connection error', 'error'); }
+}
+
+async function populateMedicalFormFromRecord() {
+    try {
+        const res = await fetch('/api/medical-records/my', { headers: authHeaders() });
+        const med = await res.json();
+        const user = med.user || {};
+        const setVal = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.value = value || '';
+        };
+        setVal('req-med-surname', user.surname);
+        setVal('req-med-first-name', user.first_name);
+        setVal('req-med-middle-name', user.middle_name);
+        document.getElementById('req-med-no-middle').checked = !!user.no_middle_name;
+        toggleMiddleName();
+        setVal('req-med-gender', user.gender);
+        setVal('req-med-birthdate', user.birthday ? String(user.birthday).slice(0, 10) : '');
+        setVal('req-med-birthplace', med.birthplace);
+        setVal('req-med-status', med.status);
+        setVal('req-med-address', med.address);
+        setVal('req-med-phone', med.phone);
+        setVal('req-med-occupation', med.occupation);
+        document.getElementById('req-med-retiree').checked = !!med.retiree;
+        setVal('req-med-emergency', med.emergency_contact);
+    } catch (err) {
+        console.error('Failed to load medical form values', err);
+    }
 }
 
 const origOpenModal = window.openModal;
@@ -557,6 +545,227 @@ window.openModal = async function(id) {
         resetApptModal();
         renderAppointmentCalendar();
     }
+    if (id === 'mandatory-med-modal') {
+        await populateMedicalFormFromRecord();
+    }
     if (origOpenModal) origOpenModal(id);
     else document.getElementById(id)?.classList.add('active');
 };
+
+// ── QR CHECK-IN SCANNER ──────────────────────────────────────────
+let html5QrCode = null;
+
+function openCheckInScanner(appointmentId) {
+    openModal('qr-checkin-modal');
+    document.getElementById('qr-result').innerHTML = '<span class="text-muted">Initializing camera...</span>';
+
+    if (!html5QrCode) {
+        html5QrCode = new Html5Qrcode("qr-reader");
+    }
+
+    const qrConfig = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+    html5QrCode.start(
+        { facingMode: "environment" },
+        qrConfig,
+        async (decodedText) => {
+            // Stop scanning once code is found
+            await stopScanner();
+            processCheckIn(decodedText);
+        },
+        (errorMessage) => {
+            // Ignore parse errors as they are frequent while searching for QR
+        }
+    ).catch(err => {
+        document.getElementById('qr-result').innerHTML = `<span class="text-danger">Error: ${err}</span>`;
+    });
+}
+
+async function stopScanner() {
+    if (html5QrCode && html5QrCode.isScanning) {
+        await html5QrCode.stop();
+    }
+}
+
+async function closeCheckInScanner() {
+    await stopScanner();
+    closeModal('qr-checkin-modal');
+}
+
+async function processCheckIn(qrData) {
+    document.getElementById('qr-result').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
+
+    // The QR data can be a full URL or just the token
+    let token = qrData;
+    if (qrData.includes('/checkin/')) {
+        token = qrData.split('/checkin/').pop();
+    }
+
+    try {
+        const res = await fetch('/api/appointments/check-in', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ token })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            document.getElementById('qr-result').innerHTML = `<div class="text-success"><i class="fa-solid fa-circle-check"></i> Checked-in! Ticket: <strong>${data.ticket}</strong></div>`;
+            showToast(`Checked-in! Your ticket is ${data.ticket}`, 'success');
+
+            setTimeout(async () => {
+                await closeCheckInScanner();
+                await loadAppointments(); // Refresh appointment list status
+                navigateTo('dashboard'); // Switch to dashboard to show active queue
+            }, 1500);
+        } else {
+            document.getElementById('qr-result').innerHTML = `<div class="text-danger"><i class="fa-solid fa-circle-xmark"></i> ${data.error || 'Invalid or expired QR code'}</div>`;
+            // Restart scanner after a short delay so user can try again
+            setTimeout(() => {
+                if (document.getElementById('qr-checkin-modal').classList.contains('active')) {
+                    openCheckInScanner();
+                }
+            }, 3000);
+        }
+    } catch (err) {
+        document.getElementById('qr-result').innerHTML = `<span class="text-danger">Connection error</span>`;
+    }
+}
+
+// Fetch and Render personal medical file and clinical records
+async function loadMyMedicalRecords() {
+    try {
+        const timelineEl = document.getElementById('my-history-timeline');
+        if (timelineEl) timelineEl.innerHTML = '<div class="medical-inline-loader"><span class="medical-loader-heart"></span> Loading records...</div>';
+        const [medRes, clinicalRes] = await Promise.all([
+            fetch('/api/medical-records/my', { headers: authHeaders() }),
+            fetch('/api/clinical-records/my', { headers: authHeaders() })
+        ]);
+
+        const med = await medRes.json();
+        const records = await clinicalRes.json();
+
+        // 1. Personal Profile Card
+        if (med) {
+            const user = med.user || {};
+            const fullName = user.full_name || [user.first_name, user.middle_name, user.surname].filter(Boolean).join(' ') || getUsername() || 'Customer';
+            document.getElementById('my-med-name').textContent = fullName;
+            document.getElementById('my-med-customer-id').textContent = `ID: ${user.customer_uid || ('MC-' + String(user.id || getUserId() || '').padStart(6, '0'))}`;
+            const avatar = document.getElementById('my-med-avatar');
+            if (avatar) {
+                const genderKey = String(user.gender || '').toLowerCase();
+                avatar.className = `profile-avatar ${genderKey === 'female' ? 'female' : genderKey === 'male' ? 'male' : 'neutral'}`;
+                avatar.innerHTML = `<i class="fa-solid ${genderKey === 'female' ? 'fa-person-dress' : genderKey === 'male' ? 'fa-person' : 'fa-user'}"></i>`;
+            }
+            const category = user.customer_category || 'Regular';
+            const catBadge = document.getElementById('my-med-category');
+            if (catBadge) {
+                catBadge.className = `badge ${category === 'Senior' ? 'priority-senior' : category === 'PWD' ? 'priority-pwd' : category === 'Pregnant' ? 'priority-pregnant' : 'priority-regular'}`;
+                catBadge.textContent = user.is_underage ? `${category} / Underage` : category;
+            }
+
+            let ageText = '--';
+            if (med.user?.birthday) {
+                const bday = new Date(med.user.birthday);
+                const diff = Date.now() - bday.getTime();
+                const ageDate = new Date(diff);
+                ageText = Math.abs(ageDate.getUTCFullYear() - 1970) + ' yo';
+            }
+
+            document.getElementById('my-med-gender-age').textContent = `${med.user?.gender || 'Unspecified'} (${ageText})`;
+            document.getElementById('my-med-birthplace').textContent = med.birthplace || '--';
+            document.getElementById('my-med-address').textContent = med.address || '--';
+            document.getElementById('my-med-phone').textContent = med.phone || '--';
+            document.getElementById('my-med-status').textContent = med.status || 'Active';
+            document.getElementById('my-med-occupation').textContent = med.occupation || '--';
+            document.getElementById('my-med-emergency').textContent = med.emergency_contact || '--';
+
+            // Current Health Conditions / Symptoms
+            let healthHtml = 'None reported';
+            if (med.current_health) {
+                try {
+                    const chArr = JSON.parse(med.current_health);
+                    if (Array.isArray(chArr) && chArr.length > 0) {
+                        healthHtml = chArr.map(item => `<span class="badge badge-warning" style="margin-right:4px;margin-bottom:4px;display:inline-block;">${item}</span>`).join('');
+                    }
+                } catch(e) {
+                    healthHtml = med.current_health;
+                }
+            }
+            document.getElementById('my-med-symptoms').innerHTML = healthHtml;
+
+            // Past medical conditions summary
+            let pastHtml = 'None reported';
+            if (med.past_conditions) {
+                try {
+                    const pc = JSON.parse(med.past_conditions);
+                    if (pc && typeof pc === 'object') {
+                        pastHtml = `
+                            <ul style="margin: 0; padding-left: 14px; font-size:0.95em;">
+                                <li>High BP: <strong>${pc.high_bp || 'No'}</strong></li>
+                                <li>Heart Circulation: <strong>${pc.heart_problems || 'No'}</strong></li>
+                                <li>Blood Clots: <strong>${pc.blood_clots || 'No'}</strong></li>
+                                <li>High Cholesterol: <strong>${pc.high_cholesterol || 'No'}</strong></li>
+                                <li>Surgeries: <strong>${pc.surgeries || 'No'}</strong> ${pc.surgeries === 'Yes' ? `(${pc.surgeries_details || ''})` : ''}</li>
+                            </ul>
+                        `;
+                    }
+                } catch(e) {
+                    pastHtml = med.past_conditions;
+                }
+            }
+            document.getElementById('my-med-past').innerHTML = pastHtml;
+        }
+
+        // 2. Render Clinical Timeline
+        const timeline = document.getElementById('my-history-timeline');
+        if (records.length === 0) {
+            timeline.innerHTML = '<span class="text-muted text-sm">No consultation or laboratory records found.</span>';
+        } else {
+            timeline.innerHTML = records.map(r => {
+                let badgeCls = 'badge-primary';
+                let typeLabel = r.record_type;
+                if (r.record_type === 'prescription') { badgeCls = 'badge-success'; typeLabel = 'Prescription'; }
+                else if (r.record_type === 'examination') { badgeCls = 'badge-neutral'; typeLabel = 'Examination'; }
+                else if (r.record_type === 'diagnostic') { badgeCls = 'badge-warning'; typeLabel = 'Diagnostic'; }
+                else if (r.record_type === 'lab_result') { badgeCls = 'badge-danger'; typeLabel = 'Lab Result'; }
+
+                let detailsHtml = '';
+                if (r.data) {
+                    try {
+                        const parsedData = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+                        if (r.record_type === 'examination') {
+                            detailsHtml = `<div style="font-size:0.85em;margin-top:4px;">BP: <strong>${parsedData.bp || '--'}</strong> | HR: <strong>${parsedData.pulse || '--'} bpm</strong> | Temp: <strong>${parsedData.temp || '--'} °C</strong></div>`;
+                        } else if (r.record_type === 'prescription' && parsedData.items) {
+                            detailsHtml = `<div style="font-size:0.85em;margin-top:4px;"><strong>Rx:</strong> ${parsedData.items.map(i => `${i.medicine} (${i.dosage})`).join(', ')}</div>`;
+                        } else if (r.record_type === 'lab_result') {
+                            let paramsHtml = '';
+                            if (parsedData.parameters) {
+                                paramsHtml = Object.entries(parsedData.parameters).map(([key, val]) => `<li>${key}: <strong>${val}</strong></li>`).join('');
+                                paramsHtml = `<ul style="margin:4px 0 0 14px; padding:0; font-size:0.85em;">${paramsHtml}</ul>`;
+                            }
+                            detailsHtml = `<div style="font-size:0.85em;margin-top:4px;"><strong>Test Type:</strong> ${parsedData.test_name || 'General'}${paramsHtml}</div>`;
+                        }
+                    } catch(e) {}
+                }
+
+                return `
+                    <div class="timeline-item">
+                        <div class="timeline-date">${formatDateTime(r.created_at)}</div>
+                        <div class="timeline-title flex-between">
+                            <span><span class="badge ${badgeCls}">${typeLabel}</span></span>
+                            <small class="text-muted">By: ${r.staff_full_name || r.staff_name || 'Clinic Staff'}</small>
+                        </div>
+                        <div class="timeline-desc">
+                            <div>${escapeHtml(r.notes || 'No comments.')}</div>
+                            ${detailsHtml}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+    } catch (err) {
+        console.error('Error loading my medical records:', err);
+    }
+}
+

@@ -143,7 +143,8 @@ function initCreateForm() {
 function populateRoleSelect(selectId, selected) {
     let roles = [
         { value: 'laboratory', label: 'Laboratory' },
-        { value: 'frontdesk', label: 'Front Desk' }
+        { value: 'frontdesk', label: 'Front Desk' },
+        { value: 'doctor', label: 'Doctor' }
     ];
     if (myRole === 'admintechnical') {
         roles.push({ value: 'admin', label: 'Admin' });
@@ -262,9 +263,15 @@ async function saveCustomization() {
 
 // ── SERVICE MANAGEMENT ──
 let allLabs = [];
+let allDoctors = [];
 async function fetchAllLabs() {
-    const res = await fetch('/api/laboratories', { headers: authHeaders() });
-    allLabs = await res.json();
+    const [labRes, doctorRes] = await Promise.all([
+        fetch('/api/laboratories', { headers: authHeaders() }),
+        fetch('/api/doctors', { headers: authHeaders() })
+    ]);
+    allLabs = await labRes.json();
+    allDoctors = await doctorRes.json();
+    populateDoctorSelect();
 }
 fetchAllLabs();
 
@@ -273,7 +280,7 @@ async function loadServiceMgmt() {
     const pkgs = await res.json();
     document.getElementById('svc-list').innerHTML = pkgs.map(p => `<tr>
         <td><strong>${p.name}</strong></td><td>${formatCurrency(p.price)}</td><td>${p.est_time_minutes}m</td>
-        <td>${(p.laboratories||[]).map(l=>l.lab_name).join(' → ') || 'None'}</td>
+        <td>${(p.laboratories||[]).map(l=>l.lab_name).join(' → ') || 'None'}${p.doctor_name ? ` → Dr. ${p.doctor_name}` : ''}</td>
         <td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'Active':'Inactive'}</span></td>
         <td><button class="btn btn-sm btn-secondary" onclick='editService(${JSON.stringify(p).replace(/'/g,"&apos;")})'><i class="fa-solid fa-pen"></i></button></td>
     </tr>`).join('');
@@ -284,6 +291,7 @@ function editService(pkg) {
     document.getElementById('svc-name').value = pkg.name;
     document.getElementById('svc-desc').value = pkg.description || '';
     document.getElementById('svc-price').value = pkg.price;
+    document.getElementById('svc-doctor').value = pkg.doctor_id || '';
     document.getElementById('svc-modal-title').textContent = 'Edit Service Package';
     renderLabSequence(pkg.laboratories || []);
     openModal('svc-modal');
@@ -342,11 +350,30 @@ async function saveService() {
         description: document.getElementById('svc-desc').value,
         price: parseFloat(document.getElementById('svc-price').value),
         est_time_minutes: est_time_minutes,
-        laboratories: finalLabs
+        laboratories: finalLabs,
+        doctor_id: document.getElementById('svc-doctor').value || null
     };
     const url = id ? `/api/packages/${id}` : '/api/packages';
     const method = id ? 'PUT' : 'POST';
     const res = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(body) });
     if (res.ok) { closeModal('svc-modal'); showToast('Saved!', 'success'); loadServiceMgmt(); }
     else showToast('Failed to save', 'error');
+}
+
+function prepareNewService() {
+    document.getElementById('svc-edit-id').value = '';
+    document.getElementById('svc-name').value = '';
+    document.getElementById('svc-desc').value = '';
+    document.getElementById('svc-price').value = '';
+    document.getElementById('svc-doctor').value = '';
+    document.getElementById('svc-modal-title').textContent = 'Add Service Package';
+    renderLabSequence([]);
+    openModal('svc-modal');
+}
+
+function populateDoctorSelect() {
+    const select = document.getElementById('svc-doctor');
+    if (!select) return;
+    select.innerHTML = '<option value="">No doctor consultation</option>' +
+        allDoctors.map(d => `<option value="${d.id}">${d.name}${d.specialty ? ` (${d.specialty})` : ''}</option>`).join('');
 }

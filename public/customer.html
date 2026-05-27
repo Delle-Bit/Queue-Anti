@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="shared.css">
     <link rel="stylesheet" href="customer.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/html5-qrcode"></script>
 </head>
 
 <body>
@@ -32,33 +33,21 @@
                         class="fa-solid fa-flask"></i> Browse Services</button>
             </div>
             <div id="active-queue-panel" style="display:none;">
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-icon blue"><i class="fa-solid fa-location-dot"></i></div>
-                        <div class="stat-info">
-                            <div class="stat-label">Queue Position</div>
-                            <div class="stat-value" id="dash-position">--</div>
-                        </div>
+                <div class="queue-status-panel">
+                    <div class="queue-number-card primary">
+                        <div class="stat-label">Your Queue Number</div>
+                        <div class="queue-number" id="dash-ticket">--</div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-icon orange"><i class="fa-solid fa-users"></i></div>
-                        <div class="stat-info">
-                            <div class="stat-label">People Ahead</div>
-                            <div class="stat-value" id="dash-ahead">--</div>
-                        </div>
+                    <div class="queue-number-card">
+                        <div class="stat-label">Currently Processing</div>
+                        <div class="queue-number" id="dash-current-processing">--</div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-icon green"><i class="fa-solid fa-clock"></i></div>
-                        <div class="stat-info">
-                            <div class="stat-label">Est. Wait Time</div>
-                            <div class="stat-value" id="dash-eta">--</div>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon teal"><i class="fa-solid fa-ticket"></i></div>
-                        <div class="stat-info">
-                            <div class="stat-label">Your Ticket</div>
-                            <div class="stat-value" id="dash-ticket">--</div>
+                    <div class="queue-time-card">
+                        <i class="fa-solid fa-clock"></i>
+                        <div>
+                            <div class="stat-label">Estimated Total Service Time</div>
+                            <div class="queue-time" id="dash-eta">--</div>
+                            <div class="text-sm text-muted"><span id="dash-ahead">--</span> customer(s) ahead at this station</div>
                         </div>
                     </div>
                 </div>
@@ -107,10 +96,68 @@
                                 <th>Time</th>
                                 <th>Status</th>
                                 <th>Amount</th>
+                                <th>Action</th>
                             </tr>
                         </thead>
                         <tbody id="appointments-list"></tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- MEDICAL RECORDS -->
+        <div id="section-medical" class="content-section" style="display:none;">
+            <div class="page-header">
+                <div>
+                    <div class="page-title"><i class="fa-solid fa-notes-medical"></i> Medical Records & History</div>
+                    <div class="page-subtitle">Your personal health records and diagnostic history</div>
+                </div>
+                <button class="btn btn-primary" onclick="openModal('mandatory-med-modal')"><i class="fa-solid fa-file-signature"></i> Update Profile Form</button>
+            </div>
+
+            <div class="grid-2">
+                <!-- Left Column: Personal Info & Conditions -->
+                <div>
+                    <div class="card">
+                        <div class="card-header"><div class="card-title"><i class="fa-solid fa-address-card"></i> Personal Profile</div></div>
+                        <div class="profile-summary">
+                            <div class="profile-avatar" id="my-med-avatar" aria-hidden="true"><i class="fa-solid fa-user"></i></div>
+                            <div>
+                                <div class="profile-name" id="my-med-name">Customer</div>
+                                <div class="profile-id" id="my-med-customer-id">ID: --</div>
+                            </div>
+                        </div>
+                        <div style="font-size:0.9em; line-height:1.7;">
+                            <div class="flex-between">
+                                <span><strong>Category:</strong> <span id="my-med-category">Regular</span></span>
+                                <span id="my-med-gender-age">--</span>
+                            </div>
+                            <div class="mt-sm"><strong>Birthplace:</strong> <span id="my-med-birthplace">--</span></div>
+                            <div><strong>Address:</strong> <span id="my-med-address">--</span></div>
+                            <div><strong>Phone:</strong> <span id="my-med-phone">--</span></div>
+                            <div><strong>Civil Status:</strong> <span id="my-med-status">--</span></div>
+                            <div><strong>Occupation:</strong> <span id="my-med-occupation">--</span></div>
+                            <div><strong>Emergency Contact:</strong> <span id="my-med-emergency">--</span></div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-md">
+                        <div class="card-header"><div class="card-title"><i class="fa-solid fa-heart-pulse"></i> Reported Health Conditions</div></div>
+                        <div style="font-size:0.9em; line-height:1.7;">
+                            <div><strong>Current Symptoms:</strong></div>
+                            <div id="my-med-symptoms" style="margin-top:6px; margin-bottom:12px;">--</div>
+                            <div><strong>Past Conditions:</strong></div>
+                            <div id="my-med-past" style="margin-top:6px;">--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Clinical Records Timeline -->
+                <div class="card" style="display:flex; flex-direction:column;">
+                    <div class="card-header"><div class="card-title"><i class="fa-solid fa-clock-rotate-left"></i> Consultation & Lab Records</div></div>
+                    <div class="patient-history-timeline" id="my-history-timeline" style="max-height:480px; overflow-y:auto; flex:1;">
+                        <span class="text-muted">No clinical records found.</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -138,6 +185,43 @@
                 <button class="btn btn-secondary" onclick="closeModal('pkg-modal')">Cancel</button>
                 <button class="btn btn-primary" id="pkg-confirm-btn" onclick="confirmPackage()"><i
                         class="fa-solid fa-check"></i> Confirm & Queue</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Queue Confirmation Modal -->
+    <div id="queue-preview-modal" class="modal-overlay">
+        <div class="modal-box" style="max-width:560px;">
+            <div class="modal-header">
+                <div class="modal-title"><i class="fa-solid fa-clipboard-check"></i> Confirm Service Queue</div>
+                <button class="modal-close" onclick="closeModal('queue-preview-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="queue-preview-grid">
+                    <div class="queue-number-card primary">
+                        <div class="stat-label">Queue Number to Receive</div>
+                        <div class="queue-number" id="preview-ticket">--</div>
+                    </div>
+                    <div class="queue-number-card">
+                        <div class="stat-label">Currently Processing</div>
+                        <div class="queue-number" id="preview-current-processing">--</div>
+                    </div>
+                </div>
+                <div class="queue-time-card mt-md">
+                    <i class="fa-solid fa-hourglass-half"></i>
+                    <div>
+                        <div class="stat-label">Estimated Total Time</div>
+                        <div class="queue-time" id="preview-estimated-time">--</div>
+                    </div>
+                </div>
+                <div class="mt-md">
+                    <div class="stat-label mb-md">Service Process</div>
+                    <div id="preview-steps" class="queue-progress-list"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('queue-preview-modal')">Cancel</button>
+                <button class="btn btn-primary" id="queue-preview-confirm-btn" onclick="startPackageAfterPreview()"><i class="fa-solid fa-check"></i> Confirm & Join Queue</button>
             </div>
         </div>
     </div>
@@ -209,25 +293,8 @@
                 <button class="modal-close" onclick="skipMandatoryMedicalForm()">&times;</button>
             </div>
             <div class="modal-body" style="text-align:left;">
-                <p class="text-muted mb-md">Please complete this medical form before booking or selecting a service. You
+                <p class="text-muted mb-md">Please manually complete this medical form before booking or selecting a service. You
                     may close it for now and return later.</p>
-                <div class="form-group">
-                    <label class="form-label"><i class="fa-solid fa-id-card"></i> Auto-fill with ID Scan
-                        (Optional)</label>
-                    <div style="background:var(--bg-input);border-radius:8px;padding:12px;margin-bottom:8px;">
-                        <div style="display:flex;gap:8px;margin-bottom:8px;">
-                            <button type="button" class="btn btn-sm btn-primary" id="camera-toggle-btn" onclick="toggleCamera()" style="flex:1;">
-                                <i class="fa-solid fa-camera"></i> Start Camera
-                            </button>
-                            <button type="button" class="btn btn-sm btn-secondary" id="camera-capture-btn" onclick="captureIDPhoto()" style="flex:1;display:none;">
-                                <i class="fa-solid fa-circle"></i> Capture
-                            </button>
-                        </div>
-                        <video id="camera-stream" style="width:100%;border-radius:6px;display:none;aspect-ratio:4/3;object-fit:cover;background:black;"></video>
-                        <canvas id="capture-canvas" style="display:none;"></canvas>
-                    </div>
-                    <small id="req-scan-status" style="color:var(--primary);"></small>
-                </div>
 
                 <h4 class="mt-md mb-sm">Personal Details</h4>
                 <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px;">
@@ -363,31 +430,59 @@
         </div>
     </div>
 
-    <!-- Chatbot -->
-    <button class="chat-fab"><i class="fa-solid fa-comments"></i></button>
-    <div class="chat-widget">
-        <div class="chat-header">
-            <h4><i class="fa-solid fa-robot"></i> Clinic Assistant</h4><button class="close-chat">&times;</button>
+
+
+    <!-- Voice AI Assistant Widget -->
+    <button class="va-fab" aria-label="Open voice assistant"><i class="fa-solid fa-microphone"></i></button>
+    <div class="va-widget" id="va-widget">
+        <div class="va-header">
+            <h4><i class="fa-solid fa-robot"></i> Voice AI Assistant</h4>
+            <button class="close-va" onclick="toggleVaWidget()">&times;</button>
         </div>
-        <div class="chat-faq-bar">
-            <button class="chat-faq-btn" onclick="sendFaqQuestion('What services do you offer?')">Services</button>
-            <button class="chat-faq-btn" onclick="sendFaqQuestion('How long is the wait?')">Wait Time</button>
-            <button class="chat-faq-btn" onclick="sendFaqQuestion('I want to schedule an appointment')">Book
-                Appt</button>
+        <div class="va-body">
+            <div class="va-pulse-container">
+                <div class="va-orb" id="va-orb"></div>
+            </div>
+            <div class="va-status" id="va-status">Idle</div>
+            <div class="va-instruction">Hold floating button OR click below to speak.</div>
+
+            <div class="va-chat-area">
+                <div class="va-chat-label">You said:</div>
+                <div class="va-text-box" id="va-transcript">Click the button below and speak to ask about clinic wait time, pricing, or queue status...</div>
+
+                <div class="va-chat-label">AI Assistant:</div>
+                <div class="va-text-box response" id="va-response">Hello! I am your AI Voice Assistant. Speak or tap the microphone to chat.</div>
+                
+                <div class="va-chat-label">Conversation:</div>
+                <div class="va-history" id="va-history" aria-live="polite"></div>
+            </div>
+
+            <div class="va-controls">
+                <button class="btn btn-primary va-hold-btn" id="va-action-btn" style="flex:1;"><i class="fa-solid fa-microphone"></i> Click to Speak</button>
+                <button class="btn btn-secondary" id="va-mute-btn" onclick="toggleVaMute()" style="padding:10px;"><i class="fa-solid fa-volume-high"></i></button>
+            </div>
         </div>
-        <div class="chat-log" id="chat-log">
-            <div class="bot-msg">Hi! How can I help you today?</div>
-        </div>
-        <div class="chat-input-area">
-            <input type="text" id="chat-input" placeholder="Type a message..."
-                onkeypress="if(event.key==='Enter')sendChatMessage()">
-            <button onclick="sendChatMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+    </div>
+
+    <!-- QR Check-In Modal -->
+    <div id="qr-checkin-modal" class="modal-overlay">
+        <div class="modal-box" style="max-width:500px;">
+            <div class="modal-header">
+                <div class="modal-title"><i class="fa-solid fa-qrcode"></i> Scan Check-In QR</div>
+                <button class="modal-close" onclick="closeCheckInScanner()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-md">Scan the QR code provided by the Frontdesk to check-in for your appointment during your visit.</p>
+                <div id="qr-reader" style="width:100%; border-radius:8px; overflow:hidden; background: #000;"></div>
+                <div id="qr-result" class="mt-md text-center"></div>
+            </div>
         </div>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="shared.js"></script>
     <script src="customer.js"></script>
+    <script src="va.js"></script>
 </body>
 
 </html>

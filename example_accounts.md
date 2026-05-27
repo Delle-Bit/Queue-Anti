@@ -9,6 +9,7 @@ These accounts are seeded automatically when the server starts.
 | frontdesk1 | pass123 | Frontdesk | — |
 | lab_xray | pass123 | Laboratory | — |
 | lab_blood | pass123 | Laboratory | — |
+| doctor1 | pass123 | Doctor | — |
 | owner1 | owner123 | Owner | — |
 | customer_regular | pass123 | Customer | Regular |
 | customer_senior | pass123 | Customer | Senior |
@@ -21,6 +22,9 @@ These accounts are seeded automatically when the server starts.
 - **X-Ray Room** — assigned to `lab_xray`
 - **Blood Test Lab** — assigned to `lab_blood`
 
+### Doctor Stations
+- **General Physician** — assigned to `doctor1`
+
 ### Service Packages
 - **General Check-up** — ₱1,500 — Includes Blood Test + X-Ray (30 min estimated)
 
@@ -32,5 +36,6 @@ These accounts are seeded automatically when the server starts.
 | Admin | Same as AdminTechnical but CANNOT create other Admin accounts |
 | Frontdesk | Payment queue, service/pricing management, appointments |
 | Laboratory | Lab-specific queue, analytics, appointments |
+| Doctor | Consultation queue, clinical exams, prescriptions, diagnostics |
 | Customer | Browse services, queue, appointments, chatbot |
 | Owner | Revenue dashboard, audit logs, staff tracking |

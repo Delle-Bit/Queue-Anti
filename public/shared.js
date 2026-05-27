@@ -59,7 +59,8 @@ function renderSidebar(navItems, activeId) {
         customer: 'Customer',
         frontdesk: 'Front Desk',
         laboratory: 'Laboratory',
-        owner: 'Owner'
+        owner: 'Owner',
+        doctor: 'Doctor'
     };
 
     let navHtml = '';
@@ -168,6 +169,31 @@ function showToast(message, type = 'info', duration = 3500) {
     }, duration);
 }
 
+function showSectionLoader(targetId, message = 'Loading...') {
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    target.classList.add('loading-host');
+    let loader = target.querySelector(':scope > .medical-loader-overlay');
+    if (!loader) {
+        loader = document.createElement('div');
+        loader.className = 'medical-loader-overlay';
+        loader.innerHTML = `
+            <div class="medical-loader">
+                <div class="medical-loader-heart"></div>
+                <span></span>
+            </div>
+        `;
+        target.appendChild(loader);
+    }
+    loader.querySelector('span').textContent = message;
+}
+
+function hideSectionLoader(targetId) {
+    const target = document.getElementById(targetId);
+    const loader = target?.querySelector(':scope > .medical-loader-overlay');
+    if (loader) loader.remove();
+}
+
 // ── MODAL HELPERS ───────────────────────────────────────────────
 function openModal(id) {
     const modal = document.getElementById(id);
@@ -185,62 +211,6 @@ document.addEventListener('click', (e) => {
         e.target.classList.remove('active');
     }
 });
-
-// ── CHATBOT WIDGET ──────────────────────────────────────────────
-let chatSessionId = localStorage.getItem('chatSessionId');
-
-function initChatbot() {
-    const fab = document.querySelector('.chat-fab');
-    const widget = document.querySelector('.chat-widget');
-    if (!fab || !widget) return;
-
-    fab.addEventListener('click', () => widget.classList.toggle('open'));
-    const closeBtn = widget.querySelector('.close-chat');
-    if (closeBtn) closeBtn.addEventListener('click', () => widget.classList.remove('open'));
-}
-
-async function sendChatMessage() {
-    const input = document.getElementById('chat-input');
-    const message = input.value.trim();
-    if (!message) return;
-
-    const log = document.getElementById('chat-log');
-    log.innerHTML += `<div class="user-msg">${escapeHtml(message)}</div>`;
-    input.value = '';
-    log.scrollTop = log.scrollHeight;
-
-    // Check for appointment intent
-    const lc = message.toLowerCase();
-    if (lc.includes('appointment') || lc.includes('schedule') || lc.includes('book')) {
-        if (getRole() === 'customer') {
-            log.innerHTML += `<div class="bot-msg">I can help you schedule an appointment! Let me redirect you to the Appointments section. <a href="#" onclick="navigateTo('appointments');document.querySelector('.chat-widget').classList.remove('open');return false;" style="color:var(--primary);font-weight:600;">Go to Appointments →</a></div>`;
-            log.scrollTop = log.scrollHeight;
-            return;
-        }
-    }
-
-    try {
-        const res = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message, sessionId: chatSessionId })
-        });
-        const data = await res.json();
-        if (data.sessionId) {
-            chatSessionId = data.sessionId;
-            localStorage.setItem('chatSessionId', chatSessionId);
-        }
-        log.innerHTML += `<div class="bot-msg">${data.reply || data.error || 'No response'}</div>`;
-    } catch (err) {
-        log.innerHTML += `<div class="bot-msg" style="color:var(--danger);">Connection error. Please try again.</div>`;
-    }
-    log.scrollTop = log.scrollHeight;
-}
-
-function sendFaqQuestion(question) {
-    const input = document.getElementById('chat-input');
-    if (input) { input.value = question; sendChatMessage(); }
-}
 
 // ── UTILITY FUNCTIONS ───────────────────────────────────────────
 function escapeHtml(text) {
@@ -291,6 +261,5 @@ function initSocket() {
 
 // ── INIT ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-    initChatbot();
     initSocket();
 });

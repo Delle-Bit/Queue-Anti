@@ -4,167 +4,390 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Medical Clinic — Welcome</title>
-    <meta name="description" content="Medical Clinic Queue Management System - Login or Register">
+    <title>Medical Clinic — Digital Queueing System</title>
+    <meta name="description" content="Experience faster, smarter, and more convenient healthcare with our Medical Clinic Digital Queueing System. Book services, monitor queues, and access healthcare with ease.">
+    <meta name="keywords" content="medical clinic, digital queueing, healthcare, laboratory, ultrasound, ECG, blood chemistry">
     <link rel="icon" href="/images/examplelogo.svg">
     <link rel="stylesheet" href="shared.css">
     <link rel="stylesheet" href="index.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 
 <body>
-    <header class="landing-header">
-        <div class="header-logo-wrap">
-            <img src="/images/examplelogo.svg" alt="Logo" class="header-logo">
-        </div>
-        <div class="header-name-wrap">
-            <h1>Medical Clinic</h1>
-            <p>Making healthcare accessible to everyone</p>
-        </div>
-    </header>
 
-    <div class="landing-container">
-        <div class="landing-left">
-            <div class="auth-card">
-                <div class="auth-tabs">
-                    <button class="auth-tab active" onclick="switchAuthTab('login')" id="tab-login">Sign In</button>
-                    <button class="auth-tab" onclick="switchAuthTab('register')" id="tab-register">Register</button>
-                </div>
-
-                <!-- LOGIN FORM -->
-                <div id="form-login" class="auth-form">
-                    <div class="auth-welcome">
-                        <h2>Welcome Back</h2>
-                        <p>Sign in to access your dashboard</p>
-                    </div>
-                    <div id="login-error" class="auth-error"></div>
-                    <form onsubmit="handleLogin(event)">
-                        <div class="form-group">
-                            <label class="form-label">Username</label>
-                            <input type="text" id="login-username" class="form-input" placeholder="Enter username"
-                                required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Password</label>
-                            <input type="password" id="login-password" class="form-input" placeholder="Enter password"
-                                required>
-                        </div>
-                        <button type="submit" class="btn btn-primary btn-block btn-lg" id="login-btn">
-                            <i class="fa-solid fa-right-to-bracket"></i> Sign In
-                        </button>
-                    </form>
-                    <div class="auth-link">
-                        <a href="#" onclick="openModal('forgot-modal');return false;">Forgot password?</a>
-                    </div>
-                </div>
-
-                <!-- REGISTER FORM -->
-                <div id="form-register" class="auth-form" style="display:none;">
-                    <div class="auth-welcome">
-                        <h2>Create Account</h2>
-                        <p>Upload your ID for automatic category detection</p>
-                    </div>
-                    <div id="reg-error" class="auth-error"></div>
-                    <div id="reg-success" class="auth-success"></div>
-                    <form onsubmit="handleRegister(event)">
-                        <div class="form-group">
-                            <label class="form-label">Username</label>
-                            <input type="text" id="reg-username" class="form-input" placeholder="Choose username"
-                                required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Email</label>
-                            <input type="email" id="reg-email" class="form-input" placeholder="your@email.com" required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Password</label>
-                            <input type="password" id="reg-password" class="form-input" placeholder="Choose password"
-                                required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label"><i class="fa-solid fa-id-card"></i> Capture ID Photo</label>
-                            <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:12px;margin-bottom:8px;">
-                                <div style="display:flex;gap:8px;margin-bottom:8px;">
-                                    <button type="button" class="btn btn-sm btn-primary" id="reg-camera-toggle" onclick="toggleRegCamera()" style="flex:1;">
-                                        <i class="fa-solid fa-camera"></i> Start Camera
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-secondary" id="reg-camera-capture" onclick="captureRegID()" style="flex:1;display:none;">
-                                        <i class="fa-solid fa-circle"></i> Capture
-                                    </button>
-                                </div>
-                                <video id="reg-camera-stream" style="width:100%;border-radius:6px;display:none;aspect-ratio:4/3;object-fit:cover;background:black;"></video>
-                                <canvas id="reg-capture-canvas" style="display:none;"></canvas>
-                                <input type="hidden" id="reg-id-photo">
-                            </div>
-                            <small class="text-muted" id="reg-camera-status">Any Valid ID</small>
-                        </div>
-                        <button type="submit" class="btn btn-primary btn-block btn-lg" id="reg-btn">
-                            <i class="fa-solid fa-user-plus"></i> Register
-                        </button>
-                    </form>
-                </div>
+    <!-- Page Loader -->
+    <div id="page-loader" class="page-loader">
+        <div class="loader-content">
+            <div class="loader-logo-wrap">
+                <img src="/images/examplelogo.svg" alt="Logo" class="loader-logo">
             </div>
-        </div>
-        <div class="landing-right">
-            <section class="services-gallery" aria-labelledby="services-gallery-title">
-                <div class="gallery-header">
-                    <div>
-                        <h2 id="services-gallery-title">Available Services</h2>
-                        <p>Open 8AM to 3PM, Monday to Saturday</p>
-                    </div>
-                    <i class="fa-solid fa-flask-vial"></i>
-                </div>
-                <div class="services-scroll" id="landing-services-list"></div>
-            </section>
+            <div class="loader-bar-wrap">
+                <div class="loader-bar"></div>
+            </div>
+            <p class="loader-text">Loading Healthcare Platform...</p>
         </div>
     </div>
 
-    <!-- Forgot Password Modal -->
-    <div id="forgot-modal" class="modal-overlay">
+    <!-- ===== STICKY NAVIGATION ===== -->
+    <nav class="navbar" id="navbar" role="navigation" aria-label="Main navigation">
+        <div class="nav-container">
+            <a href="#home" class="nav-brand" id="nav-brand" aria-label="Medical Clinic Home">
+                <div class="nav-logo-wrap">
+                    <img src="/images/examplelogo.svg" alt="Logo" class="nav-logo">
+                </div>
+                <div class="nav-brand-text">
+                    <span class="nav-clinic-name">Medical Clinic</span>
+                    <span class="nav-clinic-sub">Digital Queueing System</span>
+                </div>
+            </a>
+
+            <ul class="nav-links" id="nav-links" role="list">
+                <li><a href="#home" class="nav-link active" id="nav-home" data-section="home"><i class="fa-solid fa-house"></i><span>Home</span></a></li>
+                <li><a href="#services" class="nav-link" id="nav-services" data-section="services"><i class="fa-solid fa-flask-vial"></i><span>Services</span></a></li>
+                <li><a href="#about" class="nav-link" id="nav-about" data-section="about"><i class="fa-solid fa-circle-info"></i><span>About</span></a></li>
+                <li class="nav-divider"></li>
+                <li><a href="#signin" class="nav-link nav-signin" id="nav-signin" onclick="openAuthPanel('login'); return false;"><i class="fa-solid fa-right-to-bracket"></i><span>Sign In</span></a></li>
+                <li><a href="#signup" class="nav-link nav-signup btn-nav-cta" id="nav-signup" onclick="openAuthPanel('register'); return false;"><i class="fa-solid fa-user-plus"></i><span>Sign Up</span></a></li>
+            </ul>
+
+            <button class="hamburger-btn" id="hamburger-btn" aria-label="Toggle menu" aria-expanded="false">
+                <span class="hamburger-line"></span>
+                <span class="hamburger-line"></span>
+                <span class="hamburger-line"></span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Mobile Nav Overlay -->
+    <div class="mobile-nav-overlay" id="mobile-nav-overlay"></div>
+
+    <!-- ===== HERO SECTION ===== -->
+    <section class="hero-section" id="home" aria-labelledby="hero-heading">
+        <div class="hero-bg-overlay"></div>
+        <div class="hero-particles" id="hero-particles" aria-hidden="true"></div>
+
+        <div class="hero-content">
+            <div class="hero-badge">
+                <i class="fa-solid fa-shield-heart"></i>
+                <span>Trusted Healthcare Platform</span>
+            </div>
+            <h1 id="hero-heading" class="hero-title">
+                Smart Healthcare,<br>
+                <span class="hero-title-accent">At Your Fingertips</span>
+            </h1>
+            <p class="hero-subtitle">
+                Experience faster, smarter, and more convenient healthcare with our Digital Queueing System.
+                Book services, monitor queues in real time, and skip the long wait.
+            </p>
+            <div class="hero-cta-group">
+                <button class="btn-hero-primary" onclick="openAuthPanel('register')" id="hero-get-started">
+                    <i class="fa-solid fa-user-plus"></i> Get Started
+                </button>
+                <a href="#services" class="btn-hero-outline" id="hero-view-services">
+                    <i class="fa-solid fa-flask-vial"></i> View Services
+                </a>
+            </div>
+            <div class="hero-stats" aria-label="Clinic statistics">
+                <div class="hero-stat">
+                    <span class="hero-stat-number">17+</span>
+                    <span class="hero-stat-label">Services</span>
+                </div>
+                <div class="hero-stat-divider" aria-hidden="true"></div>
+                <div class="hero-stat">
+                    <span class="hero-stat-number">8AM</span>
+                    <span class="hero-stat-label">Opens Daily</span>
+                </div>
+                <div class="hero-stat-divider" aria-hidden="true"></div>
+                <div class="hero-stat">
+                    <span class="hero-stat-number">Mon–Sat</span>
+                    <span class="hero-stat-label">Schedule</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="hero-scroll-indicator" aria-hidden="true">
+            <a href="#services" tabindex="-1">
+                <i class="fa-solid fa-chevron-down"></i>
+            </a>
+        </div>
+    </section>
+
+    <!-- ===== SERVICES SECTION ===== -->
+    <section class="services-section" id="services" aria-labelledby="services-heading">
+        <div class="section-container">
+            <div class="section-header">
+                <div class="section-badge">
+                    <i class="fa-solid fa-flask-vial"></i> Our Services
+                </div>
+                <h2 id="services-heading" class="section-title">Available Medical Services</h2>
+                <p class="section-subtitle">Comprehensive healthcare services available Monday to Saturday, 8AM–3PM. Click any service to learn more.</p>
+            </div>
+
+            <div class="services-grid" id="services-grid" role="list">
+                <!-- Services injected by JS -->
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== ABOUT SECTION ===== -->
+    <section class="about-section" id="about" aria-labelledby="about-heading">
+        <div class="section-container">
+            <div class="about-layout">
+                <div class="about-visual" aria-hidden="true">
+                    <div class="about-icon-grid">
+                        <div class="about-icon-card about-icon-1"><i class="fa-solid fa-heart-pulse"></i></div>
+                        <div class="about-icon-card about-icon-2"><i class="fa-solid fa-microscope"></i></div>
+                        <div class="about-icon-card about-icon-3"><i class="fa-solid fa-stethoscope"></i></div>
+                        <div class="about-icon-card about-icon-4"><i class="fa-solid fa-vial-virus"></i></div>
+                        <div class="about-icon-card about-icon-5"><i class="fa-solid fa-x-ray"></i></div>
+                        <div class="about-icon-card about-icon-6"><i class="fa-solid fa-syringe"></i></div>
+                    </div>
+                    <div class="about-center-badge">
+                        <img src="/images/examplelogo.svg" alt="Medical Clinic Logo" class="about-logo">
+                        <span>Est. Healthcare Excellence</span>
+                    </div>
+                </div>
+                <div class="about-content">
+                    <div class="section-badge">
+                        <i class="fa-solid fa-circle-info"></i> About Us
+                    </div>
+                    <h2 id="about-heading" class="section-title about-title">Who We Are</h2>
+                    <p class="about-text">
+                        Experience faster, smarter, and more convenient healthcare with our <strong>Medical Clinic Digital Queueing System</strong>. Designed to simplify patient visits, the platform allows patients to easily access clinic services, monitor queue status in real time, and reduce long waiting hours through an organized digital process.
+                    </p>
+                    <p class="about-text">
+                        From laboratory examinations and diagnostic procedures to physical and medical assessments, our system ensures efficient patient flow and seamless healthcare transactions. With a modern interface, secure patient access, and streamlined appointment management, we bring accessible and hassle-free healthcare services closer to every patient.
+                    </p>
+                    <div class="about-features">
+                        <div class="about-feature">
+                            <div class="about-feature-icon"><i class="fa-solid fa-clock"></i></div>
+                            <div>
+                                <strong>Real-Time Queue</strong>
+                                <span>Monitor your position live</span>
+                            </div>
+                        </div>
+                        <div class="about-feature">
+                            <div class="about-feature-icon"><i class="fa-solid fa-lock"></i></div>
+                            <div>
+                                <strong>Secure Access</strong>
+                                <span>Protected patient data</span>
+                            </div>
+                        </div>
+                        <div class="about-feature">
+                            <div class="about-feature-icon"><i class="fa-solid fa-mobile-screen"></i></div>
+                            <div>
+                                <strong>Easy Booking</strong>
+                                <span>Book services digitally</span>
+                            </div>
+                        </div>
+                        <div class="about-feature">
+                            <div class="about-feature-icon"><i class="fa-solid fa-chart-line"></i></div>
+                            <div>
+                                <strong>Streamlined Flow</strong>
+                                <span>Efficient patient management</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn-about-cta" onclick="openAuthPanel('register')" id="about-get-started">
+                        <i class="fa-solid fa-user-plus"></i> Join Our System
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== AUTH PANEL OVERLAY ===== -->
+    <div id="auth-overlay" class="auth-overlay" role="dialog" aria-modal="true" aria-labelledby="auth-panel-title">
+        <div class="auth-panel" id="auth-panel">
+            <button class="auth-panel-close" id="auth-panel-close" onclick="closeAuthPanel()" aria-label="Close panel">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+
+            <div class="auth-panel-logo">
+                <img src="/images/examplelogo.svg" alt="Logo" class="auth-panel-logo-img">
+                <span>Medical Clinic</span>
+            </div>
+
+            <div class="auth-tabs">
+                <button class="auth-tab active" id="tab-login" onclick="switchAuthTab('login')" aria-controls="form-login">
+                    <i class="fa-solid fa-right-to-bracket"></i> Sign In
+                </button>
+                <button class="auth-tab" id="tab-register" onclick="switchAuthTab('register')" aria-controls="form-register">
+                    <i class="fa-solid fa-user-plus"></i> Register
+                </button>
+            </div>
+
+            <!-- LOGIN FORM -->
+            <div id="form-login" class="auth-form" role="tabpanel">
+                <div class="auth-welcome">
+                    <h2 id="auth-panel-title">Welcome Back</h2>
+                    <p>Sign in to access your dashboard</p>
+                </div>
+                <div id="login-error" class="auth-error"></div>
+                <form onsubmit="handleLogin(event)" novalidate>
+                    <div class="form-group">
+                        <label class="form-label" for="login-username">Username</label>
+                        <div class="input-icon-wrap">
+                            <i class="fa-solid fa-user input-icon"></i>
+                            <input type="text" id="login-username" class="form-input input-with-icon" placeholder="Enter username" required autocomplete="username">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="login-password">Password</label>
+                        <div class="input-icon-wrap">
+                            <i class="fa-solid fa-lock input-icon"></i>
+                            <input type="password" id="login-password" class="form-input input-with-icon" placeholder="Enter password" required autocomplete="current-password">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block btn-lg" id="login-btn">
+                        <i class="fa-solid fa-right-to-bracket"></i> Sign In
+                    </button>
+                </form>
+                <div class="auth-link">
+                    <a href="#" onclick="openModal('forgot-modal');return false;">Forgot password?</a>
+                </div>
+            </div>
+
+            <!-- REGISTER FORM -->
+            <div id="form-register" class="auth-form" style="display:none;" role="tabpanel">
+                <div class="auth-welcome">
+                    <h2>Create Account</h2>
+                    <p>Choose ID verification or guardian verification for underage customers</p>
+                </div>
+                <div id="reg-error" class="auth-error"></div>
+                <div id="reg-success" class="auth-success"></div>
+                <form onsubmit="handleRegister(event)" novalidate>
+                    <div class="form-group">
+                        <label class="form-label" for="reg-username">Username</label>
+                        <div class="input-icon-wrap">
+                            <i class="fa-solid fa-user input-icon"></i>
+                            <input type="text" id="reg-username" class="form-input input-with-icon" placeholder="Choose username" required autocomplete="username">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="reg-email">Email</label>
+                        <div class="input-icon-wrap">
+                            <i class="fa-solid fa-envelope input-icon"></i>
+                            <input type="email" id="reg-email" class="form-input input-with-icon" placeholder="your@email.com" required autocomplete="email">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="reg-password">Password</label>
+                        <div class="input-icon-wrap">
+                            <i class="fa-solid fa-lock input-icon"></i>
+                            <input type="password" id="reg-password" class="form-input input-with-icon" placeholder="Choose password" required autocomplete="new-password">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Verification Method</label>
+                        <div class="verify-toggle">
+                            <button type="button" class="verify-option active" id="verify-id-btn" onclick="setVerificationMethod('id')">
+                                <i class="fa-solid fa-id-card"></i> Valid ID
+                            </button>
+                            <button type="button" class="verify-option" id="verify-guardian-btn" onclick="setVerificationMethod('guardian')">
+                                <i class="fa-solid fa-user-shield"></i> Underage
+                            </button>
+                        </div>
+                        <input type="hidden" id="reg-verification-method" value="id">
+                    </div>
+                    <div class="form-group" id="id-verification-section">
+                        <label class="form-label"><i class="fa-solid fa-id-card"></i> ID Verification (Required)</label>
+                        <div class="id-verification-container">
+                            <!-- Front ID -->
+                            <div class="id-capture-box">
+                                <span class="id-label">Front ID</span>
+                                <div class="id-preview" id="preview-front">
+                                    <i class="fa-solid fa-address-card"></i>
+                                </div>
+                                <div class="id-actions">
+                                    <button type="button" class="btn btn-sm btn-outline" onclick="startIdAction('front', 'camera')" title="Capture Front"><i class="fa-solid fa-camera"></i></button>
+                                    <button type="button" class="btn btn-sm btn-outline" onclick="startIdAction('front', 'upload')" title="Upload Front"><i class="fa-solid fa-upload"></i></button>
+                                    <input type="file" id="upload-front" hidden accept="image/*" onchange="handleFileUpload(event, 'front')">
+                                </div>
+                            </div>
+                            <!-- Back ID -->
+                            <div class="id-capture-box">
+                                <span class="id-label">Back ID</span>
+                                <div class="id-preview" id="preview-back">
+                                    <i class="fa-solid fa-address-card"></i>
+                                </div>
+                                <div class="id-actions">
+                                    <button type="button" class="btn btn-sm btn-outline" onclick="startIdAction('back', 'camera')" title="Capture Back"><i class="fa-solid fa-camera"></i></button>
+                                    <button type="button" class="btn btn-sm btn-outline" onclick="startIdAction('back', 'upload')" title="Upload Back"><i class="fa-solid fa-upload"></i></button>
+                                    <input type="file" id="upload-back" hidden accept="image/*" onchange="handleFileUpload(event, 'back')">
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Camera Overlay -->
+                        <div id="reg-camera-overlay" style="display:none; background:rgba(0,0,0,0.9); border-radius:8px; padding:12px; margin-top:10px;">
+                            <video id="reg-camera-stream" style="width:100%; border-radius:6px; background:black; aspect-ratio:4/3; object-fit:cover;"></video>
+                            <div style="display:flex; gap:8px; margin-top:8px;">
+                                <button type="button" class="btn btn-sm btn-primary" id="reg-camera-capture" onclick="captureRegID()" style="flex:1;">Capture</button>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="stopRegCamera()" style="flex:1;">Cancel</button>
+                            </div>
+                            <canvas id="reg-capture-canvas" style="display:none;"></canvas>
+                        </div>
+                        <small class="text-muted" id="reg-camera-status">Front and Back ID images are required</small>
+                    </div>
+                    <div id="guardian-verification-section" style="display:none;">
+                        <div class="form-group">
+                            <label class="form-label" for="reg-guardian-name">Guardian Full Name</label>
+                            <input type="text" id="reg-guardian-name" class="form-input" placeholder="Parent or guardian name">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="reg-guardian-contact">Guardian Contact Number</label>
+                            <input type="text" id="reg-guardian-contact" class="form-input" placeholder="Phone number">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="reg-guardian-relationship">Relationship to Customer</label>
+                            <input type="text" id="reg-guardian-relationship" class="form-input" placeholder="Parent, sibling, legal guardian">
+                        </div>
+                        <small class="text-muted">This account will be marked as underage and verified through guardian information.</small>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block btn-lg" id="reg-btn" style="margin-top:16px;">
+                        <i class="fa-solid fa-user-plus"></i> Register
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== FORGOT PASSWORD MODAL ===== -->
+    <div id="forgot-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="forgot-modal-title">
         <div class="modal-box">
             <div class="modal-header">
-                <div class="modal-title"><i class="fa-solid fa-key"></i> Reset Password</div>
-                <button class="modal-close" onclick="closeModal('forgot-modal')">&times;</button>
+                <div class="modal-title" id="forgot-modal-title"><i class="fa-solid fa-key"></i> Reset Password</div>
+                <button class="modal-close" onclick="closeModal('forgot-modal')" aria-label="Close modal">&times;</button>
             </div>
             <div class="modal-body">
                 <p class="text-muted text-sm">Enter your username and we'll send reset instructions.</p>
                 <div class="form-group mt-md">
-                    <input type="text" id="forgot-username" class="form-input" placeholder="Username">
+                    <input type="text" id="forgot-username" class="form-input" placeholder="Username" autocomplete="username">
                 </div>
                 <div id="forgot-msg" class="auth-success"></div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('forgot-modal')">Cancel</button>
-                <button class="btn btn-primary" onclick="requestReset()">Send Reset</button>
+                <button class="btn btn-primary" onclick="requestReset()" id="forgot-send-btn">Send Reset</button>
             </div>
         </div>
     </div>
 
-    <!-- Chatbot -->
-    <button class="chat-fab" onclick="document.querySelector('.chat-widget').classList.toggle('open')">
-        <i class="fa-solid fa-comments"></i>
-    </button>
-    <div class="chat-widget" id="chat-widget-landing">
-        <div class="chat-header">
-            <h4><i class="fa-solid fa-robot"></i> Clinic Assistant</h4>
-            <button class="close-chat"
-                onclick="document.querySelector('.chat-widget').classList.remove('open')">&times;</button>
+    <!-- ===== FOOTER ===== -->
+    <footer class="site-footer" role="contentinfo">
+        <div class="footer-container">
+            <div class="footer-brand">
+                <img src="/images/examplelogo.svg" alt="Medical Clinic Logo" class="footer-logo">
+                <div>
+                    <p class="footer-name">Medical Clinic</p>
+                    <p class="footer-tagline">Digital Queueing System</p>
+                </div>
+            </div>
+            <p class="footer-hours"><i class="fa-solid fa-clock"></i> Open 8AM–3PM, Monday to Saturday</p>
+            <p class="footer-copy">&copy; 2025 Medical Clinic. All rights reserved.</p>
         </div>
-        <div class="chat-faq-bar">
-            <button class="chat-faq-btn" onclick="sendFaqQ('What services do you offer?')">Services</button>
-            <button class="chat-faq-btn" onclick="sendFaqQ('How does the queue work?')">Queue Info</button>
-            <button class="chat-faq-btn" onclick="sendFaqQ('What are your operating hours?')">Hours</button>
-            <button class="chat-faq-btn" onclick="sendFaqQ('How do I schedule an appointment?')">Appointments</button>
-        </div>
-        <div class="chat-log" id="chat-log">
-            <div class="bot-msg">Hello! I'm your clinic assistant. How can I help you today?</div>
-        </div>
-        <div class="chat-input-area">
-            <input type="text" id="chat-input" placeholder="Type a message..."
-                onkeypress="if(event.key==='Enter')sendLandingChat()">
-            <button onclick="sendLandingChat()"><i class="fa-solid fa-paper-plane"></i></button>
-        </div>
-    </div>
+    </footer>
 
     <script src="index.js"></script>
 </body>

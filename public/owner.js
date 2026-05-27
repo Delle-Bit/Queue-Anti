@@ -5,9 +5,11 @@ renderSidebar([
     { id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-building-columns' },
     { id: 'accounts', label: 'Manage Accounts', icon: 'fa-solid fa-users-gear' },
     { id: 'labs', label: 'Manage Laboratories', icon: 'fa-solid fa-flask-vial' },
+    { id: 'reports', label: 'AI Reports', icon: 'fa-solid fa-chart-line' },
     { id: 'services', label: 'Service Management', icon: 'fa-solid fa-box-open' },
     { id: 'create', label: 'Create Account', icon: 'fa-solid fa-user-plus' },
     { id: 'audits', label: 'Audit Logs', icon: 'fa-solid fa-file-shield' },
+    { id: 'archive', label: 'Archive', icon: 'fa-solid fa-box-archive' },
     { id: 'customize', label: 'Customize', icon: 'fa-solid fa-palette' }
 ], 'dashboard');
 initDefaultSection();
@@ -17,9 +19,11 @@ window.onSectionLoad = {
     dashboard: loadOwnerDash,
     accounts: loadAccounts,
     labs: loadLabs,
+    reports: loadReports,
     services: loadServiceMgmt,
     create: initCreateForm,
     audits: loadAudits,
+    archive: loadArchive,
     customize: loadCustomization
 };
 
@@ -63,9 +67,14 @@ async function updateUser() {
 }
 
 async function deleteUser(id) {
-    if (!confirm('Delete this user?')) return;
-    const res = await fetch(`/api/users/${id}`, { method: 'DELETE', headers: authHeaders() });
-    if (res.ok) { showToast('Deleted', 'success'); loadAccounts(); }
+    const reason = prompt('Reason for deletion (optional):');
+    if (reason === null) return; // User cancelled
+    const res = await fetch(`/api/users/${id}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+        body: JSON.stringify({ reason })
+    });
+    if (res.ok) { showToast('Deleted (Archived)', 'success'); loadAccounts(); }
 }
 
 // ── LABS ──
@@ -119,6 +128,7 @@ function populateRoleSelect(selectId, selected) {
     let roles = [
         { value: 'laboratory', label: 'Laboratory' },
         { value: 'frontdesk', label: 'Front Desk' },
+        { value: 'doctor', label: 'Doctor' },
         { value: 'admintechnical', label: 'Admin Technical' },
         { value: 'admin', label: 'Admin' }
     ];
@@ -176,9 +186,15 @@ async function saveCustomization() {
 
 // ── SERVICE MANAGEMENT ──
 let allLabs = [];
+let allDoctors = [];
 async function fetchAllLabs() {
-    const res = await fetch('/api/laboratories', { headers: authHeaders() });
-    allLabs = await res.json();
+    const [labRes, doctorRes] = await Promise.all([
+        fetch('/api/laboratories', { headers: authHeaders() }),
+        fetch('/api/doctors', { headers: authHeaders() })
+    ]);
+    allLabs = await labRes.json();
+    allDoctors = await doctorRes.json();
+    populateDoctorSelect();
 }
 fetchAllLabs();
 
@@ -187,7 +203,7 @@ async function loadServiceMgmt() {
     const pkgs = await res.json();
     document.getElementById('svc-list').innerHTML = pkgs.map(p => `<tr>
         <td><strong>${p.name}</strong></td><td>${formatCurrency(p.price)}</td><td>${p.est_time_minutes}m</td>
-        <td>${(p.laboratories||[]).map(l=>l.lab_name).join(' → ') || 'None'}</td>
+        <td>${(p.laboratories||[]).map(l=>l.lab_name).join(' → ') || 'None'}${p.doctor_name ? ` → Dr. ${p.doctor_name}` : ''}</td>
         <td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'Active':'Inactive'}</span></td>
         <td><button class="btn btn-sm btn-secondary" onclick='editService(${JSON.stringify(p).replace(/'/g,"&apos;")})'><i class="fa-solid fa-pen"></i></button></td>
     </tr>`).join('');
@@ -198,6 +214,7 @@ function editService(pkg) {
     document.getElementById('svc-name').value = pkg.name;
     document.getElementById('svc-desc').value = pkg.description || '';
     document.getElementById('svc-price').value = pkg.price;
+    document.getElementById('svc-doctor').value = pkg.doctor_id || '';
     document.getElementById('svc-modal-title').textContent = 'Edit Service Package';
     renderLabSequence(pkg.laboratories || []);
     openModal('svc-modal');
@@ -256,13 +273,32 @@ async function saveService() {
         description: document.getElementById('svc-desc').value,
         price: parseFloat(document.getElementById('svc-price').value),
         est_time_minutes: est_time_minutes,
-        laboratories: finalLabs
+        laboratories: finalLabs,
+        doctor_id: document.getElementById('svc-doctor').value || null
     };
     const url = id ? `/api/packages/${id}` : '/api/packages';
     const method = id ? 'PUT' : 'POST';
     const res = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(body) });
     if (res.ok) { closeModal('svc-modal'); showToast('Saved!', 'success'); loadServiceMgmt(); }
     else showToast('Failed to save', 'error');
+}
+
+function prepareNewService() {
+    document.getElementById('svc-edit-id').value = '';
+    document.getElementById('svc-name').value = '';
+    document.getElementById('svc-desc').value = '';
+    document.getElementById('svc-price').value = '';
+    document.getElementById('svc-doctor').value = '';
+    document.getElementById('svc-modal-title').textContent = 'Add Service Package';
+    renderLabSequence([]);
+    openModal('svc-modal');
+}
+
+function populateDoctorSelect() {
+    const select = document.getElementById('svc-doctor');
+    if (!select) return;
+    select.innerHTML = '<option value="">No doctor consultation</option>' +
+        allDoctors.map(d => `<option value="${d.id}">${d.name}${d.specialty ? ` (${d.specialty})` : ''}</option>`).join('');
 }
 
 async function loadOwnerDash() {
@@ -312,6 +348,67 @@ function filterAudits(q) {
         (l.username || '').toLowerCase().includes(q.toLowerCase())
     );
     renderAudits(filtered);
+}
+
+// ── ARCHIVE ──
+async function loadArchive() {
+    try {
+        const [logsRes, archRes] = await Promise.all([
+            fetch('/api/users/deletion-logs', { headers: authHeaders() }),
+            fetch('/api/archives', { headers: authHeaders() })
+        ]);
+        const logs = await logsRes.json();
+        const archives = await archRes.json();
+
+        document.getElementById('deletion-logs-table').innerHTML = logs.map(l => `<tr>
+            <td>${l.account_name}</td>
+            <td>${l.deleted_by_name}</td>
+            <td class="text-sm">${l.reason}</td>
+            <td>${formatDateTime(l.deleted_at)}</td>
+        </tr>`).join('') || '<tr><td colspan="4" class="text-center text-muted">No deletion logs</td></tr>';
+
+        document.getElementById('archives-table').innerHTML = archives.map(a => `<tr>
+            <td><span class="badge badge-neutral">${a.entity_type}</span></td>
+            <td>${a.entity_id}</td>
+            <td>${a.archived_by_name || '--'}</td>
+            <td>${formatDateTime(a.archived_at)}</td>
+            <td>
+                <button class="btn btn-sm btn-success" onclick="restoreArchive(${a.id})"><i class="fa-solid fa-rotate-left"></i> Restore</button>
+            </td>
+        </tr>`).join('') || '<tr><td colspan="5" class="text-center text-muted">No archived records</td></tr>';
+    } catch (err) { console.error(err); }
+}
+
+async function restoreArchive(id) {
+    if (!confirm('Restore this record?')) return;
+    const res = await fetch(`/api/archives/${id}/restore`, { method: 'POST', headers: authHeaders() });
+    if (res.ok) { showToast('Restored successfully!', 'success'); loadArchive(); }
+    else showToast('Failed to restore', 'error');
+}
+
+// ── REPORTS ──
+async function loadReports() {
+    const period = document.getElementById('report-period').value;
+    const aiBox = document.getElementById('ai-report-summary');
+    aiBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating insights...';
+
+    try {
+        const res = await fetch(`/api/reports/summary?period=${period}`, { headers: authHeaders() });
+        const data = await res.json();
+
+        if (data.success) {
+            document.getElementById('rep-vol').textContent = data.stats.patientVolume;
+            document.getElementById('rep-wait').textContent = data.stats.waitTimeAvg + 'm';
+            document.getElementById('rep-rev').textContent = '₱' + data.stats.revenue.toLocaleString();
+            document.getElementById('rep-top').textContent = data.stats.topService;
+
+            aiBox.innerHTML = data.aiSummary;
+        } else {
+            aiBox.innerHTML = '<span class="text-danger">Failed to load reports.</span>';
+        }
+    } catch (err) {
+        aiBox.innerHTML = '<span class="text-danger">Error connecting to server.</span>';
+    }
 }
 
 loadOwnerDash();

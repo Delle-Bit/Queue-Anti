@@ -1,40 +1,352 @@
-// Landing page JS — Login + Registration
-let regCameraStream = null;
-let regCapturedBlob = null;
+/* ================================================================
+   MEDICAL CLINIC — Landing Page JavaScript (Redesign)
+   ================================================================ */
 
-const LANDING_SERVICES = [
-    ['Hematology (CBC)', 450],
-    ['Clinical Microscopy', 300],
-    ['Ultrasound', 2800],
-    ['X-ray', 900],
-    ['2D Echocardiography', 6000],
-    ['Venous Duplex Scan', 4500],
-    ['Arterial Duplex Scan', 5800],
-    ['Carotid Duplex Scan', 6000],
-    ['Holter Monitoring', 6500],
-    ['24-Hour Ambulatory BP Monitoring', 5000],
-    ['ECG / FCG', 1300],
-    ['Blood Chemistry', 4500],
-    ['Serology Exams', 2500],
-    ['Drug Testing', 900],
-    ['HIV Screening', 1200],
-    ['Annual Physical Exam', 3500],
-    ['Pre-Employment Medical', 3500],
-    ['Rapid Antibody Test', 1500]
+'use strict';
+
+// ── Auto-redirect if already logged in ──────────────────────────
+(function checkExisting() {
+    const token = localStorage.getItem('clinicToken');
+    const role = localStorage.getItem('clinicRole');
+    if (token && role) {
+        const map = {
+            customer: '/customer.html',
+            frontdesk: '/frontdesk.html',
+            laboratory: '/laboratory.html',
+            admintechnical: '/admintechnical.html',
+            admin: '/admintechnical.html',
+            owner: '/owner.html',
+            doctor: '/doctor.html'
+        };
+        if (map[role]) window.location.href = map[role];
+    }
+})();
+
+// ── Service Data ─────────────────────────────────────────────────
+const SERVICES_DATA = [
+    {
+        name: 'Hematology (CBC)',
+        icon: 'fa-solid fa-droplet',
+        preview: 'Complete blood count evaluation',
+        description: 'A comprehensive hematologic examination that evaluates erythrocytes, leukocytes, hemoglobin, hematocrit, and platelet count for the detection of anemia, infection, inflammation, and hematologic disorders.'
+    },
+    {
+        name: 'Clinical Microscopy',
+        icon: 'fa-solid fa-microscope',
+        preview: 'Microscopic analysis of body fluids',
+        description: 'A diagnostic laboratory procedure involving microscopic and chemical analysis of urine, stool, and other body fluids to identify infections, renal disorders, and parasitic diseases.'
+    },
+    {
+        name: 'Ultrasound',
+        icon: 'fa-solid fa-wave-square',
+        preview: 'Non-invasive internal organ imaging',
+        description: 'A non-invasive diagnostic imaging modality utilizing high-frequency sound waves to visualize internal organs, soft tissues, and vascular structures for clinical assessment.'
+    },
+    {
+        name: 'X-Ray',
+        icon: 'fa-solid fa-x-ray',
+        preview: 'Radiologic skeletal & organ imaging',
+        description: 'A radiologic imaging procedure that uses ionizing radiation to evaluate skeletal structures, thoracic organs, and other anatomical regions for fractures, abnormalities, and pathologic conditions.'
+    },
+    {
+        name: '2D Echocardiography',
+        icon: 'fa-solid fa-heart-pulse',
+        preview: 'Real-time cardiac chamber visualization',
+        description: 'A specialized cardiac ultrasound examination that provides real-time visualization of cardiac chambers, valves, wall motion, and overall heart function.'
+    },
+    {
+        name: 'Venous Duplex Scan',
+        icon: 'fa-solid fa-timeline',
+        preview: 'Venous blood flow assessment',
+        description: 'A vascular ultrasonography procedure combining Doppler and B-mode imaging to assess venous blood flow and detect thrombosis, insufficiency, or venous obstruction.'
+    },
+    {
+        name: 'Arterial Duplex Scan',
+        icon: 'fa-solid fa-heart-circle-check',
+        preview: 'Arterial circulation evaluation',
+        description: 'A diagnostic vascular imaging study used to evaluate arterial circulation, identify stenosis or occlusions, and assess peripheral arterial disease.'
+    },
+    {
+        name: 'Carotid Duplex Scan',
+        icon: 'fa-solid fa-brain',
+        preview: 'Carotid artery Doppler assessment',
+        description: 'A non-invasive Doppler ultrasound examination of the carotid arteries to assess blood flow abnormalities, plaque formation, and cerebrovascular risk.'
+    },
+    {
+        name: 'Holter Monitoring',
+        icon: 'fa-solid fa-radio',
+        preview: '24–48 hour cardiac ECG recording',
+        description: 'A continuous ambulatory electrocardiographic recording performed over 24–48 hours to detect transient cardiac arrhythmias and conduction abnormalities.'
+    },
+    {
+        name: '24-Hour Ambulatory BP Monitoring',
+        icon: 'fa-solid fa-gauge-high',
+        preview: 'Blood pressure over 24 hours',
+        description: 'A diagnostic procedure involving automated blood pressure measurements over a 24-hour period to evaluate hypertension and cardiovascular risk profiles.'
+    },
+    {
+        name: 'ECG / FCG',
+        icon: 'fa-solid fa-heart',
+        preview: 'Electrical cardiac activity recording',
+        description: 'A cardiovascular diagnostic examination that records the electrical activity and functional cardiac performance for the assessment of arrhythmias, ischemia, and other cardiac conditions.'
+    },
+    {
+        name: 'Blood Chemistry',
+        icon: 'fa-solid fa-flask',
+        preview: 'Metabolic & organ function tests',
+        description: 'A series of biochemical laboratory tests used to evaluate metabolic function, electrolyte balance, renal function, hepatic function, and overall systemic health.'
+    },
+    {
+        name: 'Serology Exam',
+        icon: 'fa-solid fa-vial-virus',
+        preview: 'Antibody and antigen detection',
+        description: 'An immunologic laboratory test that detects antibodies, antigens, or immune responses in the blood for the diagnosis of infectious and autoimmune diseases.'
+    },
+    {
+        name: 'Drug Testing',
+        icon: 'fa-solid fa-cannabis',
+        preview: 'Substance screening in specimens',
+        description: 'A toxicologic screening procedure performed to detect the presence of prohibited, controlled, or illicit substances in biological specimens.'
+    },
+    {
+        name: 'HIV Screening',
+        icon: 'fa-solid fa-shield-virus',
+        preview: 'HIV antibody & antigen detection',
+        description: 'A serologic diagnostic test performed to detect Human Immunodeficiency Virus (HIV) antibodies and/or antigens for early identification and management.'
+    },
+    {
+        name: 'Annual Physical Exam',
+        icon: 'fa-solid fa-stethoscope',
+        preview: 'Comprehensive preventive health check',
+        description: 'A comprehensive preventive medical evaluation involving physical assessment, medical history review, and routine diagnostic screening to monitor general health status.'
+    },
+    {
+        name: 'Pre-Employment Exam',
+        icon: 'fa-solid fa-briefcase-medical',
+        preview: 'Medical fitness for work assessment',
+        description: 'A medical fitness assessment conducted to determine an applicant\'s physical and functional capability to safely perform occupational responsibilities.'
+    }
 ];
 
-function renderLandingServices() {
-    const list = document.getElementById('landing-services-list');
-    if (!list) return;
-    list.innerHTML = LANDING_SERVICES.map(([name, price]) => `
-        <article class="service-card">
-            <strong>${name}</strong>
-            <span>₱${price.toLocaleString('en-PH')}</span>
-        </article>
-    `).join('');
+// ── Page Loader ──────────────────────────────────────────────────
+window.addEventListener('load', () => {
+    setTimeout(() => {
+        const loader = document.getElementById('page-loader');
+        if (loader) loader.classList.add('hidden');
+    }, 800);
+});
+
+// ── Hero Particles ───────────────────────────────────────────────
+function createParticles() {
+    const container = document.getElementById('hero-particles');
+    if (!container) return;
+    const count = window.innerWidth < 768 ? 18 : 35;
+    container.innerHTML = '';
+    for (let i = 0; i < count; i++) {
+        const p = document.createElement('div');
+        p.className = 'particle';
+        const size = Math.random() * 4 + 2;
+        p.style.cssText = `
+            width: ${size}px;
+            height: ${size}px;
+            left: ${Math.random() * 100}%;
+            animation-duration: ${Math.random() * 10 + 8}s;
+            animation-delay: ${Math.random() * 10}s;
+            opacity: ${Math.random() * 0.4 + 0.1};
+        `;
+        container.appendChild(p);
+    }
 }
 
-renderLandingServices();
+createParticles();
+
+// ── Sticky Navbar ────────────────────────────────────────────────
+const navbar = document.getElementById('navbar');
+
+function updateNavbar() {
+    if (window.scrollY > 50) {
+        navbar.classList.add('scrolled');
+    } else {
+        navbar.classList.remove('scrolled');
+    }
+}
+
+updateNavbar();
+window.addEventListener('scroll', updateNavbar, { passive: true });
+
+// ── Active nav link on scroll ────────────────────────────────────
+const sections = ['home', 'services', 'about'];
+const navLinks = document.querySelectorAll('.nav-link[data-section]');
+
+function updateActiveNav() {
+    let current = 'home';
+    const scrollY = window.scrollY + 120;
+
+    for (const id of sections) {
+        const el = document.getElementById(id);
+        if (el && el.offsetTop <= scrollY) {
+            current = id;
+        }
+    }
+
+    navLinks.forEach(link => {
+        link.classList.toggle('active', link.dataset.section === current);
+    });
+}
+
+window.addEventListener('scroll', updateActiveNav, { passive: true });
+
+// ── Mobile Hamburger ─────────────────────────────────────────────
+const hamburgerBtn = document.getElementById('hamburger-btn');
+const navLinksEl = document.getElementById('nav-links');
+const mobileOverlay = document.getElementById('mobile-nav-overlay');
+
+function toggleMobileMenu() {
+    const isOpen = hamburgerBtn.classList.toggle('open');
+    hamburgerBtn.setAttribute('aria-expanded', String(isOpen));
+    navLinksEl.classList.toggle('mobile-open', isOpen);
+    mobileOverlay.classList.toggle('active', isOpen);
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+}
+
+function closeMobileMenu() {
+    hamburgerBtn.classList.remove('open');
+    hamburgerBtn.setAttribute('aria-expanded', 'false');
+    navLinksEl.classList.remove('mobile-open');
+    mobileOverlay.classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+hamburgerBtn.addEventListener('click', toggleMobileMenu);
+mobileOverlay.addEventListener('click', closeMobileMenu);
+
+navLinksEl.querySelectorAll('.nav-link').forEach(link => {
+    link.addEventListener('click', closeMobileMenu);
+});
+
+// ── Smooth Scroll for nav links ──────────────────────────────────
+document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+    anchor.addEventListener('click', function (e) {
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+            e.preventDefault();
+            const offset = 80;
+            const top = target.getBoundingClientRect().top + window.scrollY - offset;
+            window.scrollTo({ top, behavior: 'smooth' });
+        }
+    });
+});
+
+// ── Services Gallery ─────────────────────────────────────────────
+function renderServices() {
+    const grid = document.getElementById('services-grid');
+    if (!grid) return;
+
+    grid.innerHTML = SERVICES_DATA.map((svc, index) => `
+        <article class="svc-card reveal reveal-delay-${(index % 3) + 1}" 
+                 role="listitem"
+                 id="svc-card-${index}">
+            <div class="svc-card-header" 
+                 onclick="toggleService(${index})" 
+                 role="button"
+                 aria-expanded="false"
+                 aria-controls="svc-body-${index}"
+                 tabindex="0"
+                 onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleService(${index})}">
+                <div class="svc-icon-wrap">
+                    <i class="${svc.icon}" aria-hidden="true"></i>
+                </div>
+                <div class="svc-card-info">
+                    <p class="svc-card-title">${svc.name}</p>
+                    <p class="svc-card-preview">${svc.preview}</p>
+                </div>
+                <div class="svc-card-chevron" aria-hidden="true">
+                    <i class="fa-solid fa-chevron-down"></i>
+                </div>
+            </div>
+            <div class="svc-card-body" id="svc-body-${index}" role="region" aria-label="${svc.name} description">
+                <p class="svc-card-desc">${svc.description}</p>
+            </div>
+        </article>
+    `).join('');
+
+    // Trigger reveal on existing cards
+    observeReveal();
+}
+
+let currentOpen = null;
+
+function toggleService(index) {
+    const card = document.getElementById(`svc-card-${index}`);
+    const header = card.querySelector('.svc-card-header');
+
+    if (currentOpen !== null && currentOpen !== index) {
+        const prevCard = document.getElementById(`svc-card-${currentOpen}`);
+        if (prevCard) {
+            prevCard.classList.remove('open');
+            prevCard.querySelector('.svc-card-header').setAttribute('aria-expanded', 'false');
+        }
+    }
+
+    const isOpen = card.classList.toggle('open');
+    header.setAttribute('aria-expanded', String(isOpen));
+    currentOpen = isOpen ? index : null;
+}
+
+renderServices();
+
+// ── Scroll Reveal ────────────────────────────────────────────────
+function observeReveal() {
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('visible');
+                observer.unobserve(entry.target);
+            }
+        });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+}
+
+// Apply reveal to static elements
+document.querySelectorAll('.section-header, .about-visual, .about-content, .about-feature').forEach((el, i) => {
+    el.classList.add('reveal');
+    if (i > 0) el.classList.add(`reveal-delay-${Math.min(i, 3)}`);
+});
+
+observeReveal();
+
+// ── AUTH PANEL ───────────────────────────────────────────────────
+const authOverlay = document.getElementById('auth-overlay');
+
+function openAuthPanel(tab = 'login') {
+    authOverlay.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    switchAuthTab(tab);
+    // Focus trap
+    setTimeout(() => {
+        const focusable = authOverlay.querySelectorAll('input, button, [tabindex]');
+        if (focusable.length) focusable[0].focus();
+    }, 420);
+}
+
+function closeAuthPanel() {
+    authOverlay.classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+// Close on overlay backdrop click
+authOverlay.addEventListener('click', function (e) {
+    if (e.target === authOverlay) closeAuthPanel();
+});
+
+// Close on Escape
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+        if (authOverlay.classList.contains('active')) closeAuthPanel();
+    }
+});
 
 function switchAuthTab(tab) {
     document.getElementById('form-login').style.display = tab === 'login' ? 'block' : 'none';
@@ -43,68 +355,96 @@ function switchAuthTab(tab) {
     document.getElementById('tab-register').classList.toggle('active', tab === 'register');
 }
 
-async function toggleRegCamera() {
-    const btn = document.getElementById('reg-camera-toggle');
-    const captureBtn = document.getElementById('reg-camera-capture');
-    const video = document.getElementById('reg-camera-stream');
-    const status = document.getElementById('reg-camera-status');
+// ── Verification Method ──────────────────────────────────────────
+let verificationMethod = 'id';
 
+function setVerificationMethod(method) {
+    verificationMethod = method;
+    document.getElementById('reg-verification-method').value = method;
+    document.getElementById('verify-id-btn').classList.toggle('active', method === 'id');
+    document.getElementById('verify-guardian-btn').classList.toggle('active', method === 'guardian');
+    document.getElementById('id-verification-section').style.display = method === 'id' ? 'block' : 'none';
+    document.getElementById('guardian-verification-section').style.display = method === 'guardian' ? 'block' : 'none';
+}
+
+// ── ID Camera ────────────────────────────────────────────────────
+let regCameraStream = null;
+let regBlobs = { front: null, back: null };
+let currentSide = 'front';
+
+function startIdAction(side, type) {
+    currentSide = side;
+    if (type === 'camera') {
+        openRegCamera();
+    } else {
+        document.getElementById(`upload-${side}`).click();
+    }
+}
+
+function handleFileUpload(e, side) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const preview = document.getElementById(`preview-${side}`);
+        preview.innerHTML = `<img src="${event.target.result}" alt="${side} id">`;
+    };
+    reader.readAsDataURL(file);
+    regBlobs[side] = file;
+}
+
+async function openRegCamera() {
+    const video = document.getElementById('reg-camera-stream');
+    const overlay = document.getElementById('reg-camera-overlay');
+    const status = document.getElementById('reg-camera-status');
+    if (regCameraStream) stopRegCamera();
+    try {
+        overlay.style.display = 'block';
+        status.textContent = `Capturing ${currentSide.toUpperCase()} ID...`;
+        regCameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        video.srcObject = regCameraStream;
+        video.play();
+    } catch (err) {
+        status.textContent = 'Camera access denied';
+        console.error(err);
+    }
+}
+
+function stopRegCamera() {
     if (regCameraStream) {
         regCameraStream.getTracks().forEach(track => track.stop());
         regCameraStream = null;
-        video.style.display = 'none';
-        captureBtn.style.display = 'none';
-        btn.innerHTML = '<i class="fa-solid fa-camera"></i> Start Camera';
-        status.textContent = 'Any Valid ID';
-    } else {
-        try {
-            status.textContent = 'Requesting camera access...';
-            regCameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            video.srcObject = regCameraStream;
-            video.style.display = 'block';
-            captureBtn.style.display = 'inline-block';
-            btn.innerHTML = '<i class="fa-solid fa-camera-slash"></i> Stop Camera';
-            status.textContent = 'Position your ID and click Capture';
-        } catch (err) {
-            status.textContent = 'Camera access denied or not available';
-            console.error(err);
-        }
     }
+    const overlay = document.getElementById('reg-camera-overlay');
+    if (overlay) overlay.style.display = 'none';
 }
 
 async function captureRegID() {
     const video = document.getElementById('reg-camera-stream');
     const canvas = document.getElementById('reg-capture-canvas');
     const status = document.getElementById('reg-camera-status');
-
-    if (!video.srcObject) {
-        status.textContent = 'Camera not active';
-        return;
-    }
-
     const ctx = canvas.getContext('2d');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
-
     canvas.toBlob((blob) => {
-        regCapturedBlob = blob;
-        status.textContent = 'Photo captured successfully ✓';
-        regCameraStream.getTracks().forEach(track => track.stop());
-        regCameraStream = null;
-        video.style.display = 'none';
-        document.getElementById('reg-camera-capture').style.display = 'none';
-        document.getElementById('reg-camera-toggle').innerHTML = '<i class="fa-solid fa-camera"></i> Retake Photo';
+        regBlobs[currentSide] = blob;
+        const preview = document.getElementById(`preview-${currentSide}`);
+        const dataUrl = canvas.toDataURL('image/jpeg');
+        preview.innerHTML = `<img src="${dataUrl}" alt="${currentSide} id">`;
+        status.textContent = `${currentSide.toUpperCase()} captured ✓`;
+        stopRegCamera();
     }, 'image/jpeg', 0.9);
 }
 
-
+// ── Login ────────────────────────────────────────────────────────
 async function handleLogin(e) {
     e.preventDefault();
     const errEl = document.getElementById('login-error');
     errEl.classList.remove('show');
     const btn = document.getElementById('login-btn');
-    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Signing in...';
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Signing in...';
 
     try {
         const res = await fetch('/api/auth/login', {
@@ -127,97 +467,119 @@ async function handleLogin(e) {
             errEl.classList.add('show');
         }
     } catch (err) {
-        errEl.textContent = 'Connection error';
+        errEl.textContent = 'Connection error. Please try again.';
         errEl.classList.add('show');
     }
-    btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Sign In';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Sign In';
 }
 
+// ── Register ─────────────────────────────────────────────────────
 async function handleRegister(e) {
     e.preventDefault();
     const errEl = document.getElementById('reg-error');
     const sucEl = document.getElementById('reg-success');
-    errEl.classList.remove('show'); sucEl.classList.remove('show');
+    errEl.classList.remove('show');
+    sucEl.classList.remove('show');
     const btn = document.getElementById('reg-btn');
-    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing ID...';
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
 
-    if (!regCapturedBlob) {
-        errEl.textContent = 'ID Photo is required. Please capture your ID using the camera.'; errEl.classList.add('show');
-        btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Register';
+    if (verificationMethod === 'id' && (!regBlobs.front || !regBlobs.back)) {
+        errEl.textContent = 'Both Front and Back ID images are required.';
+        errEl.classList.add('show');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Register';
         return;
+    }
+    if (verificationMethod === 'guardian') {
+        const missingGuardian = ['reg-guardian-name', 'reg-guardian-contact', 'reg-guardian-relationship']
+            .some(id => !document.getElementById(id).value.trim());
+        if (missingGuardian) {
+            errEl.textContent = 'Guardian name, contact, and relationship are required for underage registration.';
+            errEl.classList.add('show');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Register';
+            return;
+        }
     }
 
     const formData = new FormData();
     formData.append('username', document.getElementById('reg-username').value);
     formData.append('password', document.getElementById('reg-password').value);
     formData.append('email', document.getElementById('reg-email').value);
-    formData.append('idImage', regCapturedBlob, 'id-photo.jpg');
+    formData.append('verification_method', verificationMethod);
+    if (verificationMethod === 'id') {
+        formData.append('frontId', regBlobs.front, 'front-id.jpg');
+        formData.append('backId', regBlobs.back, 'back-id.jpg');
+    } else {
+        formData.append('guardian_name', document.getElementById('reg-guardian-name').value.trim());
+        formData.append('guardian_contact', document.getElementById('reg-guardian-contact').value.trim());
+        formData.append('guardian_relationship', document.getElementById('reg-guardian-relationship').value.trim());
+    }
 
     try {
         const res = await fetch('/api/auth/register', { method: 'POST', body: formData });
         const data = await res.json();
         if (res.ok) {
-            sucEl.textContent = `Registration complete! Category: ${data.category}. Redirecting to login...`;
+            sucEl.textContent = verificationMethod === 'guardian'
+                ? 'Underage registration complete! Redirecting to login...'
+                : `Registration complete! Category: ${data.category}. Redirecting to login...`;
             sucEl.classList.add('show');
-            regCapturedBlob = null;
+            regBlobs = { front: null, back: null };
             setTimeout(() => switchAuthTab('login'), 2500);
         } else {
             errEl.textContent = data.error || 'Registration failed';
             errEl.classList.add('show');
         }
     } catch (err) {
-        errEl.textContent = 'Connection error';
+        errEl.textContent = 'Connection error. Please try again.';
         errEl.classList.add('show');
     }
-    btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Register';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Register';
 }
 
-// Forgot password
+// ── Forgot Password Modal ────────────────────────────────────────
 function openModal(id) { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
 async function requestReset() {
-    const username = document.getElementById('forgot-username').value;
+    const username = document.getElementById('forgot-username').value.trim();
     if (!username) return;
-    const res = await fetch('/api/auth/forgot-password', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username })
-    });
-    const data = await res.json();
-    const msg = document.getElementById('forgot-msg');
-    msg.textContent = data.message; msg.classList.add('show');
-}
-
-// Landing page chatbot
-let landingChatSession = null;
-async function sendLandingChat() {
-    const input = document.getElementById('chat-input');
-    const msg = input.value.trim(); if (!msg) return;
-    const log = document.getElementById('chat-log');
-    log.innerHTML += `<div class="user-msg">${msg}</div>`;
-    input.value = ''; log.scrollTop = log.scrollHeight;
-
+    const btn = document.getElementById('forgot-send-btn');
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
     try {
-        const res = await fetch('/api/chat', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: msg, sessionId: landingChatSession })
+        const res = await fetch('/api/auth/forgot-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username })
         });
         const data = await res.json();
-        if (data.sessionId) landingChatSession = data.sessionId;
-        log.innerHTML += `<div class="bot-msg">${data.reply || data.error}</div>`;
+        const msg = document.getElementById('forgot-msg');
+        msg.textContent = data.message;
+        msg.classList.add('show');
     } catch (err) {
-        log.innerHTML += `<div class="bot-msg" style="color:var(--danger);">Connection error.</div>`;
+        console.error(err);
     }
-    log.scrollTop = log.scrollHeight;
+    btn.disabled = false;
+    btn.innerHTML = 'Send Reset';
 }
-function sendFaqQ(q) { document.getElementById('chat-input').value = q; sendLandingChat(); }
 
-// Auto-redirect if already logged in
-(function checkExisting() {
-    const token = localStorage.getItem('clinicToken');
-    const role = localStorage.getItem('clinicRole');
-    if (token && role) {
-        const map = { customer:'/customer.html', frontdesk:'/frontdesk.html', laboratory:'/laboratory.html', admintechnical:'/admintechnical.html', admin:'/admintechnical.html', owner:'/owner.html' };
-        if (map[role]) window.location.href = map[role];
-    }
-})();
+// ── Expose globals for inline HTML handlers ──────────────────────
+window.openAuthPanel = openAuthPanel;
+window.closeAuthPanel = closeAuthPanel;
+window.switchAuthTab = switchAuthTab;
+window.setVerificationMethod = setVerificationMethod;
+window.startIdAction = startIdAction;
+window.handleFileUpload = handleFileUpload;
+window.openRegCamera = openRegCamera;
+window.stopRegCamera = stopRegCamera;
+window.captureRegID = captureRegID;
+window.handleLogin = handleLogin;
+window.handleRegister = handleRegister;
+window.openModal = openModal;
+window.closeModal = closeModal;
+window.requestReset = requestReset;
+window.toggleService = toggleService;

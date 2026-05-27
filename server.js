@@ -3,12 +3,10 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const dotenv = require('dotenv');
 const { pool, initDB, DEFAULT_SERVICES } = require('./database.js');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const http = require('http');
 const socketIo = require('socket.io');
-const path = require('path');
 
 dotenv.config();
 
@@ -19,10 +17,6 @@ app.set('io', io);
 
 const port = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123';
-
-// Gemini AI
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const chatSessions = new Map();
 
 // Middleware
 app.use(cors());
@@ -57,15 +51,18 @@ function verifyRoles(...roles) {
 }
 
 // Routes — order matters: specific routes before catch-all
-const authRoutes = require('./routes/auth');
 const queueRoutes = require('./routes/queue');
+const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
+const reportRoutes = require('./routes/reports');
 const packageRoutes = require('./routes/packages');
 
 app.use('/api/auth', authRoutes);
-app.use('/api/chat', (req, res, next) => next()); // chat handled below
-app.use('/api/packages', packageRoutes);          // GET public; POST/PUT check auth inside route
+app.use('/api/packages', packageRoutes);
 app.use('/api/queue', authenticateToken, queueRoutes);
+app.use('/api/reports', authenticateToken, verifyRoles('owner'), reportRoutes);
+app.use('/api/admin', authenticateToken, verifyRoles('admin', 'admintechnical', 'owner'), adminRoutes);
+app.use('/api', authenticateToken, adminRoutes);
 
 async function startQueueFromAppointment(appointment, io) {
     const [existing] = await pool.query(
@@ -78,7 +75,9 @@ async function startQueueFromAppointment(appointment, io) {
         'SELECT * FROM package_laboratories WHERE package_id = ? AND archived = false ORDER BY sequence_order',
         [appointment.package_id]
     );
-    const totalSteps = 1 + labs.length;
+    const [pkgDoctor] = await pool.query('SELECT doctor_id FROM service_packages WHERE id = ? AND doctor_id IS NOT NULL', [appointment.package_id]);
+    const hasDoctorStep = pkgDoctor.length > 0;
+    const totalSteps = 1 + labs.length + (hasDoctorStep ? 1 : 0);
     const [userRows] = await pool.query('SELECT customer_category FROM users WHERE id=?', [appointment.customer_id]);
     const category = userRows[0]?.customer_category || 'Regular';
     let type = 'Q';
@@ -87,8 +86,8 @@ async function startQueueFromAppointment(appointment, io) {
     else if (category === 'Pregnant') type = 'P';
 
     const [seqResult] = await pool.query(
-        'INSERT INTO queue_sequences (customer_id, package_id, current_step, total_steps) VALUES (?, ?, 0, ?)',
-        [appointment.customer_id, appointment.package_id, totalSteps]
+        'INSERT INTO queue_sequences (customer_id, package_id, current_step, total_steps, has_doctor_step, doctor_id) VALUES (?, ?, 0, ?, ?, ?)',
+        [appointment.customer_id, appointment.package_id, totalSteps, hasDoctorStep ? 1 : 0, hasDoctorStep ? pkgDoctor[0].doctor_id : null]
     );
     const seqId = seqResult.insertId;
     const [countRows] = await pool.query(
@@ -109,6 +108,41 @@ async function startQueueFromAppointment(appointment, io) {
     if (io) io.emit('queueUpdate', { appointment_id: appointment.id, queue_id: queueId });
     return { ticket: ticketNum, sequence_id: seqId };
 }
+
+function makeCustomerUid(insertId) {
+    const year = new Date().getFullYear();
+    return `MC-${year}-${String(insertId).padStart(6, '0')}`;
+}
+
+app.post('/api/appointments/check-in', authenticateToken, async (req, res) => {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ success: false, error: 'Token is required' });
+    try {
+        const [rows] = await pool.query(
+            `SELECT a.*, sp.name as package_name, sp.price
+             FROM appointments a JOIN service_packages sp ON a.package_id = sp.id
+             WHERE a.qr_token = ? AND a.archived = false`,
+            [token]
+        );
+        if (rows.length === 0) return res.status(404).json({ success: false, error: 'Invalid or expired check-in code.' });
+        const appointment = rows[0];
+
+        if (appointment.status === 'checked-in' || appointment.status === 'completed') {
+             return res.status(400).json({ success: false, error: 'Already checked in or completed.' });
+        }
+
+        await pool.query(
+            `UPDATE appointments SET status='checked-in', checked_in_at=NOW() WHERE id=?`,
+            [appointment.id]
+        );
+
+        const queue = await startQueueFromAppointment(appointment, io);
+        res.json({ success: true, ticket: queue.ticket, package_name: appointment.package_name });
+    } catch (err) {
+        console.error('API QR check-in error:', err);
+        res.status(500).json({ success: false, error: 'Check-in failed.' });
+    }
+});
 
 app.get('/checkin/:token', async (req, res) => {
     try {
@@ -138,61 +172,6 @@ app.get('/checkin/:token', async (req, res) => {
     }
 });
 
-// Chat API
-app.post('/api/chat', async (req, res) => {
-    const { message, sessionId } = req.body;
-    if (!message) return res.status(400).json({ error: 'No message' });
-    try {
-        let sysPrompt = `You are a friendly assistant for the Medical Clinic.
-Help patients with queue info, service details, and appointments.
-Priority lanes: Senior, PWD, Pregnant patients get priority.
-Keep responses short, warm, professional. Don't diagnose illnesses.
-Use Philippine Peso (₱). Never use dollar signs.
-If asked who made you: Wendelle Ortiz and friends.`;
-
-        const [faqs] = await pool.query('SELECT service_name, price, description FROM pricing_faqs');
-        if (faqs.length > 0) {
-            sysPrompt += '\n\nService prices:';
-            faqs.forEach(f => { sysPrompt += `\n- ${f.service_name}: ₱${f.price} (${f.description || ''})`; });
-        }
-        const [pkgs] = await pool.query('SELECT name, price, description FROM service_packages WHERE is_active=true');
-        if (pkgs.length > 0) {
-            sysPrompt += '\n\nService packages:';
-            pkgs.forEach(p => { sysPrompt += `\n- ${p.name}: ₱${p.price} (${p.description || ''})`; });
-        }
-
-        const currentModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', systemInstruction: sysPrompt });
-        let chat;
-        let currentSessionId = sessionId;
-        if (sessionId && chatSessions.has(sessionId)) {
-            chat = chatSessions.get(sessionId);
-        } else {
-            chat = currentModel.startChat({ history: [] });
-            currentSessionId = sessionId || 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-            chatSessions.set(currentSessionId, chat);
-            setTimeout(() => chatSessions.delete(currentSessionId), 30 * 60 * 1000);
-        }
-        const result = await chat.sendMessage(message);
-        res.json({ reply: result.response.text(), sessionId: currentSessionId });
-    } catch (err) {
-        console.error('Chat error:', err.message);
-        try {
-            const [services] = await pool.query(
-                'SELECT name, price FROM service_packages WHERE is_active=true AND archived=false ORDER BY name LIMIT 20'
-            );
-            const serviceLines = services.map(s => `${s.name}: ₱${Number(s.price).toLocaleString('en-PH')}`).join('\n');
-            res.json({
-                reply: serviceLines
-                    ? `I can help with clinic services and appointments. Here are our available services:\n${serviceLines}\n\nFor medical advice or urgent concerns, please approach the front desk.`
-                    : 'I can help with clinic services and appointments. Please approach the front desk for the current service list.',
-                sessionId: sessionId || 'fallback_' + Date.now()
-            });
-        } catch (fallbackErr) {
-            res.status(500).json({ error: 'Sorry, I am facing technical issues. Please approach the desk.' });
-        }
-    }
-});
-
 app.use('/api', authenticateToken, adminRoutes);  // all other /api/* require token
 
 // Seed accounts & start
@@ -207,6 +186,7 @@ async function startServer() {
         { username: 'lab_xray', password: 'pass123', role: 'laboratory' },
         { username: 'lab_blood', password: 'pass123', role: 'laboratory' },
         { username: 'owner1', password: 'owner123', role: 'owner' },
+        { username: 'doctor1', password: 'pass123', role: 'doctor' },
         { username: 'customer_regular', password: 'pass123', role: 'customer', category: 'Regular' },
         { username: 'customer_senior', password: 'pass123', role: 'customer', category: 'Senior' },
         { username: 'customer_pwd', password: 'pass123', role: 'customer', category: 'PWD' },
@@ -217,11 +197,23 @@ async function startServer() {
         const [exists] = await pool.query('SELECT COUNT(*) as cnt FROM users WHERE username=?', [s.username]);
         if (exists[0].cnt === 0) {
             const hash = await bcrypt.hash(s.password, 10);
-            await pool.query(
+            const [result] = await pool.query(
                 'INSERT INTO users (username, password_hash, role, customer_category, full_name) VALUES (?, ?, ?, ?, ?)',
                 [s.username, hash, s.role, s.category || null, s.username.replace('_', ' ')]
             );
+            if (s.role === 'customer') {
+                await pool.query('UPDATE users SET customer_uid=? WHERE id=?', [makeCustomerUid(result.insertId), result.insertId]);
+            }
+        } else if (s.role === 'customer') {
+            const [rows] = await pool.query('SELECT id, customer_uid FROM users WHERE username=?', [s.username]);
+            if (rows[0] && !rows[0].customer_uid) {
+                await pool.query('UPDATE users SET customer_uid=? WHERE id=?', [makeCustomerUid(rows[0].id), rows[0].id]);
+            }
         }
+    }
+    const [missingCustomerIds] = await pool.query(`SELECT id FROM users WHERE role='customer' AND (customer_uid IS NULL OR customer_uid='')`);
+    for (const row of missingCustomerIds) {
+        await pool.query('UPDATE users SET customer_uid=? WHERE id=?', [makeCustomerUid(row.id), row.id]);
     }
 
     // Seed sample laboratories
@@ -237,6 +229,17 @@ async function startServer() {
                 [l.name, l.type, user.length > 0 ? user[0].id : null]);
         }
     }
+
+    // Seed sample doctor
+    const [docExists] = await pool.query('SELECT COUNT(*) as cnt FROM doctors WHERE name=?', ['General Physician']);
+    if (docExists[0].cnt === 0) {
+        const [docUser] = await pool.query('SELECT id FROM users WHERE username=?', ['doctor1']);
+        await pool.query('INSERT INTO doctors (name, specialty, assigned_staff_id) VALUES (?, ?, ?)',
+            ['General Physician', 'General Medicine', docUser.length > 0 ? docUser[0].id : null]);
+    }
+
+    // Ensure doctor_id column exists on service_packages
+    try { await pool.query('ALTER TABLE service_packages ADD COLUMN doctor_id INT DEFAULT NULL'); } catch(e) {}
 
     for (const svc of DEFAULT_SERVICES) {
         const [pkgRows] = await pool.query('SELECT id FROM service_packages WHERE name=? LIMIT 1', [svc.name]);
@@ -274,3 +277,4 @@ async function startServer() {
 }
 
 startServer();
+

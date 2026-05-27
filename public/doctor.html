@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doctor Dashboard — Medical Clinic</title>
+    <link rel="icon" href="/images/examplelogo.svg">
+    <link rel="stylesheet" href="shared.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .doctor-workspace {
+            display: grid;
+            grid-template-columns: 1.2fr 1.8fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .patient-card-header {
+            background: linear-gradient(135deg, #24303A, #3E505E);
+            color: white;
+            padding: 20px;
+            border-radius: var(--radius) var(--radius) 0 0;
+            border-bottom: 3px solid var(--primary);
+        }
+        .patient-vitals-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 15px;
+        }
+        .vital-box {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 10px;
+            border-radius: var(--radius-sm);
+            text-align: center;
+        }
+        .vital-label {
+            font-size: 0.75em;
+            color: rgba(255, 255, 255, 0.7);
+            text-transform: uppercase;
+        }
+        .vital-value {
+            font-size: 1.1em;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+        .record-entry-section {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .record-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-light);
+            background: var(--bg-input);
+        }
+        .record-tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            border: none;
+            background: none;
+            font-family: inherit;
+            font-weight: 600;
+            font-size: 0.85em;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: var(--transition);
+        }
+        .record-tab:hover {
+            background: rgba(74, 144, 217, 0.05);
+            color: var(--primary);
+        }
+        .record-tab.active {
+            background: var(--bg-card);
+            color: var(--primary);
+            border-bottom: 3px solid var(--primary);
+        }
+        .autosave-status {
+            font-size: 0.8em;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .autosave-status .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            display: inline-block;
+        }
+        .autosave-status.saving .dot {
+            background: var(--warning);
+            animation: pulse-warn 1s infinite;
+        }
+        @keyframes pulse-warn {
+            0%, 100% { transform: scale(1); opacity: 0.6; }
+            50% { transform: scale(1.3); opacity: 1; }
+        }
+        .prescription-builder {
+            border: 1.5px dashed var(--border);
+            border-radius: var(--radius-sm);
+            padding: 12px;
+            margin-top: 10px;
+        }
+        .prescription-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-input);
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-bottom: 6px;
+            font-size: 0.85em;
+        }
+        .prescription-item button {
+            background: none;
+            border: none;
+            color: var(--danger);
+            cursor: pointer;
+            font-size: 1.1em;
+        }
+        .patient-history-timeline {
+            max-height: 450px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+        .timeline-item {
+            position: relative;
+            padding-left: 20px;
+            border-left: 2px solid var(--border);
+            padding-bottom: 15px;
+        }
+        .timeline-item::after {
+            content: '';
+            position: absolute;
+            left: -6px;
+            top: 4px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--primary);
+            border: 2px solid var(--bg-card);
+        }
+        .timeline-date {
+            font-size: 0.75em;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        .timeline-title {
+            font-size: 0.9em;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 2px 0;
+        }
+        .timeline-desc {
+            font-size: 0.85em;
+            color: var(--text-secondary);
+            background: var(--bg-input);
+            padding: 6px 10px;
+            border-radius: var(--radius-sm);
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <button class="hamburger"><i class="fa-solid fa-bars"></i></button>
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <main class="main-content">
+        <!-- Dashboard Queue View -->
+        <div id="section-queue" class="content-section">
+            <div class="page-header">
+                <div>
+                    <div class="page-title"><i class="fa-solid fa-user-doctor"></i> Consultation Workspace</div>
+                    <div class="page-subtitle" id="doc-subtitle">Loading station details...</div>
+                </div>
+            </div>
+
+            <!-- Queue control / stats bar -->
+            <div class="grid-3 mb-md">
+                <!-- Now Serving Panel -->
+                <div class="card" style="grid-column: span 2; display: flex; align-items: center; justify-content: space-between; padding: 20px 24px;">
+                    <div>
+                        <div class="stat-label">Now Serving Patient</div>
+                        <div style="font-size: 2.2em; font-weight: 800; color: var(--primary); margin-top: 4px; line-height: 1;" id="doc-serving">--</div>
+                        <div class="fw-600 mt-sm" id="doc-serving-name" style="font-size: 1.1em;">--</div>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-secondary" onclick="docCallNext()"><i class="fa-solid fa-bell"></i> Call Next</button>
+                        <button class="btn btn-primary" onclick="docComplete()"><i class="fa-solid fa-check"></i> Complete Consultation</button>
+                    </div>
+                </div>
+
+                <!-- Doctor Queue Stats -->
+                <div class="stat-card" style="padding: 20px;">
+                    <div class="stat-icon purple"><i class="fa-solid fa-users"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-label">Waiting in Queue</div>
+                        <div class="stat-value" id="doc-waiting">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Doctor workspace (Split layout: Left = Patient Info & History, Right = Consultation Notes) -->
+            <div id="doc-active-workspace" style="display: none;" class="doctor-workspace">
+                <!-- Left Column: Patient File & Medical History -->
+                <div>
+                    <div class="card" style="padding: 0; overflow: hidden; border-radius: var(--radius);">
+                        <div class="patient-card-header">
+                            <div class="flex-between">
+                                <span class="badge" id="patient-category-badge">Regular</span>
+                                <span id="patient-gender-age" style="font-size: 0.85em; font-weight: 500;">--</span>
+                            </div>
+                            <h3 id="patient-name-header" style="margin-top: 10px; font-size: 1.3em;">--</h3>
+                            <div id="patient-dob-sub" style="font-size: 0.8em; opacity: 0.8; margin-top: 2px;">DOB: --</div>
+                            
+                            <!-- Mini-Vitals Grid -->
+                            <div class="patient-vitals-grid">
+                                <div class="vital-box">
+                                    <div class="vital-label">BP</div>
+                                    <div class="vital-value" id="vital-bp-display">--</div>
+                                </div>
+                                <div class="vital-box">
+                                    <div class="vital-label">Pulse</div>
+                                    <div class="vital-value" id="vital-pulse-display">--</div>
+                                </div>
+                                <div class="vital-box">
+                                    <div class="vital-label">Temp</div>
+                                    <div class="vital-value" id="vital-temp-display">--</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="padding: 20px;">
+                            <div class="form-group">
+                                <label class="form-label">Contact Phone</label>
+                                <div id="patient-phone-display" class="text-sm">--</div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Occupation</label>
+                                <div id="patient-occupation-display" class="text-sm">--</div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Current Health Conditions / Symptoms</label>
+                                <div id="patient-symptoms-display" style="font-size: 0.85em; max-height: 80px; overflow-y: auto;">--</div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Past Conditions Summary</label>
+                                <div id="patient-past-conditions-display" style="font-size: 0.85em;">--</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Past Clinical History -->
+                    <div class="card mt-md">
+                        <div class="card-header">
+                            <div class="card-title"><i class="fa-solid fa-clock-rotate-left"></i> Medical History</div>
+                        </div>
+                        <div class="patient-history-timeline" id="patient-history-timeline">
+                            <span class="text-muted text-sm">No previous medical records found.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Medical Record Auto-Save Workspace -->
+                <div class="record-entry-section">
+                    <div class="record-tabs">
+                        <button class="record-tab active" data-type="examination" onclick="switchRecordType('examination')"><i class="fa-solid fa-stethoscope"></i> Exam Notes</button>
+                        <button class="record-tab" data-type="prescription" onclick="switchRecordType('prescription')"><i class="fa-solid fa-file-prescription"></i> Prescription</button>
+                        <button class="record-tab" data-type="diagnostic" onclick="switchRecordType('diagnostic')"><i class="fa-solid fa-x-ray"></i> Diagnostic</button>
+                    </div>
+
+                    <div style="padding: 20px; flex: 1; display: flex; flex-direction: column; gap: 16px;">
+                        <input type="hidden" id="workspace-patient-id">
+                        
+                        <!-- Auto-Save status & title -->
+                        <div class="flex-between">
+                            <h4 id="workspace-title" style="font-weight: 700; font-size: 1.05em;"><i class="fa-solid fa-stethoscope"></i> Clinical Examination Note</h4>
+                            <div class="autosave-status" id="autosave-status">
+                                <span class="dot"></span> <span id="autosave-text">Draft Saved</span>
+                            </div>
+                        </div>
+
+                        <!-- Vitals Entry Form (Only visible or useful for Examination) -->
+                        <div id="vitals-entry-group" class="grid-3" style="background: var(--bg-input); padding: 14px; border-radius: var(--radius-sm);">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label class="form-label">Blood Pressure</label>
+                                <input type="text" class="form-input" id="input-vital-bp" placeholder="120/80" oninput="updateVitalDisplay('bp', this.value)">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label class="form-label">Pulse (BPM)</label>
+                                <input type="number" class="form-input" id="input-vital-pulse" placeholder="72" oninput="updateVitalDisplay('pulse', this.value)">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label class="form-label">Temp (°C)</label>
+                                <input type="text" class="form-input" id="input-vital-temp" placeholder="36.5" oninput="updateVitalDisplay('temp', this.value)">
+                            </div>
+                        </div>
+
+                        <!-- Notes Text Area -->
+                        <div class="form-group" style="flex: 1; display: flex; flex-direction: column; margin-bottom: 0;">
+                            <label class="form-label">Clinical Findings & Medical Comments</label>
+                            <textarea class="form-input" id="workspace-notes" style="flex: 1; min-height: 150px; resize: vertical;" placeholder="Type medical notes here..."></textarea>
+                        </div>
+
+                        <!-- Prescription Builder Workspace (Only visible when Prescription tab active) -->
+                        <div id="prescription-builder-container" style="display: none;">
+                            <label class="form-label">Prescribed Medicines</label>
+                            <div class="grid-3 gap-sm">
+                                <input type="text" class="form-input" id="presc-med-name" placeholder="Amoxicillin 500mg">
+                                <input type="text" class="form-input" id="presc-dosage" placeholder="1 tablet, 3x daily">
+                                <button class="btn btn-secondary" onclick="addPrescriptionItem()"><i class="fa-solid fa-plus"></i> Add</button>
+                            </div>
+                            <div class="prescription-builder mt-sm" id="prescription-items-list">
+                                <div class="text-muted text-sm text-center" style="padding: 10px;">No prescribed medicines added yet.</div>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="flex-between mt-md">
+                            <span class="text-muted text-sm"><i class="fa-solid fa-circle-info"></i> Notes are automatically saved to drafts as you type.</span>
+                            <button class="btn btn-success" onclick="commitClinicalRecord()"><i class="fa-solid fa-floppy-disk"></i> Save to Patient File</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Waiting Table (When no active workspace, or always below) -->
+            <div class="card mt-md" id="doc-waiting-list-card">
+                <div class="card-header">
+                    <div class="card-title"><i class="fa-solid fa-users"></i> Patients Waiting</div>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Ticket</th>
+                                <th>Priority Category</th>
+                                <th>Patient Name</th>
+                                <th>Registered Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="doc-queue-list">
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">No patients waiting in queue.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Doctor Consultation History Log -->
+            <div class="card mt-md">
+                <div class="card-header">
+                    <div class="card-title"><i class="fa-solid fa-history"></i> Completed Today</div>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Ticket</th>
+                                <th>Patient</th>
+                                <th>Consultation Start</th>
+                                <th>Completed</th>
+                            </tr>
+                        </thead>
+                        <tbody id="doc-logs">
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">No completed consultations today.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Appointments Section -->
+        <div id="section-appointments" class="content-section" style="display: none;">
+            <div class="page-header">
+                <div>
+                    <div class="page-title"><i class="fa-solid fa-calendar-days"></i> Appointments</div>
+                    <div class="page-subtitle">View booked appointments</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Patient</th>
+                                <th>Package</th>
+                                <th>Date</th>
+                                <th>Time</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="doc-appt-list">
+                            <tr>
+                                <td colspan="5" class="text-center text-muted">No appointments booked.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="shared.js"></script>
+    <script src="doctor.js"></script>
+</body>
+</html>

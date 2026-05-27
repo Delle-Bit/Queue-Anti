@@ -9,6 +9,7 @@ renderSidebar([
 initDefaultSection();
 
 let currentServingQueueId = null;
+let currentServingUserId = null;
 let allLabs = [];
 let allFdLogs = [];
 
@@ -32,8 +33,14 @@ async function loadFdQueue() {
 
         const serving = queue.find(q => q.status === 'serving');
         document.getElementById('fd-serving').textContent = serving ? serving.number : '--';
-        document.getElementById('fd-serving-name').textContent = serving ? (serving.full_name || serving.username || '') : '';
+        document.getElementById('fd-serving-name').textContent = serving ? (serving.full_name || serving.username || '') : 'No patient currently active';
         currentServingQueueId = serving ? serving.id : null;
+
+        const newServingUserId = serving ? (serving.customer_id || serving.user_id) : null;
+        if (currentServingUserId !== newServingUserId) {
+            currentServingUserId = newServingUserId;
+            loadPatientInfoPanel(currentServingUserId);
+        }
 
         const waiting = queue.filter(q => q.status === 'waiting');
         document.getElementById('fd-queue-list').innerHTML = waiting.length === 0
@@ -64,7 +71,7 @@ function renderFdLogs(logs) {
         <td>${formatCurrency(l.price || 0)}</td>
         <td>${formatTime(l.join_time)}</td><td>${formatTime(l.serve_time)}</td><td>${formatTime(l.complete_time)}</td>
     </tr>`).join('') || '<tr><td colspan="7" class="text-center text-muted">No logs</td></tr>';
-    
+
     const total = logs.reduce((sum, l) => sum + parseFloat(l.price || 0), 0);
     const tfoot = document.getElementById('fd-logs-footer');
     if (tfoot) {
@@ -159,7 +166,7 @@ function removeLabStep(i) { labSequence.splice(i, 1); renderLabSequence(labSeque
 
 async function saveService() {
     const id = document.getElementById('svc-edit-id').value;
-    
+
     // Estimate time via AI
     let finalLabs = labSequence;
     let est_time_minutes = 15;
@@ -218,6 +225,187 @@ function printQr() {
     const win = window.open('', '_blank');
     win.document.write(`<html><head><title>Appointment QR</title></head><body style="font-family:Arial;text-align:center;padding:24px;"><h2>Patient Check-In QR</h2><img src="${src}" style="width:320px"><p>${link}</p><script>window.onload=()=>window.print();<\/script></body></html>`);
     win.document.close();
+}
+
+// Load patient info panel details
+async function loadPatientInfoPanel(userId) {
+    const panel = document.getElementById('fd-patient-panel');
+    if (!userId) {
+        if (panel) panel.style.display = 'none';
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/medical-records/${userId}`, { headers: authHeaders() });
+        const med = await res.json();
+
+        if (panel) panel.style.display = 'block';
+
+        if (med) {
+            const category = med.user?.customer_category || 'Regular';
+            const catBadge = document.getElementById('fd-patient-category-badge');
+            if (catBadge) {
+                catBadge.className = `badge ${category === 'Senior' ? 'priority-senior' : category === 'PWD' ? 'priority-pwd' : category === 'Pregnant' ? 'priority-pregnant' : 'priority-regular'}`;
+                catBadge.textContent = category;
+            }
+
+            let ageText = '--';
+            if (med.user?.birthday) {
+                const bday = new Date(med.user.birthday);
+                const diff = Date.now() - bday.getTime();
+                const ageDate = new Date(diff);
+                ageText = Math.abs(ageDate.getUTCFullYear() - 1970) + ' yo';
+            }
+            document.getElementById('fd-patient-gender-age').textContent = `${med.user?.gender || 'Unspecified'} (${ageText})`;
+            document.getElementById('fd-patient-birthplace').textContent = med.birthplace || '--';
+            document.getElementById('fd-patient-address').textContent = med.address || '--';
+            document.getElementById('fd-patient-phone').textContent = med.phone || '--';
+            document.getElementById('fd-patient-occupation').textContent = med.occupation || '--';
+
+            let healthHtml = 'None reported';
+            if (med.current_health) {
+                try {
+                    const chArr = JSON.parse(med.current_health);
+                    if (Array.isArray(chArr) && chArr.length > 0) {
+                        healthHtml = chArr.map(item => `<span class="badge badge-warning" style="margin-right:4px;margin-bottom:4px;display:inline-block;">${item}</span>`).join('');
+                    }
+                } catch(e) {
+                    healthHtml = med.current_health;
+                }
+            }
+            document.getElementById('fd-patient-symptoms').innerHTML = healthHtml;
+        } else {
+            // No medical record found, show empty/uncompleted
+            document.getElementById('fd-patient-birthplace').textContent = '--';
+            document.getElementById('fd-patient-address').textContent = '--';
+            document.getElementById('fd-patient-phone').textContent = '--';
+            document.getElementById('fd-patient-occupation').textContent = '--';
+            document.getElementById('fd-patient-symptoms').textContent = 'No medical records filled out yet.';
+            document.getElementById('fd-patient-gender-age').textContent = '--';
+            const catBadge = document.getElementById('fd-patient-category-badge');
+            if (catBadge) {
+                catBadge.className = 'badge priority-regular';
+                catBadge.textContent = 'Regular';
+            }
+        }
+    } catch (err) {
+        console.error('Error loading patient info in panel:', err);
+    }
+}
+
+// Open Edit Patient Modal
+async function openEditPatientModal() {
+    if (!currentServingUserId) return showToast('No active patient', 'error');
+
+    document.getElementById('edit-patient-id').value = currentServingUserId;
+
+    // Clear fields initially
+    document.getElementById('edit-patient-firstname').value = '';
+    document.getElementById('edit-patient-middlename').value = '';
+    document.getElementById('edit-patient-surname').value = '';
+    document.getElementById('edit-patient-category').value = 'Regular';
+    document.getElementById('edit-patient-birthday').value = '';
+    document.getElementById('edit-patient-gender').value = 'Male';
+    document.getElementById('edit-patient-phone').value = '';
+    document.getElementById('edit-patient-birthplace').value = '';
+    document.getElementById('edit-patient-address').value = '';
+    document.getElementById('edit-patient-occupation').value = '';
+    document.getElementById('edit-patient-retiree').checked = false;
+    document.getElementById('edit-patient-emergency').value = '';
+
+    try {
+        const res = await fetch(`/api/medical-records/${currentServingUserId}`, { headers: authHeaders() });
+        const med = await res.json();
+
+        if (med) {
+            if (med.user) {
+                document.getElementById('edit-patient-firstname').value = med.user.first_name || '';
+                document.getElementById('edit-patient-middlename').value = med.user.middle_name || '';
+                document.getElementById('edit-patient-surname').value = med.user.surname || '';
+                document.getElementById('edit-patient-category').value = med.user.customer_category || 'Regular';
+                document.getElementById('edit-patient-gender').value = med.user.gender || 'Male';
+
+                if (med.user.birthday) {
+                    // Extract date only (YYYY-MM-DD)
+                    document.getElementById('edit-patient-birthday').value = med.user.birthday.substring(0, 10);
+                }
+            }
+
+            document.getElementById('edit-patient-phone').value = med.phone || '';
+            document.getElementById('edit-patient-birthplace').value = med.birthplace || '';
+            document.getElementById('edit-patient-address').value = med.address || '';
+            document.getElementById('edit-patient-occupation').value = med.occupation || '';
+            document.getElementById('edit-patient-retiree').checked = !!med.retiree;
+            document.getElementById('edit-patient-emergency').value = med.emergency_contact || '';
+        }
+
+        openModal('edit-patient-modal');
+    } catch(err) {
+        console.error('Error loading patient details for edit:', err);
+        showToast('Error loading patient file', 'error');
+    }
+}
+
+// Save Patient Edit Changes
+async function savePatientEdit() {
+    const customerId = document.getElementById('edit-patient-id').value;
+    const fName = document.getElementById('edit-patient-firstname').value.trim();
+    const mName = document.getElementById('edit-patient-middlename').value.trim();
+    const sName = document.getElementById('edit-patient-surname').value.trim();
+    const category = document.getElementById('edit-patient-category').value;
+    const birthday = document.getElementById('edit-patient-birthday').value;
+    const gender = document.getElementById('edit-patient-gender').value;
+    const phone = document.getElementById('edit-patient-phone').value.trim();
+    const birthplace = document.getElementById('edit-patient-birthplace').value.trim();
+    const address = document.getElementById('edit-patient-address').value.trim();
+    const occupation = document.getElementById('edit-patient-occupation').value.trim();
+    const retiree = document.getElementById('edit-patient-retiree').checked ? 1 : 0;
+    const emergency = document.getElementById('edit-patient-emergency').value.trim();
+
+    if (!fName || !sName) {
+        return showToast('First Name and Surname are required.', 'warning');
+    }
+
+    const fullName = `${fName} ${mName ? mName + ' ' : ''}${sName}`;
+
+    try {
+        const res = await fetch('/api/medical-records', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({
+                customer_id: customerId,
+                full_name: fullName,
+                surname: sName,
+                first_name: fName,
+                middle_name: mName,
+                no_middle_name: !mName,
+                gender: gender,
+                birthday: birthday || null,
+                customer_category: category,
+                birthplace: birthplace,
+                address: address,
+                phone: phone,
+                status: 'active',
+                occupation: occupation,
+                retiree: retiree,
+                emergency_contact: emergency
+            })
+        });
+
+        if (res.ok) {
+            showToast('Patient record saved successfully!', 'success');
+            closeModal('edit-patient-modal');
+
+            // Reload panels
+            loadFdQueue();
+            loadPatientInfoPanel(currentServingUserId);
+        } else {
+            showToast('Failed to save patient record', 'error');
+        }
+    } catch(err) {
+        console.error('Error saving patient edit:', err);
+        showToast('Error saving changes', 'error');
+    }
 }
 
 loadFdQueue();

@@ -23,11 +23,105 @@
                 <div class="table-wrapper" style="max-height:300px;overflow-y:auto;"><table><thead><tr><th>Staff</th><th>Role</th><th>Login</th><th>Logout</th></tr></thead><tbody id="ow-sessions"></tbody></table></div></div>
             </div>
         </div>
-        <div id="section-audits" class="content-section" style="display:none;">
-            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-file-shield"></i> Audit Logs</div></div>
-            <div class="search-bar" style="width:250px;"><i class="fa-solid fa-search"></i><input type="text" placeholder="Search..." oninput="filterAudits(this.value)"></div></div>
-            <div class="card"><div class="table-wrapper" style="max-height:500px;overflow-y:auto;"><table><thead><tr><th>Action</th><th>Entity</th><th>Details</th><th>By</th><th>Time</th></tr></thead><tbody id="ow-audits"></tbody></table></div></div>
-        </div>
+            <div id="section-audits" class="content-section" style="display:none;">
+                <div class="page-header">
+                    <div>
+                        <div class="page-title"><i class="fa-solid fa-file-shield"></i> Audit Logs</div>
+                        <div class="page-subtitle">Track system-wide activities</div>
+                    </div>
+                    <div class="search-bar">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" placeholder="Search logs..." oninput="filterAudits(this.value)">
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Action</th><th>Type</th><th>Details</th><th>User</th><th>Timestamp</th></tr></thead>
+                            <tbody id="ow-audits"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- REPORTS -->
+            <div id="section-reports" class="content-section" style="display:none;">
+                <div class="page-header">
+                    <div>
+                        <div class="page-title"><i class="fa-solid fa-chart-pie"></i> AI-Powered Reporting</div>
+                        <div class="page-subtitle">Insightful analytics and automated summaries</div>
+                    </div>
+                    <div class="header-actions">
+                        <select id="report-period" class="form-input" style="width:150px;" onchange="loadReports()">
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="report-grid">
+                    <div class="card stat-card">
+                        <div class="stat-icon" style="background:rgba(198,40,40,0.1);color:var(--primary);"><i class="fa-solid fa-users"></i></div>
+                        <div class="stat-value" id="rep-vol">0</div>
+                        <div class="stat-label">Patient Volume</div>
+                    </div>
+                    <div class="card stat-card">
+                        <div class="stat-icon" style="background:rgba(46,204,113,0.1);color:var(--success);"><i class="fa-solid fa-clock"></i></div>
+                        <div class="stat-value" id="rep-wait">0m</div>
+                        <div class="stat-label">Avg Wait Time</div>
+                    </div>
+                    <div class="card stat-card">
+                        <div class="stat-icon" style="background:rgba(241,196,15,0.1);color:var(--warning);"><i class="fa-solid fa-hand-holding-dollar"></i></div>
+                        <div class="stat-value" id="rep-rev">₱0</div>
+                        <div class="stat-label">Total Revenue</div>
+                    </div>
+                    <div class="card stat-card">
+                        <div class="stat-icon" style="background:rgba(155,89,182,0.1);color:var(--secondary);"><i class="fa-solid fa-star"></i></div>
+                        <div class="stat-value" id="rep-top">--</div>
+                        <div class="stat-label">Top Service</div>
+                    </div>
+                </div>
+
+                <div class="card ai-insight-card mt-md">
+                    <div class="card-header">
+                        <div class="card-title"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Automated Summary</div>
+                    </div>
+                    <div class="card-body">
+                        <div id="ai-report-summary" class="ai-text">
+                            <i class="fa-solid fa-spinner fa-spin"></i> Generating insights...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ARCHIVE -->
+            <div id="section-archive" class="content-section" style="display:none;">
+                <div class="page-header">
+                    <div>
+                        <div class="page-title"><i class="fa-solid fa-box-archive"></i> Archive Management</div>
+                        <div class="page-subtitle">View and recover deleted accounts and records</div>
+                    </div>
+                </div>
+                <div class="card mb-md">
+                    <div class="card-header"><div class="card-title">Account Deletion Logs</div></div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Account</th><th>Deleted By</th><th>Reason</th><th>Date</th></tr></thead>
+                            <tbody id="deletion-logs-table"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><div class="card-title">Archived Records (Recoverable)</div></div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Entity</th><th>ID</th><th>Archived By</th><th>Date</th><th>Action</th></tr></thead>
+                            <tbody id="archives-table"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
 
         <!-- MANAGE ACCOUNTS -->
         <div id="section-accounts" class="content-section" style="display:none;">
@@ -52,7 +146,7 @@
         <!-- SERVICE MANAGEMENT -->
         <div id="section-services" class="content-section" style="display:none;">
             <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-box-open"></i> Service Management</div></div>
-            <button class="btn btn-primary" onclick="openModal('svc-modal')"><i class="fa-solid fa-plus"></i> Add Package</button></div>
+            <button class="btn btn-primary" onclick="prepareNewService()"><i class="fa-solid fa-plus"></i> Add Package</button></div>
             <div class="card"><div class="table-wrapper"><table><thead><tr><th>Name</th><th>Price</th><th>Est. Time</th><th>Labs</th><th>Active</th><th>Actions</th></tr></thead><tbody id="svc-list"></tbody></table></div></div>
         </div>
 
@@ -135,6 +229,7 @@
                 <div class="form-group"><label class="form-label">Description</label><input type="text" class="form-input" id="svc-desc"></div>
                 <div class="grid-2"><div class="form-group"><label class="form-label">Price (₱)</label><input type="number" class="form-input" id="svc-price" step="0.01"></div>
                 <div class="form-group"><label class="form-label">Est. Time (min)</label><input type="number" class="form-input" id="svc-time" disabled placeholder="AI Calculated"></div></div>
+                <div class="form-group"><label class="form-label">Doctor Consultation</label><select class="form-select" id="svc-doctor"><option value="">No doctor consultation</option></select></div>
                 <div class="form-group"><label class="form-label">Laboratory Sequence</label><div id="svc-lab-list"></div>
                 <button class="btn btn-sm btn-outline mt-sm" onclick="addLabToSequence()"><i class="fa-solid fa-plus"></i> Add Lab Step</button></div>
             </div>

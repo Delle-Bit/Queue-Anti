@@ -50,12 +50,6 @@ async function callMockAI(featureKey, endpoint, apiKey, data, fallbackLogic, fea
 }
 
 const aiServices = {
-    chatbot: async (message) => {
-        return await callMockAI('chatbot', 'https://api-inference.huggingface.co/models/distilgpt2', process.env.API_ALLAROUND, { inputs: message }, (data) => {
-            return { reply: "Fallback: Please check our pricing FAQs or ask the front desk." };
-        }, 'Chatbot NLP');
-    },
-
     ocrScan: async (imageData) => {
         return await callMockAI('ocr', 'https://api-inference.huggingface.co/models/microsoft/trocr-base-handwritten', process.env.API_ALLAROUND, { image: imageData }, (data) => {
             // Fallback logic for OCR
@@ -121,9 +115,15 @@ const aiServices = {
         }, 'Feedback NLP');
     },
 
-    reportGeneration: async (dailyStats) => {
-        return await callMockAI('report', 'https://api-inference.huggingface.co/models/gpt2', process.env.API_ALLAROUND, dailyStats, (data) => {
-            return { summary: `Today the clinic served ${data.totalServed} patients. Average wait time was ${data.avgWait} mins.` };
+    reportGeneration: async (reportData) => {
+        return await callMockAI('report', 'https://api-inference.huggingface.co/models/gpt2', process.env.API_ALLAROUND, reportData, (data) => {
+            const { period, patientVolume, waitTimeAvg, revenue, topService } = data;
+            return {
+                summary: `Reporting Insight for ${period}: The clinic observed a patient volume of ${patientVolume} individuals.
+                Operational efficiency was maintained with an average wait time of ${waitTimeAvg} minutes.
+                Financial performance reached a total revenue of ₱${revenue.toLocaleString()}.
+                The most utilized service was ${topService}. Overall, the system shows stable throughput with opportunities for wait time optimization during peak periods.`
+            };
         }, 'Report Generation');
     },
 

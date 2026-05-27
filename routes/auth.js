@@ -9,6 +9,11 @@ const upload = multer({ dest: 'uploads/' });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123';
 
+function makeCustomerUid(insertId) {
+    const year = new Date().getFullYear();
+    return `MC-${year}-${String(insertId).padStart(6, '0')}`;
+}
+
 router.post('/login', async (req, res) => {
     const { username, password } = req.body;
     try {
@@ -28,7 +33,7 @@ router.post('/login', async (req, res) => {
         const redirectMap = {
             customer: '/customer.html', frontdesk: '/frontdesk.html',
             laboratory: '/laboratory.html', admintechnical: '/admintechnical.html',
-            admin: '/admintechnical.html', owner: '/owner.html'
+            admin: '/admintechnical.html', owner: '/owner.html', doctor: '/doctor.html'
         };
         res.json({
             success: true, token, role: user.role,
@@ -41,13 +46,22 @@ router.post('/login', async (req, res) => {
     }
 });
 
-router.post('/register', upload.single('idImage'), async (req, res) => {
-    const { username, password, email, full_name } = req.body;
+router.post('/register', upload.fields([{ name: 'frontId', maxCount: 1 }, { name: 'backId', maxCount: 1 }]), async (req, res) => {
+    const { username, password, email, full_name, verification_method, guardian_name, guardian_contact, guardian_relationship } = req.body || {};
     try {
-        // OCR scan for category detection
+        const isUnderage = verification_method === 'guardian';
+        if (!isUnderage && (!req.files || !req.files['frontId'] || !req.files['backId'])) {
+            return res.status(400).json({ error: 'Both Front and Back ID images are required' });
+        }
+        if (isUnderage && (!guardian_name || !guardian_contact || !guardian_relationship)) {
+            return res.status(400).json({ error: 'Guardian name, contact, and relationship are required for underage registration' });
+        }
+
+        // OCR scan for category detection using the front ID
         let category = 'Regular', gender = null, birthday = null, detectedName = '';
-        if (req.file) {
-            const ocrData = await aiServices.ocrScan(req.file.path);
+        if (!isUnderage) {
+            const frontFile = req.files['frontId'][0];
+            const ocrData = await aiServices.ocrScan(frontFile.path);
             if (ocrData.idType === 'Senior' || ocrData.idType === 'Elderly') category = 'Senior';
             else if (ocrData.idType === 'PWD') category = 'PWD';
             if (ocrData.name) detectedName = ocrData.name;
@@ -56,12 +70,14 @@ router.post('/register', upload.single('idImage'), async (req, res) => {
                 birthday = `${y}-01-01`;
             }
         }
+
         const hash = await bcrypt.hash(password, 10);
-        await pool.query(
-            `INSERT INTO users (username, password_hash, role, customer_category, email, full_name, birthday, gender)
-             VALUES (?, ?, 'customer', ?, ?, ?, ?, ?)`,
-            [username, hash, category, email || '', full_name || detectedName, birthday, gender]
+        const [result] = await pool.query(
+            `INSERT INTO users (username, password_hash, role, customer_category, email, full_name, birthday, gender, verification_method, is_underage, guardian_name, guardian_contact, guardian_relationship)
+             VALUES (?, ?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [username, hash, category, email || '', full_name || detectedName, birthday, gender, isUnderage ? 'guardian' : 'id', isUnderage ? 1 : 0, guardian_name || '', guardian_contact || '', guardian_relationship || '']
         );
+        await pool.query('UPDATE users SET customer_uid=? WHERE id=?', [makeCustomerUid(result.insertId), result.insertId]);
         // Mock welcome email
         console.log(`[MOCK EMAIL] Welcome ${username}! Your account has been created. Category: ${category}`);
         res.json({ success: true, message: 'Registration successful!', category });
@@ -99,7 +115,7 @@ router.post('/ocr', upload.single('idImage'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: 'No image uploaded' });
         const ocrData = await aiServices.ocrScan(req.file.path);
-        
+
         let category = 'Regular', gender = null, birthday = null, detectedName = '';
         if (ocrData.idType === 'Senior' || ocrData.idType === 'Elderly') category = 'Senior';
         else if (ocrData.idType === 'PWD') category = 'PWD';
@@ -108,7 +124,7 @@ router.post('/ocr', upload.single('idImage'), async (req, res) => {
             const y = new Date().getFullYear() - ocrData.age;
             birthday = `${y}-01-01`;
         }
-        
+
         res.json({ success: true, category, name: detectedName, age: ocrData.age || null, birthday, gender: ocrData.gender || null });
     } catch (err) {
         console.error('OCR error:', err);
