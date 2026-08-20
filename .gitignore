@@ -8,4 +8,6 @@ npm-debug.log*
 # OS files
 .DS_Store
 Thumbs.db
-.env
+
+# Uploaded patient files (IDs, images)
+uploads/
