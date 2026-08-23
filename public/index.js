@@ -355,11 +355,369 @@ function switchAuthTab(tab) {
     document.getElementById('tab-register').classList.toggle('active', tab === 'register');
 }
 
-// ── Verification Method ──────────────────────────────────────────
-let verificationMethod = 'id';
+// ── Register State ─────────────────────────────────────────────────
+let registrationState = {
+    step: 1,
+    token: null,
+    verificationMethod: 'id',
+    blobs: { front: null, back: null },
+    ocrResult: null,
+    otpCountdown: null
+};
 
+// ── Password Strength ───────────────────────────────────────────────
+function checkPasswordStrength(password) {
+    let score = 0;
+    if (password.length >= 8) score++;
+    if (/[A-Z]/.test(password)) score++;
+    if (/[a-z]/.test(password)) score++;
+    if (/[0-9]/.test(password)) score++;
+    if (/[^A-Za-z0-9]/.test(password)) score++;
+    const levels = ['', 'weak', 'fair', 'good', 'strong'];
+    return { score, level: levels[Math.min(score, 4)] };
+}
+
+function updatePasswordStrengthUI(password) {
+    const fill = document.getElementById('strength-fill');
+    const text = document.getElementById('strength-text');
+    const strengthDiv = document.getElementById('password-strength');
+    if (!password) {
+        strengthDiv.style.display = 'none';
+        return;
+    }
+    strengthDiv.style.display = 'block';
+    const { score, level } = checkPasswordStrength(password);
+    fill.className = 'strength-fill ' + level;
+    const labels = { weak: 'Weak', fair: 'Fair', good: 'Good', strong: 'Strong' };
+    text.textContent = labels[level] || '';
+}
+
+function checkPasswordMatch() {
+    const pwd = document.getElementById('reg-password').value;
+    const confirm = document.getElementById('reg-confirm-password').value;
+    const hint = document.getElementById('password-match-hint');
+    if (!confirm) {
+        hint.textContent = '';
+        hint.classList.remove('mismatch');
+        return true;
+    }
+    if (pwd === confirm) {
+        hint.textContent = '✓ Passwords match';
+        hint.classList.remove('mismatch');
+        return true;
+    } else {
+        hint.textContent = '✗ Passwords do not match';
+        hint.classList.add('mismatch');
+        return false;
+    }
+}
+
+// ── Registration Wizard Navigation ──────────────────────────────────
+function showRegStep(step) {
+    registrationState.step = step;
+    // Hide all step forms
+    document.querySelectorAll('.reg-step-form').forEach(f => f.style.display = 'none');
+    // Show target step
+    const targetForm = document.getElementById(`reg-step${step}-form`);
+    if (targetForm) targetForm.style.display = 'block';
+    
+    // Update progress indicator
+    document.querySelectorAll('.reg-progress-step').forEach((el, i) => {
+        const s = i + 1;
+        el.classList.toggle('active', s === step);
+        el.classList.toggle('completed', s < step);
+    });
+    
+    // Update step title
+    const titles = {
+        1: 'Step 1 of 4: Account Details',
+        2: 'Step 2 of 4: Create Password',
+        3: 'Step 3 of 4: Verify Email',
+        4: 'Step 4 of 4: Complete'
+    };
+    document.getElementById('reg-step-title').textContent = titles[step] || 'Create Account';
+    
+    // Clear errors/success
+    document.getElementById('reg-error').classList.remove('show');
+    document.getElementById('reg-success').classList.remove('show');
+}
+
+function goToStep(step) {
+    // Validate current step before moving forward
+    if (step > registrationState.step) {
+        if (!validateCurrentStep()) return;
+    }
+    showRegStep(step);
+}
+
+function validateCurrentStep() {
+    const step = registrationState.step;
+    const errEl = document.getElementById('reg-error');
+    
+    if (step === 1) {
+        const username = document.getElementById('reg-username').value.trim();
+        const email = document.getElementById('reg-email').value.trim();
+        if (!username || !email) {
+            errEl.textContent = 'Username and email are required.';
+            errEl.classList.add('show');
+            return false;
+        }
+        if (registrationState.verificationMethod === 'id' && (!registrationState.blobs.front || !registrationState.blobs.back)) {
+            errEl.textContent = 'Both Front and Back ID images are required.';
+            errEl.classList.add('show');
+            return false;
+        }
+        if (registrationState.verificationMethod === 'guardian') {
+            const missing = ['reg-guardian-name', 'reg-guardian-contact', 'reg-guardian-relationship']
+                .some(id => !document.getElementById(id).value.trim());
+            if (missing) {
+                errEl.textContent = 'Guardian name, contact, and relationship are required.';
+                errEl.classList.add('show');
+                return false;
+            }
+        }
+        // Submit step 1
+        submitStep1();
+        return false; // Wait for async response
+    }
+    
+    if (step === 2) {
+        const pwd = document.getElementById('reg-password').value;
+        const confirm = document.getElementById('reg-confirm-password').value;
+        if (!pwd || !confirm) {
+            errEl.textContent = 'Both password fields are required.';
+            errEl.classList.add('show');
+            return false;
+        }
+        if (pwd !== confirm) {
+            errEl.textContent = 'Passwords do not match.';
+            errEl.classList.add('show');
+            return false;
+        }
+        if (pwd.length < 8) {
+            errEl.textContent = 'Password must be at least 8 characters.';
+            errEl.classList.add('show');
+            return false;
+        }
+        // Submit step 2
+        submitStep2(pwd);
+        return false;
+    }
+    
+    if (step === 3) {
+        const otp = document.getElementById('reg-otp').value.trim();
+        if (!otp || otp.length !== 6) {
+            errEl.textContent = 'Enter the 6-digit verification code.';
+            errEl.classList.add('show');
+            return false;
+        }
+        // Submit step 3
+        submitStep3(otp);
+        return false;
+    }
+    
+    return true;
+}
+
+// ── Step 1: Account Details + ID Upload ─────────────────────────────
+async function submitStep1() {
+    const errEl = document.getElementById('reg-error');
+    const sucEl = document.getElementById('reg-success');
+    const btn = document.getElementById('reg-step1-next');
+    
+    errEl.classList.remove('show');
+    sucEl.classList.remove('show');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
+    
+    const formData = new FormData();
+    formData.append('username', document.getElementById('reg-username').value.trim());
+    formData.append('email', document.getElementById('reg-email').value.trim());
+    formData.append('verification_method', registrationState.verificationMethod);
+    
+    if (registrationState.verificationMethod === 'id') {
+        formData.append('frontId', registrationState.blobs.front, 'front-id.jpg');
+        formData.append('backId', registrationState.blobs.back, 'back-id.jpg');
+    } else {
+        formData.append('guardian_name', document.getElementById('reg-guardian-name').value.trim());
+        formData.append('guardian_contact', document.getElementById('reg-guardian-contact').value.trim());
+        formData.append('guardian_relationship', document.getElementById('reg-guardian-relationship').value.trim());
+    }
+    
+    try {
+        const res = await fetch('/api/auth/register/step1', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            registrationState.token = data.token;
+            registrationState.ocrResult = { category: data.category, detectedName: data.detectedName };
+            sucEl.textContent = data.message;
+            sucEl.classList.add('show');
+            // Auto-advance after short delay
+            setTimeout(() => goToStep(2), 1500);
+        } else {
+            errEl.textContent = data.error || 'Registration failed';
+            errEl.classList.add('show');
+        }
+    } catch (err) {
+        errEl.textContent = 'Connection error. Please try again.';
+        errEl.classList.add('show');
+    }
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Continue';
+}
+
+// ── Step 2: Password Creation ──────────────────────────────────────
+async function submitStep2(password) {
+    const errEl = document.getElementById('reg-error');
+    const sucEl = document.getElementById('reg-success');
+    const btn = document.getElementById('reg-step2-next');
+    
+    errEl.classList.remove('show');
+    sucEl.classList.remove('show');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
+    
+    try {
+        const res = await fetch('/api/auth/register/step2', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: registrationState.token, password, confirm_password: password })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            sucEl.textContent = data.message;
+            sucEl.classList.add('show');
+            setTimeout(() => goToStep(3), 1500);
+        } else {
+            errEl.textContent = data.error || 'Failed to set password';
+            errEl.classList.add('show');
+        }
+    } catch (err) {
+        errEl.textContent = 'Connection error. Please try again.';
+        errEl.classList.add('show');
+    }
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Continue';
+}
+
+// ── Step 3: OTP Verification ────────────────────────────────────────
+async function sendOTP() {
+    const errEl = document.getElementById('reg-error');
+    const btn = document.getElementById('reg-resend-otp');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending...';
+    
+    try {
+        const res = await fetch('/api/auth/register/send-verification', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: registrationState.token })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            startOTPCountdown();
+        } else {
+            errEl.textContent = data.error || 'Failed to send code';
+            errEl.classList.add('show');
+        }
+    } catch (err) {
+        errEl.textContent = 'Connection error. Please try again.';
+        errEl.classList.add('show');
+    }
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Resend Code (<span id="otp-countdown">00:00</span>)';
+}
+
+function startOTPCountdown() {
+    const countdownEl = document.getElementById('otp-countdown');
+    const btn = document.getElementById('reg-resend-otp');
+    let seconds = 60;
+    btn.disabled = true;
+    countdownEl.textContent = formatTime(seconds);
+    if (registrationState.otpCountdown) clearInterval(registrationState.otpCountdown);
+    registrationState.otpCountdown = setInterval(() => {
+        seconds--;
+        countdownEl.textContent = formatTime(seconds);
+        if (seconds <= 0) {
+            clearInterval(registrationState.otpCountdown);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Resend Code';
+        }
+    }, 1000);
+}
+
+function formatTime(sec) {
+    const m = Math.floor(sec / 60).toString().padStart(2, '0');
+    const s = (sec % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+}
+
+async function submitStep3(otp) {
+    const errEl = document.getElementById('reg-error');
+    const sucEl = document.getElementById('reg-success');
+    const btn = document.getElementById('reg-step3-verify');
+    
+    errEl.classList.remove('show');
+    sucEl.classList.remove('show');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
+    
+    try {
+        const res = await fetch('/api/auth/register/verify-otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: registrationState.token, otp })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            sucEl.textContent = data.message;
+            sucEl.classList.add('show');
+            // Show success step
+            document.getElementById('reg-success-message').innerHTML = `Your account has been created!<br>Category: <strong>${data.category}</strong>`;
+            showRegStep(4);
+        } else {
+            errEl.textContent = data.error || 'Verification failed';
+            errEl.classList.add('show');
+        }
+    } catch (err) {
+        errEl.textContent = 'Connection error. Please try again.';
+        errEl.classList.add('show');
+    }
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Verify & Create Account';
+}
+
+async function resendOTP() {
+    await sendOTP();
+}
+
+// ── Step 4: Complete ────────────────────────────────────────────────
+function finishRegistration() {
+    closeAuthPanel();
+    switchAuthTab('login');
+    // Reset registration state
+    registrationState = {
+        step: 1,
+        token: null,
+        verificationMethod: 'id',
+        blobs: { front: null, back: null },
+        ocrResult: null,
+        otpCountdown: null
+    };
+    // Reset forms
+    document.getElementById('reg-step1-form').reset();
+    document.getElementById('reg-step2-form').reset();
+    document.getElementById('reg-step3-form').reset();
+    document.getElementById('preview-front').innerHTML = '<i class="fa-solid fa-address-card"></i>';
+    document.getElementById('preview-back').innerHTML = '<i class="fa-solid fa-address-card"></i>';
+    registrationState.blobs = { front: null, back: null };
+    setVerificationMethod('id');
+}
+
+// Override the original setVerificationMethod to update state
 function setVerificationMethod(method) {
-    verificationMethod = method;
+    registrationState.verificationMethod = method;
     document.getElementById('reg-verification-method').value = method;
     document.getElementById('verify-id-btn').classList.toggle('active', method === 'id');
     document.getElementById('verify-guardian-btn').classList.toggle('active', method === 'guardian');
@@ -390,7 +748,7 @@ function handleFileUpload(e, side) {
         preview.innerHTML = `<img src="${event.target.result}" alt="${side} id">`;
     };
     reader.readAsDataURL(file);
-    regBlobs[side] = file;
+    registrationState.blobs[side] = file;
 }
 
 async function openRegCamera() {
@@ -474,71 +832,56 @@ async function handleLogin(e) {
     btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Sign In';
 }
 
-// ── Register ─────────────────────────────────────────────────────
-async function handleRegister(e) {
-    e.preventDefault();
-    const errEl = document.getElementById('reg-error');
-    const sucEl = document.getElementById('reg-success');
-    errEl.classList.remove('show');
-    sucEl.classList.remove('show');
-    const btn = document.getElementById('reg-btn');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
-
-    if (verificationMethod === 'id' && (!regBlobs.front || !regBlobs.back)) {
-        errEl.textContent = 'Both Front and Back ID images are required.';
-        errEl.classList.add('show');
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Register';
-        return;
-    }
-    if (verificationMethod === 'guardian') {
-        const missingGuardian = ['reg-guardian-name', 'reg-guardian-contact', 'reg-guardian-relationship']
-            .some(id => !document.getElementById(id).value.trim());
-        if (missingGuardian) {
-            errEl.textContent = 'Guardian name, contact, and relationship are required for underage registration.';
-            errEl.classList.add('show');
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Register';
-            return;
-        }
-    }
-
-    const formData = new FormData();
-    formData.append('username', document.getElementById('reg-username').value);
-    formData.append('password', document.getElementById('reg-password').value);
-    formData.append('email', document.getElementById('reg-email').value);
-    formData.append('verification_method', verificationMethod);
-    if (verificationMethod === 'id') {
-        formData.append('frontId', regBlobs.front, 'front-id.jpg');
-        formData.append('backId', regBlobs.back, 'back-id.jpg');
-    } else {
-        formData.append('guardian_name', document.getElementById('reg-guardian-name').value.trim());
-        formData.append('guardian_contact', document.getElementById('reg-guardian-contact').value.trim());
-        formData.append('guardian_relationship', document.getElementById('reg-guardian-relationship').value.trim());
-    }
-
-    try {
-        const res = await fetch('/api/auth/register', { method: 'POST', body: formData });
-        const data = await res.json();
-        if (res.ok) {
-            sucEl.textContent = verificationMethod === 'guardian'
-                ? 'Underage registration complete! Redirecting to login...'
-                : `Registration complete! Category: ${data.category}. Redirecting to login...`;
-            sucEl.classList.add('show');
-            regBlobs = { front: null, back: null };
-            setTimeout(() => switchAuthTab('login'), 2500);
-        } else {
-            errEl.textContent = data.error || 'Registration failed';
-            errEl.classList.add('show');
-        }
-    } catch (err) {
-        errEl.textContent = 'Connection error. Please try again.';
-        errEl.classList.add('show');
-    }
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Register';
+// ── Register Form Handlers ──────────────────────────────────────────
+function setupRegisterHandlers() {
+    // Step 1 form
+    document.getElementById('reg-step1-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        validateCurrentStep(); // This will call submitStep1 if valid
+    });
+    
+    // Step 2 form
+    document.getElementById('reg-step2-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        validateCurrentStep(); // This will call submitStep2 if valid
+    });
+    
+    // Step 3 form
+    document.getElementById('reg-step3-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        validateCurrentStep(); // This will call submitStep3 if valid
+    });
+    
+    // Password strength and match checking
+    document.getElementById('reg-password').addEventListener('input', (e) => {
+        updatePasswordStrengthUI(e.target.value);
+        checkPasswordMatch();
+    });
+    document.getElementById('reg-confirm-password').addEventListener('input', checkPasswordMatch);
 }
+
+// Override switchAuthTab to initialize wizard when register tab opens
+const originalSwitchAuthTab = switchAuthTab;
+function switchAuthTab(tab) {
+    originalSwitchAuthTab(tab);
+    if (tab === 'register') {
+        // Reset to step 1
+        showRegStep(1);
+        // Ensure forms are reset
+        document.getElementById('reg-step1-form').reset();
+        document.getElementById('reg-step2-form').reset();
+        document.getElementById('reg-step3-form').reset();
+        document.getElementById('preview-front').innerHTML = '<i class="fa-solid fa-address-card"></i>';
+        document.getElementById('preview-back').innerHTML = '<i class="fa-solid fa-address-card"></i>';
+        registrationState.blobs = { front: null, back: null };
+        setVerificationMethod('id');
+    }
+}
+
+// Initialize register handlers on load
+document.addEventListener('DOMContentLoaded', () => {
+    setupRegisterHandlers();
+});
 
 // ── Forgot Password Modal ────────────────────────────────────────
 function openModal(id) { document.getElementById(id).classList.add('active'); }
@@ -578,8 +921,7 @@ window.openRegCamera = openRegCamera;
 window.stopRegCamera = stopRegCamera;
 window.captureRegID = captureRegID;
 window.handleLogin = handleLogin;
-window.handleRegister = handleRegister;
-window.openModal = openModal;
-window.closeModal = closeModal;
-window.requestReset = requestReset;
+window.goToStep = goToStep;
+window.resendOTP = resendOTP;
+window.finishRegistration = finishRegistration;
 window.toggleService = toggleService;

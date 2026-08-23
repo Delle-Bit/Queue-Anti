@@ -370,6 +370,85 @@ async function initDB() {
             )
         `);
 
+        // Ticket counters (atomic per-day-per-station numbering)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS ticket_counters (
+                counter_date DATE NOT NULL,
+                station_type VARCHAR(20) NOT NULL,
+                station_id INT NOT NULL DEFAULT 0,
+                count INT NOT NULL DEFAULT 0,
+                PRIMARY KEY (counter_date, station_type, station_id)
+            )
+        `);
+
+        // AI feature toggles + logs (used by ai_services.js)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS ai_settings (
+                id INT PRIMARY KEY DEFAULT 1,
+                ocr_enabled BOOLEAN DEFAULT true,
+                anomaly_enabled BOOLEAN DEFAULT true,
+                announcement_enabled BOOLEAN DEFAULT true,
+                cutoff_enabled BOOLEAN DEFAULT true,
+                estimation_enabled BOOLEAN DEFAULT true,
+                performance_enabled BOOLEAN DEFAULT true,
+                feedback_enabled BOOLEAN DEFAULT true,
+                report_enabled BOOLEAN DEFAULT true,
+                prediction_enabled BOOLEAN DEFAULT true
+            )
+        `);
+        await pool.query(`INSERT IGNORE INTO ai_settings (id) VALUES (1)`);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS ai_logs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                feature VARCHAR(100) DEFAULT '',
+                input_data JSON DEFAULT NULL,
+                output_data JSON DEFAULT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Pending registrations (multi-step signup with email/OTP verification)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS pending_registrations (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                token VARCHAR(64) UNIQUE NOT NULL,
+                username VARCHAR(50) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                password_hash VARCHAR(255) DEFAULT NULL,
+                verification_method ENUM('id','guardian') NOT NULL DEFAULT 'id',
+                is_underage BOOLEAN DEFAULT false,
+                guardian_name VARCHAR(255) DEFAULT '',
+                guardian_contact VARCHAR(100) DEFAULT '',
+                guardian_relationship VARCHAR(100) DEFAULT '',
+                front_id_path VARCHAR(255) DEFAULT NULL,
+                back_id_path VARCHAR(255) DEFAULT NULL,
+                detected_category VARCHAR(20) DEFAULT 'Regular',
+                detected_name VARCHAR(255) DEFAULT '',
+                detected_birthday DATE DEFAULT NULL,
+                detected_gender VARCHAR(20) DEFAULT NULL,
+                otp_code VARCHAR(10) DEFAULT NULL,
+                otp_expires_at DATETIME DEFAULT NULL,
+                otp_attempts INT DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME DEFAULT NULL,
+                INDEX idx_token (token),
+                INDEX idx_expires (expires_at)
+            )
+        `);
+
+        // Seed ticket counters from existing logs so numbering continues after an upgrade
+        try {
+            await pool.query(`
+                INSERT INTO ticket_counters (counter_date, station_type, station_id, count)
+                SELECT DATE(join_time), station_type, COALESCE(station_id, 0), COUNT(*)
+                FROM queue_logs
+                WHERE archived = false AND join_time IS NOT NULL
+                GROUP BY DATE(join_time), station_type, COALESCE(station_id, 0)
+                ON DUPLICATE KEY UPDATE count = GREATEST(ticket_counters.count, VALUES(count))
+            `);
+        } catch (e) { console.error('[DB] Failed to seed ticket counters:', e.message); }
+
         const archiveTables = ['users', 'laboratories', 'doctors', 'service_packages', 'package_laboratories', 'queue', 'queue_sequences', 'queue_logs', 'appointments', 'medical_records', 'lab_notes'];
         for (const table of archiveTables) {
             await addColumnIfMissing(table, 'archived', 'BOOLEAN DEFAULT false');

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../database');
 const jwt = require('jsonwebtoken');
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123';
+const { JWT_SECRET, requireStaff } = require('../config');
 
 function authRequired(req, res, next) {
     const token = (req.headers['authorization'] || '').split(' ')[1];
@@ -76,7 +76,7 @@ router.get('/:id/details', async (req, res) => {
 });
 
 // POST create package (frontdesk/admin)
-router.post('/', authRequired, async (req, res) => {
+router.post('/', authRequired, requireStaff, async (req, res) => {
     const { name, description, price, est_time_minutes, laboratories, doctor_id } = req.body;
     try {
         const [result] = await pool.query(
@@ -99,7 +99,7 @@ router.post('/', authRequired, async (req, res) => {
 });
 
 // PUT update package
-router.put('/:id', authRequired, async (req, res) => {
+router.put('/:id', authRequired, requireStaff, async (req, res) => {
     const { name, description, price, est_time_minutes, laboratories, is_active, doctor_id } = req.body;
     try {
         await pool.query(
@@ -123,7 +123,7 @@ router.put('/:id', authRequired, async (req, res) => {
 
 const aiServices = require('../ai_services');
 
-router.post('/estimate-time', authRequired, async (req, res) => {
+router.post('/estimate-time', authRequired, requireStaff, async (req, res) => {
     const { laboratories } = req.body;
     try {
         let totalEst = 0;

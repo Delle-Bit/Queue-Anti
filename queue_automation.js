@@ -31,4 +31,33 @@ async function getNextPatient(stationType, stationId) {
     return getNextFromList(rows);
 }
 
-module.exports = { calculateScore, getNextPatient, getNextFromList };
+// Atomic per-day-per-station ticket numbering (prevents duplicate tickets under concurrency)
+async function nextTicketNumber(stationType, stationId, type) {
+    const sid = stationId || 0;
+    await pool.query(
+        `INSERT INTO ticket_counters (counter_date, station_type, station_id, count)
+         VALUES (CURDATE(), ?, ?, 1)
+         ON DUPLICATE KEY UPDATE count = count + 1`,
+        [stationType, sid]
+    );
+    const [rows] = await pool.query(
+        `SELECT count FROM ticket_counters
+         WHERE counter_date = CURDATE() AND station_type = ? AND station_id = ?`,
+        [stationType, sid]
+    );
+    return `${type}-${String(rows[0].count).padStart(3, '0')}`;
+}
+
+// Non-incrementing lookahead (for previews)
+async function peekTicketNumber(stationType, stationId, type) {
+    const sid = stationId || 0;
+    const [rows] = await pool.query(
+        `SELECT count FROM ticket_counters
+         WHERE counter_date = CURDATE() AND station_type = ? AND station_id = ?`,
+        [stationType, sid]
+    );
+    const next = (rows[0]?.count || 0) + 1;
+    return `${type}-${String(next).padStart(3, '0')}`;
+}
+
+module.exports = { calculateScore, getNextPatient, getNextFromList, nextTicketNumber, peekTicketNumber };

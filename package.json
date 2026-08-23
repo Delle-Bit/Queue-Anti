@@ -1,10 +1,11 @@
 {
   "name": "attempt1",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Medical clinic queue management system",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "test": "node --check server.js && node --check database.js && node --check config.js && node --check ai_services.js && node --check queue_automation.js && node --check routes/auth.js && node --check routes/admin.js && node --check routes/queue.js && node --check routes/packages.js && node --check routes/reports.js"
   },
   "keywords": [],
   "author": "",

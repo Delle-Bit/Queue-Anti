@@ -7,6 +7,8 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const http = require('http');
 const socketIo = require('socket.io');
+const { JWT_SECRET, requireAdmin } = require('./config');
+const { nextTicketNumber } = require('./queue_automation');
 
 dotenv.config();
 
@@ -16,7 +18,6 @@ const io = socketIo(server);
 app.set('io', io);
 
 const port = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123';
 
 // Middleware
 app.use(cors());
@@ -24,6 +25,14 @@ app.use(bodyParser.json());
 app.use(express.static('public'));
 app.use('/uploads', express.static('uploads'));
 app.use('/images', express.static('images'));
+
+// Public site settings (branding/theme for unauthenticated pages)
+app.get('/api/settings', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM settings WHERE id=1');
+        res.json(rows[0] || {});
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
 
 // Socket.io
 io.on('connection', (socket) => {
@@ -61,7 +70,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/packages', packageRoutes);
 app.use('/api/queue', authenticateToken, queueRoutes);
 app.use('/api/reports', authenticateToken, verifyRoles('owner'), reportRoutes);
-app.use('/api/admin', authenticateToken, verifyRoles('admin', 'admintechnical', 'owner'), adminRoutes);
+app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
 app.use('/api', authenticateToken, adminRoutes);
 
 async function startQueueFromAppointment(appointment, io) {
@@ -90,10 +99,7 @@ async function startQueueFromAppointment(appointment, io) {
         [appointment.customer_id, appointment.package_id, totalSteps, hasDoctorStep ? 1 : 0, hasDoctorStep ? pkgDoctor[0].doctor_id : null]
     );
     const seqId = seqResult.insertId;
-    const [countRows] = await pool.query(
-        `SELECT COUNT(*) as cnt FROM queue_logs WHERE station_type='frontdesk' AND DATE(join_time) = CURDATE() AND archived = false`
-    );
-    const ticketNum = `${type}-${String(countRows[0].cnt + 1).padStart(3, '0')}`;
+    const ticketNum = await nextTicketNumber('frontdesk', null, type);
     const queueId = `appt_${appointment.id}_${seqId}`;
     await pool.query(
         `INSERT INTO queue (id, station_type, station_id, number, type, status, customer_id, sequence_id)
@@ -144,6 +150,12 @@ app.post('/api/appointments/check-in', authenticateToken, async (req, res) => {
     }
 });
 
+function escapeHtml(str) {
+    return String(str ?? '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+}
+
 app.get('/checkin/:token', async (req, res) => {
     try {
         const [rows] = await pool.query(
@@ -161,18 +173,18 @@ app.get('/checkin/:token', async (req, res) => {
             );
         }
         const queue = await startQueueFromAppointment(appointment, io);
+        const ticket = escapeHtml(queue.ticket || 'Active');
+        const pkgName = escapeHtml(appointment.package_name);
         res.send(`
             <!doctype html><html><head><title>Clinic Check-In</title><meta name="viewport" content="width=device-width,initial-scale=1">
             <style>body{font-family:Arial,sans-serif;background:#f5f6fa;color:#2c3e50;display:grid;place-items:center;min-height:100vh;margin:0}.box{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:28px;max-width:420px;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.12)}.ticket{font-size:42px;font-weight:700;color:#4A90D9}</style></head>
-            <body><div class="box"><h1>Checked in</h1><p>Your queue session has started.</p><div class="ticket">${queue.ticket || 'Active'}</div><p>${appointment.package_name}</p></div></body></html>
+            <body><div class="box"><h1>Checked in</h1><p>Your queue session has started.</p><div class="ticket">${ticket}</div><p>${pkgName}</p></div></body></html>
         `);
     } catch (err) {
         console.error('QR check-in error:', err);
         res.status(500).send('Check-in failed. Please approach the front desk.');
     }
 });
-
-app.use('/api', authenticateToken, adminRoutes);  // all other /api/* require token
 
 // Seed accounts & start
 async function startServer() {
@@ -266,12 +278,6 @@ async function startServer() {
             [svc.price, svc.description, svc.name]
         );
     }
-    await pool.query(
-        `UPDATE service_packages SET is_active=false
-         WHERE name='General Check-up' AND name NOT IN (?)`,
-        [DEFAULT_SERVICES.map(s => s.name)]
-    );
-
     console.log('[Server] Seed data created.');
     server.listen(port, () => console.log(`Server running at http://localhost:${port}`));
 }

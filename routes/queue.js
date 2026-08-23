@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../database');
 const queueAutomation = require('../queue_automation');
+const { requireStaff } = require('../config');
 
 function getQueueType(category) {
     if (category === 'Senior') return 'S';
@@ -77,10 +78,7 @@ async function buildPackagePreview(packageId, category) {
     if (pkgs.length === 0) return null;
     const type = getQueueType(category);
     const steps = await getPackageSteps(packageId);
-    const [countRows] = await pool.query(
-        `SELECT COUNT(*) as cnt FROM queue_logs WHERE station_type='frontdesk' AND DATE(join_time) = CURDATE() AND archived = false`
-    );
-    const ticket = `${type}-${String(countRows[0].cnt + 1).padStart(3, '0')}`;
+    const ticket = await queueAutomation.peekTicketNumber('frontdesk', null, type);
     const [frontDeskWaiting] = await pool.query(
         `SELECT COUNT(*) as cnt FROM queue WHERE station_type='frontdesk' AND status='waiting' AND archived=false`
     );
@@ -145,11 +143,8 @@ router.post('/start-package', async (req, res) => {
 
         const type = getQueueType(req.user.category);
 
-        // Generate ticket number for frontdesk
-        const [countRows] = await pool.query(
-            `SELECT COUNT(*) as cnt FROM queue_logs WHERE station_type='frontdesk' AND DATE(join_time) = CURDATE() AND archived = false`
-        );
-        const ticketNum = `${type}-${String(countRows[0].cnt + 1).padStart(3, '0')}`;
+        // Generate ticket number for frontdesk (atomic counter)
+        const ticketNum = await queueAutomation.nextTicketNumber('frontdesk', null, type);
         const queueId = `cust_${req.user.id}_${seqId}`;
 
         // Insert into queue at frontdesk
@@ -173,7 +168,7 @@ router.post('/start-package', async (req, res) => {
 });
 
 // Complete current step → auto-advance
-router.post('/complete-step', async (req, res) => {
+router.post('/complete-step', requireStaff, async (req, res) => {
     const { queue_id } = req.body;
     try {
         const [qRows] = await pool.query('SELECT * FROM queue WHERE id = ? AND archived = false', [queue_id]);
@@ -183,8 +178,10 @@ router.post('/complete-step', async (req, res) => {
         // Mark current queue entry as completed
         await pool.query(`UPDATE queue SET status = 'completed' WHERE id = ?`, [queue_id]);
         await pool.query(
-            `UPDATE queue_logs SET complete_time = NOW() WHERE ticket_number = ? AND complete_time IS NULL ORDER BY id DESC LIMIT 1`,
-            [q.number]
+            `UPDATE queue_logs SET complete_time = NOW()
+             WHERE sequence_id = ? AND station_type = ? AND station_id <=> ? AND ticket_number = ? AND complete_time IS NULL
+             ORDER BY id DESC LIMIT 1`,
+            [q.sequence_id, q.station_type, q.station_id, q.number]
         );
 
         // Advance sequence
@@ -221,11 +218,7 @@ router.post('/complete-step', async (req, res) => {
                 if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
                 return res.json({ success: true, finished: true });
             }
-            const [cnt] = await pool.query(
-                `SELECT COUNT(*) as cnt FROM queue_logs WHERE station_type='doctor' AND station_id=? AND DATE(join_time)=CURDATE() AND archived=false`,
-                [doctorId]
-            );
-            const newTicket = `${q.type}-${String(cnt[0].cnt + 1).padStart(3, '0')}`;
+            const newTicket = await queueAutomation.nextTicketNumber('doctor', doctorId, q.type);
             const newQueueId = `cust_${q.customer_id}_${seq.id}_s${nextStep}`;
             await pool.query(
                 `INSERT INTO queue (id, station_type, station_id, number, type, status, customer_id, sequence_id)
@@ -255,12 +248,8 @@ router.post('/complete-step', async (req, res) => {
         const lab = labs[0];
         let type = q.type;
 
-        // Generate new ticket for lab
-        const [cnt] = await pool.query(
-            `SELECT COUNT(*) as cnt FROM queue_logs WHERE station_type='laboratory' AND station_id=? AND DATE(join_time)=CURDATE() AND archived=false`,
-            [lab.laboratory_id]
-        );
-        const newTicket = `${type}-${String(cnt[0].cnt + 1).padStart(3, '0')}`;
+        // Generate new ticket for lab (atomic counter)
+        const newTicket = await queueAutomation.nextTicketNumber('laboratory', lab.laboratory_id, type);
         const newQueueId = `cust_${q.customer_id}_${seq.id}_s${nextStep}`;
 
         await pool.query(
@@ -283,7 +272,7 @@ router.post('/complete-step', async (req, res) => {
 });
 
 // Call next in station
-router.post('/next', async (req, res) => {
+router.post('/next', requireStaff, async (req, res) => {
     const { station_type, station_id } = req.body;
     try {
         let query = `SELECT * FROM queue WHERE station_type=? AND status='waiting' AND archived=false`;
@@ -297,8 +286,10 @@ router.post('/next', async (req, res) => {
         const next = await queueAutomation.getNextFromList(rows);
         await pool.query(`UPDATE queue SET status='serving' WHERE id=?`, [next.id]);
         await pool.query(
-            `UPDATE queue_logs SET serve_time=NOW() WHERE ticket_number=? AND complete_time IS NULL ORDER BY id DESC LIMIT 1`,
-            [next.number]
+            `UPDATE queue_logs SET serve_time=NOW()
+             WHERE sequence_id = ? AND station_type = ? AND station_id <=> ? AND ticket_number = ? AND complete_time IS NULL
+             ORDER BY id DESC LIMIT 1`,
+            [next.sequence_id, next.station_type, next.station_id, next.number]
         );
         if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
         res.json({ success: true, next: next.number, queue_id: next.id });
@@ -320,7 +311,7 @@ router.get('/my-status', async (req, res) => {
 
         // Current queue entry
         const [currentQ] = await pool.query(
-            `SELECT * FROM queue WHERE sequence_id = ? AND status IN ('waiting','serving') AND archived=false LIMIT 1`, [seq.id]
+            `SELECT * FROM queue WHERE sequence_id = ? AND status IN ('waiting','serving') AND archived=false ORDER BY timestamp ASC LIMIT 1`, [seq.id]
         );
 
         // Calculate position, current processing number, and total service estimate from live station data.
@@ -377,7 +368,7 @@ router.post('/cancel', async (req, res) => {
 });
 
 // Get queue state for a station
-router.get('/station', async (req, res) => {
+router.get('/station', requireStaff, async (req, res) => {
     const { type, id } = req.query;
     try {
         let query = `SELECT q.*, u.username, u.full_name, u.customer_category

@@ -4,6 +4,9 @@ const { pool } = require('../database');
 const bcrypt = require('bcrypt');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
+const { requireStaff, requireAdmin } = require('../config');
+
+const ELEVATED_ROLES = ['admin', 'admintechnical', 'owner'];
 
 async function archiveRecord(table, idColumn, idValue, entityType, userId) {
     const [rows] = await pool.query(`SELECT * FROM ${table} WHERE ${idColumn} = ?`, [idValue]);
@@ -21,14 +24,14 @@ async function archiveRecord(table, idColumn, idValue, entityType, userId) {
 }
 
 // --- USERS ---
-router.get('/users/staff', async (req, res) => {
+router.get('/users/staff', requireAdmin, async (req, res) => {
     try {
         const [rows] = await pool.query(`SELECT id, username, role, full_name, email, created_at FROM users WHERE role != 'customer' AND archived = false ORDER BY created_at DESC`);
         res.json(rows);
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.get('/users/customers', async (req, res) => {
+router.get('/users/customers', requireAdmin, async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT u.id, u.username, u.full_name, u.email, u.customer_category, u.created_at,
@@ -40,11 +43,11 @@ router.get('/users/customers', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.post('/users', async (req, res) => {
+router.post('/users', requireAdmin, async (req, res) => {
     const { username, password, role, email, full_name } = req.body;
     try {
         // Admin role cannot create other admins
-        if (req.user.role === 'admin' && (role === 'admin' || role === 'admintechnical')) {
+        if (req.user.role === 'admin' && ELEVATED_ROLES.includes(role)) {
             return res.status(403).json({ error: 'Admin cannot create other Admin accounts' });
         }
         const hash = await bcrypt.hash(password, 10);
@@ -56,9 +59,26 @@ router.post('/users', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed to create user' }); }
 });
 
-router.put('/users/:id', async (req, res) => {
+router.put('/users/:id', requireAdmin, async (req, res) => {
     const { password, role, email, full_name } = req.body;
     try {
+        const [targetRows] = await pool.query('SELECT role FROM users WHERE id=?', [req.params.id]);
+        if (targetRows.length === 0) return res.status(404).json({ error: 'User not found' });
+        const targetRole = targetRows[0].role;
+
+        // Plain admins must not modify elevated accounts or grant elevated roles
+        if (req.user.role === 'admin') {
+            if (ELEVATED_ROLES.includes(targetRole)) {
+                return res.status(403).json({ error: 'Admins cannot modify other admin accounts' });
+            }
+            if (role && ELEVATED_ROLES.includes(role)) {
+                return res.status(403).json({ error: 'Admins cannot grant admin roles' });
+            }
+            if (Number(req.params.id) === req.user.id) {
+                return res.status(403).json({ error: 'You cannot change your own role' });
+            }
+        }
+
         if (password) {
             const hash = await bcrypt.hash(password, 10);
             await pool.query('UPDATE users SET password_hash=?, role=?, email=?, full_name=? WHERE id=?',
@@ -71,9 +91,17 @@ router.put('/users/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed to update user' }); }
 });
 
-router.delete('/users/:id', async (req, res) => {
+router.delete('/users/:id', requireAdmin, async (req, res) => {
     const { reason } = req.body;
     try {
+        if (Number(req.params.id) === req.user.id) {
+            return res.status(403).json({ error: 'You cannot delete your own account' });
+        }
+        const [targetRows] = await pool.query('SELECT role FROM users WHERE id=?', [req.params.id]);
+        if (targetRows.length === 0) return res.status(404).json({ error: 'User not found' });
+        if (req.user.role === 'admin' && ELEVATED_ROLES.includes(targetRows[0].role)) {
+            return res.status(403).json({ error: 'Admins cannot delete admin accounts' });
+        }
         const [userRows] = await pool.query('SELECT username, full_name FROM users WHERE id=?', [req.params.id]);
         if (userRows.length === 0) return res.status(404).json({ error: 'User not found' });
         const user = userRows[0];
@@ -90,7 +118,7 @@ router.delete('/users/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed to delete user' }); }
 });
 
-router.get('/users/deletion-logs', async (req, res) => {
+router.get('/users/deletion-logs', requireAdmin, async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM account_deletion_logs ORDER BY deleted_at DESC LIMIT 100');
         res.json(rows);
@@ -98,7 +126,7 @@ router.get('/users/deletion-logs', async (req, res) => {
 });
 
 // --- LABORATORIES ---
-router.get('/laboratories', async (req, res) => {
+router.get('/laboratories', requireStaff, async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT l.*, u.username as staff_name FROM laboratories l
@@ -108,7 +136,7 @@ router.get('/laboratories', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.post('/laboratories', async (req, res) => {
+router.post('/laboratories', requireAdmin, async (req, res) => {
     const { name, service_type, assigned_staff_id, start_time, cutoff_time } = req.body;
     try {
         await pool.query(
@@ -119,7 +147,7 @@ router.post('/laboratories', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.put('/laboratories/:id', async (req, res) => {
+router.put('/laboratories/:id', requireAdmin, async (req, res) => {
     const { name, service_type, assigned_staff_id, is_open, start_time, cutoff_time } = req.body;
     try {
         await pool.query(
@@ -130,7 +158,7 @@ router.put('/laboratories/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.delete('/laboratories/:id', async (req, res) => {
+router.delete('/laboratories/:id', requireAdmin, async (req, res) => {
     try {
         await archiveRecord('laboratories', 'id', req.params.id, 'laboratory', req.user.id);
         res.json({ success: true });
@@ -138,7 +166,7 @@ router.delete('/laboratories/:id', async (req, res) => {
 });
 
 // --- DOCTORS ---
-router.get('/doctors', async (req, res) => {
+router.get('/doctors', requireStaff, async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT d.*, u.username as staff_name FROM doctors d
@@ -148,7 +176,7 @@ router.get('/doctors', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.post('/doctors', async (req, res) => {
+router.post('/doctors', requireAdmin, async (req, res) => {
     const { name, specialty, assigned_staff_id } = req.body;
     try {
         await pool.query(
@@ -159,7 +187,7 @@ router.post('/doctors', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.put('/doctors/:id', async (req, res) => {
+router.put('/doctors/:id', requireAdmin, async (req, res) => {
     const { name, specialty, assigned_staff_id, is_open } = req.body;
     try {
         await pool.query(
@@ -170,7 +198,7 @@ router.put('/doctors/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.delete('/doctors/:id', async (req, res) => {
+router.delete('/doctors/:id', requireAdmin, async (req, res) => {
     try {
         await archiveRecord('doctors', 'id', req.params.id, 'doctor', req.user.id);
         res.json({ success: true });
@@ -179,7 +207,7 @@ router.delete('/doctors/:id', async (req, res) => {
 
 
 // --- APPOINTMENTS ---
-router.get('/appointments', async (req, res) => {
+router.get('/appointments', requireStaff, async (req, res) => {
     try {
         let query = `SELECT a.*, sp.name as package_name, sp.price, u.username, u.full_name
                      FROM appointments a
@@ -227,7 +255,7 @@ router.post('/appointments', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.post('/appointments/:id/qr', async (req, res) => {
+router.post('/appointments/:id/qr', requireStaff, async (req, res) => {
     try {
         const [rows] = await pool.query(
             `SELECT a.*, sp.name as package_name, u.full_name, u.username
@@ -253,7 +281,7 @@ router.post('/appointments/:id/qr', async (req, res) => {
 });
 
 // --- ANALYTICS ---
-router.get('/analytics/frontdesk', async (req, res) => {
+router.get('/analytics/frontdesk', requireStaff, async (req, res) => {
     try {
         const [avg] = await pool.query(`SELECT AVG(TIMESTAMPDIFF(MINUTE,serve_time,complete_time)) as v FROM queue_logs WHERE station_type='frontdesk' AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE()`);
         const [perHour] = await pool.query(`SELECT COUNT(*)/GREATEST(1,TIMESTAMPDIFF(HOUR,MIN(serve_time),MAX(complete_time))) as v FROM queue_logs WHERE station_type='frontdesk' AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE()`);
@@ -272,7 +300,7 @@ router.get('/analytics/frontdesk', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.get('/analytics/laboratory/:id', async (req, res) => {
+router.get('/analytics/laboratory/:id', requireStaff, async (req, res) => {
     try {
         const sid = req.params.id;
         const [avg] = await pool.query(`SELECT AVG(TIMESTAMPDIFF(MINUTE,serve_time,complete_time)) as v FROM queue_logs WHERE station_type='laboratory' AND station_id=? AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE()`, [sid]);
@@ -291,7 +319,7 @@ router.get('/analytics/laboratory/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.get('/analytics/doctor/:id', async (req, res) => {
+router.get('/analytics/doctor/:id', requireStaff, async (req, res) => {
     try {
         const sid = req.params.id;
         const [avg] = await pool.query(`SELECT AVG(TIMESTAMPDIFF(MINUTE,serve_time,complete_time)) as v FROM queue_logs WHERE station_type='doctor' AND station_id=? AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE()`, [sid]);
@@ -309,7 +337,7 @@ router.get('/analytics/doctor/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.get('/analytics/admin', async (req, res) => {
+router.get('/analytics/admin', requireAdmin, async (req, res) => {
     try {
         const [userCounts] = await pool.query(`SELECT role, COUNT(*) as cnt FROM users WHERE archived=false GROUP BY role`);
         const [catCounts] = await pool.query(`SELECT customer_category, COUNT(*) as cnt FROM users WHERE role='customer' AND archived=false GROUP BY customer_category`);
@@ -320,7 +348,7 @@ router.get('/analytics/admin', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.get('/analytics/owner', async (req, res) => {
+router.get('/analytics/owner', requireAdmin, async (req, res) => {
     try {
         const [revenue] = await pool.query(`SELECT SUM(sp.price) as total FROM queue_sequences qs JOIN service_packages sp ON qs.package_id=sp.id WHERE qs.status='completed'`);
         const [totalServices] = await pool.query(`SELECT COUNT(*) as v FROM queue_sequences WHERE status='completed'`);
@@ -344,7 +372,7 @@ router.post('/staff-sessions/logout', async (req, res) => {
 });
 
 // --- AUDIT LOGS ---
-router.get('/audit-logs', async (req, res) => {
+router.get('/audit-logs', requireAdmin, async (req, res) => {
     try {
         const [rows] = await pool.query(`SELECT al.*, u.username FROM audit_logs al LEFT JOIN users u ON al.performed_by=u.id ORDER BY al.created_at DESC LIMIT 100`);
         res.json(rows);
@@ -352,14 +380,9 @@ router.get('/audit-logs', async (req, res) => {
 });
 
 // --- SETTINGS ---
-router.get('/settings', async (req, res) => {
-    try {
-        const [rows] = await pool.query('SELECT * FROM settings WHERE id=1');
-        res.json(rows[0] || {});
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
-});
+// GET /settings is served publicly from server.js (branding for unauthenticated pages)
 
-router.put('/settings', async (req, res) => {
+router.put('/settings', requireAdmin, async (req, res) => {
     const { site_name, logo_path, theme, navbar_color, background_image } = req.body;
     try {
         await pool.query(
@@ -418,7 +441,7 @@ router.post('/medical-records/my', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.get('/medical-records/:customerId', async (req, res) => {
+router.get('/medical-records/:customerId', requireStaff, async (req, res) => {
     try {
         const [user] = await pool.query('SELECT id, customer_uid, full_name, surname, first_name, middle_name, no_middle_name, gender, birthday, customer_category, verification_method, is_underage, guardian_name, guardian_contact, guardian_relationship FROM users WHERE id = ?', [req.params.customerId]);
         const [rows] = await pool.query('SELECT * FROM medical_records WHERE customer_id = ? AND archived=false', [req.params.customerId]);
@@ -431,7 +454,7 @@ router.get('/medical-records/:customerId', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.post('/medical-records', async (req, res) => {
+router.post('/medical-records', requireStaff, async (req, res) => {
     const { customer_id, full_name, surname, first_name, middle_name, no_middle_name, gender, birthday, customer_category, birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions } = req.body;
     try {
         await pool.query(
@@ -460,7 +483,7 @@ router.post('/medical-records', async (req, res) => {
 });
 
 // --- LAB NOTES ---
-router.get('/lab-notes/:customerId', async (req, res) => {
+router.get('/lab-notes/:customerId', requireStaff, async (req, res) => {
     try {
         const [rows] = await pool.query(
             `SELECT ln.*, u.username as staff_name FROM lab_notes ln
@@ -472,7 +495,7 @@ router.get('/lab-notes/:customerId', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.post('/lab-notes', async (req, res) => {
+router.post('/lab-notes', requireStaff, async (req, res) => {
     const { customer_id, note } = req.body;
     try {
         await pool.query(
@@ -484,7 +507,7 @@ router.post('/lab-notes', async (req, res) => {
 });
 
 // --- CLINICAL RECORDS ---
-router.post('/clinical-records', async (req, res) => {
+router.post('/clinical-records', requireStaff, async (req, res) => {
     const { customer_id, sequence_id, record_type, data, notes } = req.body;
     try {
         await pool.query(
@@ -510,7 +533,7 @@ router.get('/clinical-records/my', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.get('/clinical-records/:customerId', async (req, res) => {
+router.get('/clinical-records/:customerId', requireStaff, async (req, res) => {
     try {
         const [rows] = await pool.query(
             `SELECT cr.*, u.username as staff_name, u.full_name as staff_full_name
@@ -533,7 +556,7 @@ router.get('/faqs', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.get('/archives', async (req, res) => {
+router.get('/archives', requireAdmin, async (req, res) => {
     try {
         const [rows] = await pool.query(
             `SELECT ar.*, u.username as archived_by_name
@@ -545,7 +568,7 @@ router.get('/archives', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.post('/archives/:id/restore', async (req, res) => {
+router.post('/archives/:id/restore', requireAdmin, async (req, res) => {
     const map = {
         user: ['users', 'id'],
         laboratory: ['laboratories', 'id'],
@@ -569,7 +592,7 @@ router.post('/archives/:id/restore', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed to restore' }); }
 });
 
-router.delete('/archives/:id', async (req, res) => {
+router.delete('/archives/:id', requireAdmin, async (req, res) => {
     const map = {
         user: ['users', 'id'],
         laboratory: ['laboratories', 'id'],

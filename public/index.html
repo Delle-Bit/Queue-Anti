@@ -197,10 +197,10 @@
         </div>
     </section>
 
-    <!-- ===== AUTH PANEL OVERLAY ===== -->
+    <!-- ===== AUTH MODAL OVERLAY ===== -->
     <div id="auth-overlay" class="auth-overlay" role="dialog" aria-modal="true" aria-labelledby="auth-panel-title">
         <div class="auth-panel" id="auth-panel">
-            <button class="auth-panel-close" id="auth-panel-close" onclick="closeAuthPanel()" aria-label="Close panel">
+            <button class="auth-panel-close" id="auth-panel-close" onclick="closeAuthPanel()" aria-label="Close authentication modal">
                 <i class="fa-solid fa-xmark"></i>
             </button>
 
@@ -249,15 +249,41 @@
                 </div>
             </div>
 
-            <!-- REGISTER FORM -->
+            <!-- REGISTER FORM - Multi-step Wizard -->
             <div id="form-register" class="auth-form" style="display:none;" role="tabpanel">
                 <div class="auth-welcome">
                     <h2>Create Account</h2>
-                    <p>Choose ID verification or guardian verification for underage customers</p>
+                    <p id="reg-step-title">Step 1 of 4: Account Details</p>
                 </div>
+                
+                <!-- Progress Indicator -->
+                <div class="reg-progress" id="reg-progress" role="progressbar" aria-label="Registration progress">
+                    <div class="reg-progress-step active" data-step="1">
+                        <span class="reg-step-num">1</span>
+                        <span class="reg-step-label">Details</span>
+                    </div>
+                    <div class="reg-progress-line"></div>
+                    <div class="reg-progress-step" data-step="2">
+                        <span class="reg-step-num">2</span>
+                        <span class="reg-step-label">Password</span>
+                    </div>
+                    <div class="reg-progress-line"></div>
+                    <div class="reg-progress-step" data-step="3">
+                        <span class="reg-step-num">3</span>
+                        <span class="reg-step-label">Verify</span>
+                    </div>
+                    <div class="reg-progress-line"></div>
+                    <div class="reg-progress-step" data-step="4">
+                        <span class="reg-step-num">4</span>
+                        <span class="reg-step-label">Complete</span>
+                    </div>
+                </div>
+
                 <div id="reg-error" class="auth-error"></div>
                 <div id="reg-success" class="auth-success"></div>
-                <form onsubmit="handleRegister(event)" novalidate>
+
+                <!-- STEP 1: Account Details -->
+                <form id="reg-step1-form" class="reg-step-form" novalidate>
                     <div class="form-group">
                         <label class="form-label" for="reg-username">Username</label>
                         <div class="input-icon-wrap">
@@ -270,13 +296,6 @@
                         <div class="input-icon-wrap">
                             <i class="fa-solid fa-envelope input-icon"></i>
                             <input type="email" id="reg-email" class="form-input input-with-icon" placeholder="your@email.com" required autocomplete="email">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="reg-password">Password</label>
-                        <div class="input-icon-wrap">
-                            <i class="fa-solid fa-lock input-icon"></i>
-                            <input type="password" id="reg-password" class="form-input input-with-icon" placeholder="Choose password" required autocomplete="new-password">
                         </div>
                     </div>
                     <div class="form-group">
@@ -345,10 +364,82 @@
                         </div>
                         <small class="text-muted">This account will be marked as underage and verified through guardian information.</small>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-block btn-lg" id="reg-btn" style="margin-top:16px;">
-                        <i class="fa-solid fa-user-plus"></i> Register
-                    </button>
+                    <div class="reg-step-actions">
+                        <button type="button" class="btn btn-secondary" onclick="goToStep(1)" style="display:none;" id="reg-step1-back"><i class="fa-solid fa-arrow-left"></i> Back</button>
+                        <button type="submit" class="btn btn-primary btn-lg" id="reg-step1-next">
+                            <i class="fa-solid fa-arrow-right"></i> Continue
+                        </button>
+                    </div>
                 </form>
+
+                <!-- STEP 2: Password Creation -->
+                <form id="reg-step2-form" class="reg-step-form" style="display:none;" novalidate>
+                    <div class="form-group">
+                        <label class="form-label" for="reg-password">Password</label>
+                        <div class="input-icon-wrap">
+                            <i class="fa-solid fa-lock input-icon"></i>
+                            <input type="password" id="reg-password" class="form-input input-with-icon" placeholder="Create password (min 8 chars)" required autocomplete="new-password" minlength="8">
+                        </div>
+                        <div class="password-strength" id="password-strength" style="display:none;">
+                            <div class="strength-bar"><div class="strength-fill" id="strength-fill"></div></div>
+                            <small class="strength-text" id="strength-text"></small>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="reg-confirm-password">Confirm Password</label>
+                        <div class="input-icon-wrap">
+                            <i class="fa-solid fa-lock input-icon"></i>
+                            <input type="password" id="reg-confirm-password" class="form-input input-with-icon" placeholder="Confirm password" required autocomplete="new-password" minlength="8">
+                        </div>
+                        <small class="text-muted" id="password-match-hint"></small>
+                    </div>
+                    <div class="reg-step-actions">
+                        <button type="button" class="btn btn-secondary" onclick="goToStep(1)"><i class="fa-solid fa-arrow-left"></i> Back</button>
+                        <button type="submit" class="btn btn-primary btn-lg" id="reg-step2-next">
+                            <i class="fa-solid fa-arrow-right"></i> Continue
+                        </button>
+                    </div>
+                </form>
+
+                <!-- STEP 3: Verification (OTP) -->
+                <form id="reg-step3-form" class="reg-step-form" style="display:none;" novalidate>
+                    <div class="auth-welcome">
+                        <h3>Verify Your Email</h3>
+                        <p id="reg-verify-desc">We've sent a 6-digit code to <strong id="reg-verify-email"></strong></p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="reg-otp">Verification Code</label>
+                        <div class="input-icon-wrap">
+                            <i class="fa-solid fa-key input-icon"></i>
+                            <input type="text" id="reg-otp" class="form-input input-with-icon" placeholder="Enter 6-digit code" required maxlength="6" pattern="\d{6}" autocomplete="one-time-code" style="letter-spacing: 0.5em; text-align: center;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="text-align: center;">
+                        <button type="button" class="btn btn-sm btn-outline" id="reg-resend-otp" onclick="resendOTP()">
+                            <i class="fa-solid fa-rotate-left"></i> Resend Code (<span id="otp-countdown">00:00</span>)
+                        </button>
+                    </div>
+                    <div class="reg-step-actions">
+                        <button type="button" class="btn btn-secondary" onclick="goToStep(2)"><i class="fa-solid fa-arrow-left"></i> Back</button>
+                        <button type="submit" class="btn btn-primary btn-lg" id="reg-step3-verify">
+                            <i class="fa-solid fa-check"></i> Verify & Create Account
+                        </button>
+                    </div>
+                </form>
+
+                <!-- STEP 4: Success -->
+                <div id="reg-step4-form" class="reg-step-form" style="display:none; text-align: center; padding: 20px;">
+                    <div class="success-icon" style="font-size: 64px; color: var(--success); margin-bottom: 16px;">
+                        <i class="fa-solid fa-circle-check"></i>
+                    </div>
+                    <h3>Account Created!</h3>
+                    <p id="reg-success-message" style="margin: 12px 0;"></p>
+                    <div class="reg-step-actions" style="justify-content: center;">
+                        <button type="button" class="btn btn-primary btn-lg" onclick="finishRegistration()">
+                            <i class="fa-solid fa-right-to-bracket"></i> Sign In
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
