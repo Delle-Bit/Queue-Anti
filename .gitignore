@@ -11,3 +11,6 @@ Thumbs.db
 
 # Uploaded patient files (IDs, images)
 uploads/
+
+# Environment secrets
+.env

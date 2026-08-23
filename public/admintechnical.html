@@ -103,7 +103,7 @@
                 <div>
                     <div class="page-title"><i class="fa-solid fa-flask-vial"></i> Manage Laboratories</div>
                 </div>
-                <button class="btn btn-primary" onclick="openModal('lab-modal')"><i class="fa-solid fa-plus"></i>
+                <button class="btn btn-primary" onclick="prepareNewLab()"><i class="fa-solid fa-plus"></i>
                     Add</button>
             </div>
             <div class="card">
@@ -303,7 +303,7 @@
     <div id="lab-modal" class="modal-overlay">
         <div class="modal-box">
             <div class="modal-header">
-                <div class="modal-title"><i class="fa-solid fa-flask-vial"></i> Add Laboratory</div><button
+                <div class="modal-title"><i class="fa-solid fa-flask-vial"></i> <span id="lab-modal-title">Add Laboratory</span></div><button
                     class="modal-close" onclick="closeModal('lab-modal')">&times;</button>
             </div>
             <div class="modal-body">

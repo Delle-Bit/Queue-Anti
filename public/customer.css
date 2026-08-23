@@ -18,6 +18,8 @@
     background: linear-gradient(90deg, var(--primary), var(--primary-light));
 }
 .pkg-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); border-color: var(--primary-light); }
+.pkg-card-unavailable { opacity: 0.6; filter: grayscale(0.4); }
+.pkg-card-unavailable:hover { transform: none; }
 .pkg-card-badge { position: absolute; top: 16px; right: 16px; }
 .pkg-card h3 { font-size: 1.1em; font-weight: 700; margin: 0 0 8px; color: var(--text-primary); }
 .pkg-card p { font-size: 0.8em; color: var(--text-secondary); margin: 0 0 16px; line-height: 1.5; }

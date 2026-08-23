@@ -332,9 +332,23 @@ function openAuthPanel(tab = 'login') {
 }
 
 function closeAuthPanel() {
+    abandonPendingRegistration();
     authOverlay.classList.remove('active');
     document.body.style.overflow = '';
 }
+
+// Voids an in-progress registration token server-side the moment the modal is
+// closed/dismissed, instead of leaving the pending_registrations row (and any
+// uploaded ID images) to expire naturally up to 24h later. sendBeacon so it
+// still fires reliably on tab-close, not just explicit close-button clicks.
+function abandonPendingRegistration() {
+    if (!registrationState.token) return;
+    const payload = new Blob([JSON.stringify({ token: registrationState.token })], { type: 'application/json' });
+    navigator.sendBeacon('/api/auth/register/abandon', payload);
+    registrationState.token = null;
+}
+
+window.addEventListener('pagehide', abandonPendingRegistration);
 
 // Close on overlay backdrop click
 authOverlay.addEventListener('click', function (e) {
@@ -351,11 +365,13 @@ document.addEventListener('keydown', function (e) {
 function switchAuthTab(tab) {
     document.getElementById('form-login').style.display = tab === 'login' ? 'block' : 'none';
     document.getElementById('form-register').style.display = tab === 'register' ? 'block' : 'none';
+    document.getElementById('form-login-otp').style.display = 'none';
     document.getElementById('tab-login').classList.toggle('active', tab === 'login');
     document.getElementById('tab-register').classList.toggle('active', tab === 'register');
     if (tab === 'register') {
         // Reset to step 1
         showRegStep(1);
+        usernameManuallyEdited = false;
         // Ensure forms are reset
         document.getElementById('reg-step1-form').reset();
         document.getElementById('reg-step2-form').reset();
@@ -368,6 +384,7 @@ function switchAuthTab(tab) {
 }
 
 // ── Register State ─────────────────────────────────────────────────
+let usernameManuallyEdited = false;
 let registrationState = {
     step: 1,
     token: null,
@@ -467,10 +484,11 @@ function validateCurrentStep() {
     const errEl = document.getElementById('reg-error');
     
     if (step === 1) {
+        const fullName = document.getElementById('reg-fullname').value.trim();
         const username = document.getElementById('reg-username').value.trim();
         const email = document.getElementById('reg-email').value.trim();
-        if (!username || !email) {
-            errEl.textContent = 'Username and email are required.';
+        if (!fullName || !username || !email) {
+            errEl.textContent = 'Full name, username, and email are required.';
             errEl.classList.add('show');
             return false;
         }
@@ -544,6 +562,7 @@ async function submitStep1() {
     
     const formData = new FormData();
     formData.append('username', document.getElementById('reg-username').value.trim());
+    formData.append('full_name', document.getElementById('reg-fullname').value.trim());
     formData.append('email', document.getElementById('reg-email').value.trim());
     formData.append('verification_method', registrationState.verificationMethod);
     
@@ -564,8 +583,11 @@ async function submitStep1() {
             registrationState.ocrResult = { category: data.category, detectedName: data.detectedName };
             sucEl.textContent = data.message;
             sucEl.classList.add('show');
-            // Auto-advance after short delay
-            setTimeout(() => goToStep(2), 1500);
+            // Auto-advance after short delay. showRegStep (not goToStep) — this already
+            // succeeded, so re-running validateCurrentStep() here would resubmit step 1
+            // again since registrationState.step hasn't advanced yet, looping until the
+            // rate limiter blocks it.
+            setTimeout(() => showRegStep(2), 1500);
         } else {
             errEl.textContent = data.error || 'Registration failed';
             errEl.classList.add('show');
@@ -599,7 +621,7 @@ async function submitStep2(password) {
         if (res.ok && data.success) {
             sucEl.textContent = data.message;
             sucEl.classList.add('show');
-            setTimeout(() => goToStep(3), 1500);
+            setTimeout(() => showRegStep(3), 1500);
         } else {
             errEl.textContent = data.error || 'Failed to set password';
             errEl.classList.add('show');
@@ -687,6 +709,7 @@ async function submitStep3(otp) {
             sucEl.classList.add('show');
             // Show success step
             document.getElementById('reg-success-message').innerHTML = `Your account has been created!<br>Category: <strong>${data.category}</strong>`;
+            registrationState.token = null; // already consumed server-side; don't let a later modal-close try to abandon it
             showRegStep(4);
         } else {
             errEl.textContent = data.error || 'Verification failed';
@@ -739,7 +762,6 @@ function setVerificationMethod(method) {
 
 // ── ID Camera ────────────────────────────────────────────────────
 let regCameraStream = null;
-let regBlobs = { front: null, back: null };
 let currentSide = 'front';
 
 function startIdAction(side, type) {
@@ -798,7 +820,7 @@ async function captureRegID() {
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
     canvas.toBlob((blob) => {
-        regBlobs[currentSide] = blob;
+        registrationState.blobs[currentSide] = blob;
         const preview = document.getElementById(`preview-${currentSide}`);
         const dataUrl = canvas.toDataURL('image/jpeg');
         preview.innerHTML = `<img src="${dataUrl}" alt="${currentSide} id">`;
@@ -808,6 +830,14 @@ async function captureRegID() {
 }
 
 // ── Login ────────────────────────────────────────────────────────
+function completeLogin(data) {
+    localStorage.setItem('clinicToken', data.token);
+    localStorage.setItem('clinicRole', data.role);
+    localStorage.setItem('clinicUsername', data.username);
+    localStorage.setItem('clinicCategory', data.category || 'Regular');
+    window.location.href = data.redirect;
+}
+
 async function handleLogin(e) {
     e.preventDefault();
     const errEl = document.getElementById('login-error');
@@ -826,12 +856,10 @@ async function handleLogin(e) {
             })
         });
         const data = await res.json();
-        if (res.ok && data.success) {
-            localStorage.setItem('clinicToken', data.token);
-            localStorage.setItem('clinicRole', data.role);
-            localStorage.setItem('clinicUsername', data.username);
-            localStorage.setItem('clinicCategory', data.category || 'Regular');
-            window.location.href = data.redirect;
+        if (res.ok && data.success && data.otp_required) {
+            showLoginOTPStep(data);
+        } else if (res.ok && data.success) {
+            completeLogin(data);
         } else {
             errEl.textContent = data.error || 'Login failed';
             errEl.classList.add('show');
@@ -842,6 +870,101 @@ async function handleLogin(e) {
     }
     btn.disabled = false;
     btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Sign In';
+}
+
+// ── Login OTP (second factor for customer sign-in) ─────────────────
+let loginOtpState = { challengeToken: null, countdown: null };
+
+function showLoginOTPStep(data) {
+    loginOtpState.challengeToken = data.challenge_token;
+    document.getElementById('login-otp-email').textContent = data.email_hint || 'your email';
+    document.getElementById('login-otp-error').classList.remove('show');
+    document.getElementById('login-otp').value = '';
+    document.getElementById('form-login').style.display = 'none';
+    document.getElementById('form-register').style.display = 'none';
+    document.getElementById('form-login-otp').style.display = 'block';
+    startLoginOTPCountdown();
+}
+
+function cancelLoginOTP() {
+    loginOtpState.challengeToken = null;
+    if (loginOtpState.countdown) clearInterval(loginOtpState.countdown);
+    switchAuthTab('login');
+}
+
+function startLoginOTPCountdown() {
+    const countdownEl = document.getElementById('login-otp-countdown');
+    const btn = document.getElementById('login-otp-resend');
+    let seconds = 60;
+    btn.disabled = true;
+    countdownEl.textContent = formatTime(seconds);
+    if (loginOtpState.countdown) clearInterval(loginOtpState.countdown);
+    loginOtpState.countdown = setInterval(() => {
+        seconds--;
+        countdownEl.textContent = formatTime(seconds);
+        if (seconds <= 0) {
+            clearInterval(loginOtpState.countdown);
+            btn.disabled = false;
+        }
+    }, 1000);
+}
+
+async function resendLoginOTP() {
+    const errEl = document.getElementById('login-otp-error');
+    const btn = document.getElementById('login-otp-resend');
+    errEl.classList.remove('show');
+    try {
+        const res = await fetch('/api/auth/login/resend-otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ challenge_token: loginOtpState.challengeToken })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            startLoginOTPCountdown();
+        } else {
+            errEl.textContent = data.error || 'Failed to resend code';
+            errEl.classList.add('show');
+            btn.disabled = false;
+        }
+    } catch (err) {
+        errEl.textContent = 'Connection error. Please try again.';
+        errEl.classList.add('show');
+    }
+}
+
+async function submitLoginOTP(e) {
+    e.preventDefault();
+    const errEl = document.getElementById('login-otp-error');
+    errEl.classList.remove('show');
+    const btn = document.getElementById('login-otp-submit');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
+
+    try {
+        const res = await fetch('/api/auth/login/verify-otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                challenge_token: loginOtpState.challengeToken,
+                otp: document.getElementById('login-otp').value
+            })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            if (loginOtpState.countdown) clearInterval(loginOtpState.countdown);
+            completeLogin(data);
+            return;
+        } else {
+            errEl.textContent = data.error || 'Verification failed';
+            errEl.classList.add('show');
+        }
+    } catch (err) {
+        errEl.textContent = 'Connection error. Please try again.';
+        errEl.classList.add('show');
+    }
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Verify & Sign In';
 }
 
 // ── Register Form Handlers ──────────────────────────────────────────
@@ -870,6 +993,28 @@ function setupRegisterHandlers() {
         checkPasswordMatch();
     });
     document.getElementById('reg-confirm-password').addEventListener('input', checkPasswordMatch);
+
+    // Auto-suggest a username from the full name field, unless the user has
+    // typed into the username field themselves (then leave their edit alone).
+    const usernameField = document.getElementById('reg-username');
+    usernameField.addEventListener('input', () => { usernameManuallyEdited = true; });
+
+    let suggestTimer = null;
+    document.getElementById('reg-fullname').addEventListener('input', (e) => {
+        if (usernameManuallyEdited) return;
+        clearTimeout(suggestTimer);
+        const name = e.target.value.trim();
+        if (!name) { usernameField.value = ''; return; }
+        suggestTimer = setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/auth/register/suggest-username?name=${encodeURIComponent(name)}`);
+                const data = await res.json();
+                if (res.ok && data.username && !usernameManuallyEdited) {
+                    usernameField.value = data.username;
+                }
+            } catch (err) { /* leave field as-is; user can type their own */ }
+        }, 400);
+    });
 }
 
 // Initialize register handlers on load
@@ -915,6 +1060,9 @@ window.openRegCamera = openRegCamera;
 window.stopRegCamera = stopRegCamera;
 window.captureRegID = captureRegID;
 window.handleLogin = handleLogin;
+window.submitLoginOTP = submitLoginOTP;
+window.resendLoginOTP = resendLoginOTP;
+window.cancelLoginOTP = cancelLoginOTP;
 window.goToStep = goToStep;
 window.resendOTP = resendOTP;
 window.finishRegistration = finishRegistration;

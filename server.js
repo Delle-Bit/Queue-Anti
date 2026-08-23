@@ -47,6 +47,10 @@ function authenticateToken(req, res, next) {
     if (!token) return res.status(401).json({ error: 'Missing token' });
     jwt.verify(token, JWT_SECRET, (err, user) => {
         if (err) return res.status(403).json({ error: 'Invalid token' });
+        // Reject special-purpose tokens (e.g. the short-lived login-OTP challenge
+        // token) here so the 2FA gate can't be bypassed on routes that only check
+        // req.user.id and don't otherwise validate req.user.role.
+        if (user.purpose) return res.status(403).json({ error: 'Invalid token' });
         req.user = user;
         next();
     });
@@ -88,6 +92,7 @@ async function startQueueFromAppointment(appointment, io) {
     );
     const [pkgDoctor] = await pool.query('SELECT doctor_id FROM service_packages WHERE id = ? AND doctor_id IS NOT NULL', [appointment.package_id]);
     const hasDoctorStep = pkgDoctor.length > 0;
+    if (labs.length === 0 && !hasDoctorStep) return { unavailable: true };
     const totalSteps = 1 + labs.length + (hasDoctorStep ? 1 : 0);
     const [userRows] = await pool.query('SELECT customer_category FROM users WHERE id=?', [appointment.customer_id]);
     const category = userRows[0]?.customer_category || 'Regular';
@@ -145,6 +150,7 @@ app.post('/api/appointments/check-in', authenticateToken, async (req, res) => {
         );
 
         const queue = await startQueueFromAppointment(appointment, io);
+        if (queue.unavailable) return res.status(400).json({ success: false, error: 'This service is currently unavailable.' });
         res.json({ success: true, ticket: queue.ticket, package_name: appointment.package_name });
     } catch (err) {
         console.error('API QR check-in error:', err);
@@ -175,6 +181,7 @@ app.get('/checkin/:token', async (req, res) => {
             );
         }
         const queue = await startQueueFromAppointment(appointment, io);
+        if (queue.unavailable) return res.status(400).send('This service is currently unavailable. Please approach the front desk.');
         const ticket = escapeHtml(queue.ticket || 'Active');
         const pkgName = escapeHtml(appointment.package_name);
         res.send(`
@@ -191,6 +198,11 @@ app.get('/checkin/:token', async (req, res) => {
 // Seed accounts & start
 async function startServer() {
     await initDB();
+
+    // Purge pending registrations abandoned mid-wizard (belt-and-suspenders alongside
+    // the explicit /api/auth/register/abandon call the frontend fires on modal close).
+    authRoutes.reapExpiredRegistrations();
+    setInterval(authRoutes.reapExpiredRegistrations, 30 * 60 * 1000);
 
     // Seed accounts
     const seeds = [

@@ -12,7 +12,7 @@ async function calculateScore(patient) {
     if (patient.timestamp) {
         waiting_time = Math.floor((new Date() - new Date(patient.timestamp)) / 60000);
     }
-    return base + category_weight + waiting_time;
+    return base + category_weight + waiting_time + (patient.priority_boost || 0);
 }
 
 async function getNextFromList(queueRows) {

@@ -249,6 +249,35 @@
                 </div>
             </div>
 
+            <!-- LOGIN OTP VERIFICATION -->
+            <div id="form-login-otp" class="auth-form" style="display:none;" role="tabpanel">
+                <div class="auth-welcome">
+                    <h3>Verify Your Login</h3>
+                    <p>We've sent a 6-digit code to <strong id="login-otp-email"></strong></p>
+                </div>
+                <div id="login-otp-error" class="auth-error"></div>
+                <form onsubmit="submitLoginOTP(event)" novalidate>
+                    <div class="form-group">
+                        <label class="form-label" for="login-otp">Verification Code</label>
+                        <div class="input-icon-wrap">
+                            <i class="fa-solid fa-key input-icon"></i>
+                            <input type="text" id="login-otp" class="form-input input-with-icon" placeholder="Enter 6-digit code" required maxlength="6" pattern="\d{6}" autocomplete="one-time-code" style="letter-spacing: 0.5em; text-align: center;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="text-align: center;">
+                        <button type="button" class="btn btn-sm btn-outline" id="login-otp-resend" onclick="resendLoginOTP()">
+                            <i class="fa-solid fa-rotate-left"></i> Resend Code (<span id="login-otp-countdown">00:00</span>)
+                        </button>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block btn-lg" id="login-otp-submit">
+                        <i class="fa-solid fa-check"></i> Verify & Sign In
+                    </button>
+                </form>
+                <div class="auth-link">
+                    <a href="#" onclick="cancelLoginOTP();return false;">Back to sign in</a>
+                </div>
+            </div>
+
             <!-- REGISTER FORM - Multi-step Wizard -->
             <div id="form-register" class="auth-form" style="display:none;" role="tabpanel">
                 <div class="auth-welcome">
@@ -285,11 +314,19 @@
                 <!-- STEP 1: Account Details -->
                 <form id="reg-step1-form" class="reg-step-form" novalidate>
                     <div class="form-group">
+                        <label class="form-label" for="reg-fullname">Full Name</label>
+                        <div class="input-icon-wrap">
+                            <i class="fa-solid fa-signature input-icon"></i>
+                            <input type="text" id="reg-fullname" class="form-input input-with-icon" placeholder="Juan Dela Cruz" maxlength="255" required autocomplete="name">
+                        </div>
+                    </div>
+                    <div class="form-group">
                         <label class="form-label" for="reg-username">Username</label>
                         <div class="input-icon-wrap">
                             <i class="fa-solid fa-user input-icon"></i>
-                            <input type="text" id="reg-username" class="form-input input-with-icon" placeholder="Choose username" required autocomplete="username">
+                            <input type="text" id="reg-username" class="form-input input-with-icon" placeholder="Auto-filled from your name" maxlength="50" required autocomplete="username">
                         </div>
+                        <small class="text-muted">Suggested from your name, with a number added if it's taken. Feel free to change it.</small>
                     </div>
                     <div class="form-group">
                         <label class="form-label" for="reg-email">Email</label>

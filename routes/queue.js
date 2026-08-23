@@ -112,6 +112,7 @@ router.get('/preview-package/:packageId', async (req, res) => {
         if (existing.length > 0) return res.status(400).json({ error: 'You already have an active queue. Please complete or cancel it first.' });
         const preview = await buildPackagePreview(req.params.packageId, req.user.category);
         if (!preview) return res.status(404).json({ error: 'Package not found' });
+        if (preview.steps.length <= 1) return res.status(400).json({ error: 'This service is currently unavailable.' });
         res.json(preview);
     } catch (err) {
         console.error('Preview package error:', err);
@@ -136,6 +137,7 @@ router.post('/start-package', async (req, res) => {
 
         const startPreview = await buildPackagePreview(package_id, req.user.category);
         const steps = await getPackageSteps(package_id);
+        if (steps.length <= 1) return res.status(400).json({ error: 'This service is currently unavailable.' });
         const doctorStep = steps.find(step => step.type === 'doctor');
         const totalSteps = steps.length;
 
@@ -275,29 +277,100 @@ router.post('/complete-step', requireStaff, async (req, res) => {
     }
 });
 
+// Shared "call the next waiting patient at a station" logic — used by /next and
+// by the auto-call-next that fires when a patient is parked.
+async function callNextAtStation(stationType, stationId) {
+    let query = `SELECT * FROM queue WHERE station_type=? AND status='waiting' AND archived=false`;
+    const params = [stationType];
+    if (stationId) { query += ' AND station_id=?'; params.push(stationId); }
+    query += ' ORDER BY timestamp ASC';
+    const [rows] = await pool.query(query, params);
+    if (rows.length === 0) return null;
+
+    // Priority scoring
+    const next = await queueAutomation.getNextFromList(rows);
+    await pool.query(`UPDATE queue SET status='serving' WHERE id=?`, [next.id]);
+    await pool.query(
+        `UPDATE queue_logs SET serve_time=NOW()
+         WHERE sequence_id = ? AND station_type = ? AND station_id <=> ? AND ticket_number = ? AND complete_time IS NULL
+         ORDER BY id DESC LIMIT 1`,
+        [next.sequence_id, next.station_type, next.station_id, next.number]
+    );
+    return next;
+}
+
 // Call next in station
 router.post('/next', requireStaff, async (req, res) => {
     const { station_type, station_id } = req.body;
     try {
-        let query = `SELECT * FROM queue WHERE station_type=? AND status='waiting' AND archived=false`;
-        const params = [station_type];
-        if (station_id) { query += ' AND station_id=?'; params.push(station_id); }
-        query += ' ORDER BY timestamp ASC';
-        const [rows] = await pool.query(query, params);
-        if (rows.length === 0) return res.json({ success: false, message: 'Queue is empty' });
-
-        // Priority scoring
-        const next = await queueAutomation.getNextFromList(rows);
-        await pool.query(`UPDATE queue SET status='serving' WHERE id=?`, [next.id]);
-        await pool.query(
-            `UPDATE queue_logs SET serve_time=NOW()
-             WHERE sequence_id = ? AND station_type = ? AND station_id <=> ? AND ticket_number = ? AND complete_time IS NULL
-             ORDER BY id DESC LIMIT 1`,
-            [next.sequence_id, next.station_type, next.station_id, next.number]
-        );
+        const next = await callNextAtStation(station_type, station_id);
+        if (!next) return res.json({ success: false, message: 'Queue is empty' });
         if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
         res.json({ success: true, next: next.number, queue_id: next.id });
     } catch (err) { res.status(500).json({ error: 'Failed to call next' }); }
+});
+
+// Park a patient (e.g. waiting to produce a biological sample) and auto-call the next one.
+router.post('/park', requireStaff, async (req, res) => {
+    const { queue_id, reason } = req.body;
+    try {
+        const [qRows] = await pool.query(`SELECT * FROM queue WHERE id = ? AND archived = false`, [queue_id]);
+        if (qRows.length === 0) return res.status(404).json({ error: 'Queue entry not found' });
+        const q = qRows[0];
+        if (q.status !== 'serving') return res.status(400).json({ error: 'Only the actively serving patient can be parked' });
+
+        await pool.query(
+            `UPDATE queue SET status='parked', parked_reason=?, parked_at=NOW(), sample_ready_at=NULL WHERE id=?`,
+            [reason || 'PENDING_BIOLOGICAL_SAMPLE', queue_id]
+        );
+        await callNextAtStation(q.station_type, q.station_id);
+        if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Park error:', err);
+        res.status(500).json({ error: 'Failed to park patient' });
+    }
+});
+
+// Unpark a patient — returns them to the waiting pool with a priority boost so
+// they land at (or near) the front of the line rather than the tail.
+router.post('/unpark', requireStaff, async (req, res) => {
+    const { queue_id } = req.body;
+    try {
+        const [qRows] = await pool.query(`SELECT * FROM queue WHERE id = ? AND archived = false`, [queue_id]);
+        if (qRows.length === 0) return res.status(404).json({ error: 'Queue entry not found' });
+        const q = qRows[0];
+        if (q.status !== 'parked') return res.status(400).json({ error: 'Patient is not parked' });
+
+        await pool.query(
+            `UPDATE queue SET status='waiting', priority_boost=100, parked_reason=NULL, sample_ready_at=NULL WHERE id=?`,
+            [queue_id]
+        );
+        if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Unpark error:', err);
+        res.status(500).json({ error: 'Failed to unpark patient' });
+    }
+});
+
+// Customer signals their sample is ready while parked.
+router.post('/sample-ready', async (req, res) => {
+    const { queue_id } = req.body;
+    try {
+        const [qRows] = await pool.query(`SELECT * FROM queue WHERE id = ? AND archived = false`, [queue_id]);
+        if (qRows.length === 0) return res.status(404).json({ error: 'Queue entry not found' });
+        const q = qRows[0];
+        if (q.customer_id !== req.user.id) return res.status(403).json({ error: 'Not your queue entry' });
+        if (q.status !== 'parked') return res.status(400).json({ error: 'You are not currently parked' });
+
+        await pool.query(`UPDATE queue SET sample_ready_at=NOW() WHERE id=?`, [queue_id]);
+        if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Sample-ready error:', err);
+        res.status(500).json({ error: 'Failed to signal sample ready' });
+    }
 });
 
 // Build the customer's live queue status.
@@ -315,12 +388,15 @@ async function buildCustomerStatus(customerId) {
 
     // Current queue entry
     const [currentQ] = await pool.query(
-        `SELECT * FROM queue WHERE sequence_id = ? AND status IN ('waiting','serving') AND archived=false ORDER BY timestamp ASC LIMIT 1`, [seq.id]
+        `SELECT * FROM queue WHERE sequence_id = ? AND status IN ('waiting','serving','parked') AND archived=false ORDER BY timestamp ASC LIMIT 1`, [seq.id]
     );
 
+    const isParked = currentQ.length > 0 && currentQ[0].status === 'parked';
+
     // Calculate position, current processing number, and total service estimate from live station data.
+    // Skipped while parked — a parked patient has no meaningful queue position.
     let position = 0, eta = 0, currentProcessing = '--';
-    if (currentQ.length > 0) {
+    if (currentQ.length > 0 && !isParked) {
         const cq = currentQ[0];
         let countQuery = `SELECT COUNT(*) as cnt FROM queue WHERE station_type=? AND status='waiting' AND archived=false AND timestamp < ?`;
         const countParams = [cq.station_type, cq.timestamp];
@@ -377,16 +453,31 @@ async function buildCustomerStatus(customerId) {
         });
     }
 
+    // History of stations already completed in this sequence, sourced from queue_logs
+    // (parking never deletes these rows, so this doubles as the "completed stations" record).
+    const [completedLogs] = await pool.query(
+        `SELECT station_type, station_id, ticket_number, package_name, join_time, serve_time, complete_time
+         FROM queue_logs WHERE sequence_id = ? AND complete_time IS NOT NULL AND archived=false ORDER BY complete_time ASC`,
+        [seq.id]
+    );
+
+    const activeStepName = steps.find(s => s.status === 'active')?.name || null;
+
     return {
         active: true,
         sequence: seq,
         steps,
+        completed_stations: completedLogs,
         current_queue: currentQ[0] || null,
         current_processing: currentProcessing,
         position,
         estimated_time: Math.ceil(eta),
         estimated_total_time: Math.ceil(eta),
-        people_ahead: Math.max(0, position - 1)
+        people_ahead: Math.max(0, position - 1),
+        parked: isParked,
+        parked_reason: isParked ? currentQ[0].parked_reason : null,
+        parked_station_name: isParked ? activeStepName : null,
+        sample_ready_at: isParked ? currentQ[0].sample_ready_at : null
     };
 }
 
@@ -403,7 +494,7 @@ router.get('/my-status', async (req, res) => {
 // Cancel active queue
 router.post('/cancel', async (req, res) => {
     try {
-        await pool.query(`UPDATE queue SET status='cancelled' WHERE customer_id=? AND status IN ('waiting')`, [req.user.id]);
+        await pool.query(`UPDATE queue SET status='cancelled' WHERE customer_id=? AND status IN ('waiting','parked')`, [req.user.id]);
         await pool.query(`UPDATE queue_sequences SET status='cancelled' WHERE customer_id=? AND status='in_progress'`, [req.user.id]);
         if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
         res.json({ success: true });
@@ -416,7 +507,7 @@ router.get('/station', requireStaff, async (req, res) => {
     try {
         let query = `SELECT q.*, u.username, u.full_name, u.customer_category
                      FROM queue q LEFT JOIN users u ON q.customer_id = u.id
-                     WHERE q.station_type=? AND q.status IN ('waiting','serving') AND q.archived=false`;
+                     WHERE q.station_type=? AND q.status IN ('waiting','serving','parked') AND q.archived=false`;
         const params = [type];
         if (id) { query += ' AND q.station_id=?'; params.push(id); }
         query += ' ORDER BY q.timestamp ASC';

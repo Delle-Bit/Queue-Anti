@@ -29,6 +29,7 @@ router.get('/', async (req, res) => {
                  WHERE pl.package_id = ? AND pl.archived = false AND l.archived = false ORDER BY pl.sequence_order`, [pkg.id]
             );
             pkg.laboratories = labs;
+            pkg.is_available = labs.length > 0 || !!pkg.doctor_id;
         }
         res.json(packages);
     } catch (err) { res.status(500).json({ error: 'Failed to fetch packages' }); }
@@ -52,6 +53,7 @@ router.get('/:id/details', async (req, res) => {
              WHERE pl.package_id = ? AND pl.archived = false AND l.archived = false ORDER BY pl.sequence_order`, [pkg.id]
         );
         pkg.laboratories = labs;
+        pkg.is_available = labs.length > 0 || !!pkg.doctor_id;
 
         // Calculate real-time ETA
         // Frontdesk wait

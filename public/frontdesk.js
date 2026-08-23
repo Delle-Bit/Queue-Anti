@@ -107,12 +107,13 @@ async function fdComplete() {
 
 // ── SERVICE MANAGEMENT ─────────────────────────────────────────
 async function loadServiceMgmt() {
+    await fetchLabs();
     const res = await fetch('/api/packages');
     const pkgs = await res.json();
     document.getElementById('svc-list').innerHTML = pkgs.map(p => `<tr>
         <td><strong>${p.name}</strong></td><td>${formatCurrency(p.price)}</td><td>${p.est_time_minutes}m</td>
         <td>${(p.laboratories||[]).map(l=>l.lab_name).join(' → ') || 'None'}</td>
-        <td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'Active':'Inactive'}</span></td>
+        <td>${p.is_available === false ? '<span class="badge badge-danger">Currently Unavailable</span>' : `<span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'Active':'Inactive'}</span>`}</td>
         <td><button class="btn btn-sm btn-secondary" onclick='editService(${JSON.stringify(p).replace(/'/g,"&apos;")})'><i class="fa-solid fa-pen"></i></button></td>
     </tr>`).join('');
 }
@@ -146,7 +147,7 @@ function renderLabSequence(labs) {
     const container = document.getElementById('svc-lab-list');
     container.innerHTML = labSequence.map((l, i) => `
         <div class="flex-between" draggable="true" ondragstart="dragLab(event, ${i})" ondragover="allowDropLab(event)" ondrop="dropLab(event, ${i})" style="padding:8px;background:var(--bg-input);border-radius:8px;margin-bottom:6px;cursor:grab;">
-            <span><i class="fa-solid fa-grip-vertical text-muted mr-sm"></i> <strong>${i+1}.</strong> ${allLabs.find(x=>x.id==l.laboratory_id)?.name || 'Lab #'+l.laboratory_id}</span>
+            <span><i class="fa-solid fa-grip-vertical text-muted mr-sm"></i> <strong>${i+1}.</strong> ${l.lab_name || allLabs.find(x=>x.id==l.laboratory_id)?.name || 'Lab #'+l.laboratory_id}</span>
             <button class="btn btn-sm btn-danger btn-icon" onclick="removeLabStep(${i})"><i class="fa-solid fa-trash"></i></button>
         </div>
     `).join('');

@@ -34,6 +34,8 @@ window.onQueueUpdate = () => {
 };
 
 // ── DASHBOARD ──────────────────────────────────────────────────
+let lastQueueStatus = null; // tracks 'parked' -> non-parked transitions for the chime/notification
+
 async function loadDashboard() {
     await checkMandatoryMedicalForm(false);
     showSectionLoader('active-queue-panel', 'Updating queue status...');
@@ -43,10 +45,34 @@ async function loadDashboard() {
         if (!data.active) {
             document.getElementById('no-active-queue').style.display = 'block';
             document.getElementById('active-queue-panel').style.display = 'none';
+            document.getElementById('parked-queue-panel').style.display = 'none';
+            lastQueueStatus = null;
             hideSectionLoader('active-queue-panel');
             return;
         }
         document.getElementById('no-active-queue').style.display = 'none';
+
+        handleParkedTransition(data);
+
+        if (data.parked) {
+            document.getElementById('active-queue-panel').style.display = 'none';
+            document.getElementById('parked-queue-panel').style.display = 'block';
+            const station = data.parked_station_name || 'the lab';
+            document.getElementById('parked-instruction').textContent =
+                `Take your time. Once ready, bring your sample to ${station}. Your place in line will resume with priority.`;
+            const readyBtn = document.getElementById('parked-ready-btn');
+            if (data.sample_ready_at) {
+                readyBtn.disabled = true;
+                readyBtn.innerHTML = '<i class="fa-solid fa-check"></i> Staff Notified — Awaiting Hand-off';
+            } else {
+                readyBtn.disabled = false;
+                readyBtn.innerHTML = '<i class="fa-solid fa-check"></i> I am Ready for Hand-off / Re-queue';
+            }
+            hideSectionLoader('active-queue-panel');
+            return;
+        }
+
+        document.getElementById('parked-queue-panel').style.display = 'none';
         document.getElementById('active-queue-panel').style.display = 'block';
 
         document.getElementById('dash-ahead').textContent = data.people_ahead;
@@ -62,6 +88,63 @@ async function loadDashboard() {
         document.getElementById('queue-stepper-container').innerHTML = renderQueueTrack(data.steps);
     } catch (err) { console.error('Dashboard error:', err); }
     hideSectionLoader('active-queue-panel');
+}
+
+// Detects the PARKED -> active transition and fires the chime + browser notification.
+// Runs on every dashboard refresh (socket-driven via onQueueUpdate), so it only needs
+// to compare against the previously observed status.
+function handleParkedTransition(data) {
+    const wasParked = lastQueueStatus === 'parked';
+    lastQueueStatus = data.parked ? 'parked' : 'active';
+
+    if (data.parked && 'Notification' in window && Notification.permission === 'default') {
+        // Ask while the patient is actually entering the parked state — a real user-driven moment.
+        Notification.requestPermission();
+    }
+
+    if (wasParked && !data.parked) {
+        playParkedResumeChime();
+        const station = data.current_queue?.station_type === 'doctor' ? 'the Doctor' : 'the next station';
+        const message = `Your sample has been received — please proceed to ${station}.`;
+        if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('You\'re back in the queue', { body: message });
+        }
+        showToast(message, 'success');
+    }
+}
+
+function playParkedResumeChime() {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const now = ctx.currentTime;
+        [880, 1320].forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.0001, now + i * 0.18);
+            gain.gain.exponentialRampToValueAtTime(0.2, now + i * 0.18 + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.18 + 0.35);
+            osc.connect(gain).connect(ctx.destination);
+            osc.start(now + i * 0.18);
+            osc.stop(now + i * 0.18 + 0.4);
+        });
+    } catch (err) { /* WebAudio unavailable — chime is a nice-to-have */ }
+}
+
+async function signalSampleReady() {
+    try {
+        const statusRes = await fetch('/api/queue/my-status', { headers: authHeaders() });
+        const status = await statusRes.json();
+        if (!status.active || !status.current_queue) return showToast('No active queue entry found', 'error');
+        const res = await fetch('/api/queue/sample-ready', {
+            method: 'POST', headers: authHeaders(), body: JSON.stringify({ queue_id: status.current_queue.id })
+        });
+        const data = await res.json();
+        if (data.success) showToast('Staff notified — please head to the lab window', 'success');
+        else showToast(data.error || 'Failed to signal', 'error');
+        loadDashboard();
+    } catch (err) { showToast('Connection error', 'error'); }
 }
 
 // Linear queue track: one continuous horizontal progress rail with a department
@@ -134,7 +217,7 @@ async function loadServices() {
             return;
         }
         grid.innerHTML = packages.map(p => `
-            <div class="pkg-card" onclick="showPackageDetail(${p.id})">
+            <div class="pkg-card ${p.is_available === false ? 'pkg-card-unavailable' : ''}" onclick="showPackageDetail(${p.id})">
                 <div class="pkg-card-badge">${categoryBadge(getCategory())}</div>
                 <h3>${p.name}</h3>
                 <p>${p.description || 'No description'}</p>
@@ -142,7 +225,9 @@ async function loadServices() {
                     <span class="pkg-price">${formatCurrency(p.price)}</span>
                     <span class="pkg-time"><i class="fa-solid fa-clock"></i> ~${p.est_time_minutes}min</span>
                 </div>
-                <div class="mt-sm text-sm text-muted">${p.laboratories?.length || 0} lab step(s)</div>
+                ${p.is_available === false
+                    ? '<div class="mt-sm"><span class="badge badge-danger">Currently Unavailable</span></div>'
+                    : `<div class="mt-sm text-sm text-muted">${p.laboratories?.length || 0} lab step(s)</div>`}
             </div>
         `).join('');
     } catch (err) { console.error(err); }
@@ -155,6 +240,7 @@ async function showPackageDetail(id) {
     try {
         const res = await fetch(`/api/packages/${id}/details`);
         const pkg = await res.json();
+        if (pkg.is_available === false) return showToast('This service is currently unavailable.', 'error');
         document.getElementById('pkg-modal-name').textContent = pkg.name;
         document.getElementById('pkg-modal-desc').textContent = pkg.description || '';
         document.getElementById('pkg-modal-price').textContent = formatCurrency(pkg.price);

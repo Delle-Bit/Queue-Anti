@@ -1,0 +1,89 @@
+{
+  "deleted_at": "2026-08-23T08:49:28.298Z",
+  "users": [
+    {
+      "id": 8,
+      "username": "customer_senior",
+      "email": "",
+      "full_name": "customer senior"
+    },
+    {
+      "id": 9,
+      "username": "customer_pwd",
+      "email": "",
+      "full_name": "customer pwd"
+    },
+    {
+      "id": 10,
+      "username": "customer_pregnant",
+      "email": "",
+      "full_name": "customer pregnant"
+    },
+    {
+      "id": 13,
+      "username": "minor_50701",
+      "email": "minor_50701@example.com",
+      "full_name": ""
+    },
+    {
+      "id": 14,
+      "username": "Delle",
+      "email": "liftmeuprb@gmail.com",
+      "full_name": "Wendelle Argente Ortiz"
+    },
+    {
+      "id": 16,
+      "username": "audit_user_1786856932",
+      "email": "x@y.com",
+      "full_name": "Audit User"
+    },
+    {
+      "id": 17,
+      "username": "testuser123",
+      "email": "test@example.com",
+      "full_name": "testuser123"
+    },
+    {
+      "id": 18,
+      "username": "testuser_1787459375912",
+      "email": "testuser_1787459375912@example.com",
+      "full_name": "testuser_1787459375912"
+    }
+  ],
+  "medical_records": [
+    {
+      "id": 4,
+      "customer_id": 14,
+      "birthplace": "Lopez, Quezon",
+      "address": "123 st.",
+      "phone": "09876543211",
+      "status": "Single",
+      "occupation": "Student",
+      "retiree": 0,
+      "emergency_contact": "wanda 09876543211",
+      "current_health": "[]",
+      "past_conditions": "{\"heart_problems\":\"No\",\"blood_clots\":\"No\",\"high_bp\":\"No\",\"high_cholesterol\":\"No\",\"std_hiv\":\"No\",\"surgeries\":\"No\"}",
+      "created_at": "2026-05-25T17:11:28.000Z",
+      "updated_at": "2026-05-25T17:11:28.000Z",
+      "archived": 0,
+      "archived_at": null
+    }
+  ],
+  "appointments": [],
+  "queue_sequences": [
+    {
+      "id": 5,
+      "customer_id": 14,
+      "package_id": 5,
+      "current_step": 3,
+      "total_steps": 3,
+      "status": "completed",
+      "started_at": "2026-05-25T17:12:29.000Z",
+      "completed_at": "2026-05-25T17:40:37.000Z",
+      "archived": 0,
+      "archived_at": null,
+      "has_doctor_step": 0,
+      "doctor_id": null
+    }
+  ]
+}

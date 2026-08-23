@@ -92,10 +92,11 @@ async function deleteUser(id) {
 }
 
 // ── LABS ──
+let labsCache = [];
 async function loadLabs() {
     const res = await fetch('/api/laboratories', { headers: authHeaders() });
-    const labs = await res.json();
-    document.getElementById('labs-table').innerHTML = labs.map(l => `<tr>
+    labsCache = await res.json();
+    document.getElementById('labs-table').innerHTML = labsCache.map(l => `<tr>
         <td><strong>${l.name}</strong></td><td>${l.service_type||'--'}</td><td>${l.staff_name||'Unassigned'}</td>
         <td><span class="badge ${l.is_open?'badge-success':'badge-danger'}">${l.is_open?'Open':'Closed'}</span></td>
         <td><button class="btn btn-sm btn-secondary" onclick="editLab(${l.id})"><i class="fa-solid fa-pen"></i></button>
@@ -112,26 +113,44 @@ async function loadLabs() {
 
 async function saveLab() {
     const id = document.getElementById('lab-edit-id').value;
+    const existing = id ? labsCache.find(l => l.id == id) : null;
     const body = {
         name: document.getElementById('lab-name').value,
         service_type: document.getElementById('lab-type').value,
-        assigned_staff_id: document.getElementById('lab-staff').value || null
+        assigned_staff_id: document.getElementById('lab-staff').value || null,
+        is_open: existing ? existing.is_open : true,
+        start_time: existing ? existing.start_time : null,
+        cutoff_time: existing ? existing.cutoff_time : null
     };
     const url = id ? `/api/laboratories/${id}` : '/api/laboratories';
     const method = id ? 'PUT' : 'POST';
     const res = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(body) });
-    if (res.ok) { closeModal('lab-modal'); showToast('Saved!', 'success'); loadLabs(); }
+    if (res.ok) { closeModal('lab-modal'); showToast('Saved!', 'success'); loadLabs(); fetchAllLabs(); }
 }
 
 async function deleteLab(id) {
     if (!confirm('Archive this laboratory?')) return;
     await fetch(`/api/laboratories/${id}`, { method: 'DELETE', headers: authHeaders() });
-    showToast('Archived', 'success'); loadLabs();
+    showToast('Archived', 'success'); loadLabs(); fetchAllLabs();
+}
+
+function prepareNewLab() {
+    document.getElementById('lab-edit-id').value = '';
+    document.getElementById('lab-name').value = '';
+    document.getElementById('lab-type').value = '';
+    document.getElementById('lab-staff').value = '';
+    document.getElementById('lab-modal-title').textContent = 'Add Laboratory';
+    openModal('lab-modal');
 }
 
 function editLab(id) {
-    // Simple: just open modal with blank for now
-    document.getElementById('lab-edit-id').value = id;
+    const lab = labsCache.find(l => l.id == id);
+    if (!lab) return;
+    document.getElementById('lab-edit-id').value = lab.id;
+    document.getElementById('lab-name').value = lab.name || '';
+    document.getElementById('lab-type').value = lab.service_type || '';
+    document.getElementById('lab-staff').value = lab.assigned_staff_id || '';
+    document.getElementById('lab-modal-title').textContent = 'Edit Laboratory';
     openModal('lab-modal');
 }
 
@@ -276,12 +295,13 @@ async function fetchAllLabs() {
 fetchAllLabs();
 
 async function loadServiceMgmt() {
+    await fetchAllLabs();
     const res = await fetch('/api/packages');
     const pkgs = await res.json();
     document.getElementById('svc-list').innerHTML = pkgs.map(p => `<tr>
         <td><strong>${p.name}</strong></td><td>${formatCurrency(p.price)}</td><td>${p.est_time_minutes}m</td>
         <td>${(p.laboratories||[]).map(l=>l.lab_name).join(' → ') || 'None'}${p.doctor_name ? ` → Dr. ${p.doctor_name}` : ''}</td>
-        <td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'Active':'Inactive'}</span></td>
+        <td>${p.is_available === false ? '<span class="badge badge-danger">Currently Unavailable</span>' : `<span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'Active':'Inactive'}</span>`}</td>
         <td><button class="btn btn-sm btn-secondary" onclick='editService(${JSON.stringify(p).replace(/'/g,"&apos;")})'><i class="fa-solid fa-pen"></i></button></td>
     </tr>`).join('');
 }
@@ -314,7 +334,7 @@ function renderLabSequence(labs) {
     const container = document.getElementById('svc-lab-list');
     container.innerHTML = labSequence.map((l, i) => `
         <div class="flex-between" draggable="true" ondragstart="dragLab(event, ${i})" ondragover="allowDropLab(event)" ondrop="dropLab(event, ${i})" style="padding:8px;background:var(--bg-input);border-radius:8px;margin-bottom:6px;cursor:grab;">
-            <span><i class="fa-solid fa-grip-vertical text-muted mr-sm"></i> <strong>${i+1}.</strong> ${allLabs.find(x=>x.id==l.laboratory_id)?.name || 'Lab #'+l.laboratory_id}</span>
+            <span><i class="fa-solid fa-grip-vertical text-muted mr-sm"></i> <strong>${i+1}.</strong> ${l.lab_name || allLabs.find(x=>x.id==l.laboratory_id)?.name || 'Lab #'+l.laboratory_id}</span>
             <button class="btn btn-sm btn-danger btn-icon" onclick="removeLabStep(${i})"><i class="fa-solid fa-trash"></i></button>
         </div>
     `).join('');

@@ -5,22 +5,24 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --check server.js && node --check database.js && node --check config.js && node --check ai_services.js && node --check queue_automation.js && node --check routes/auth.js && node --check routes/admin.js && node --check routes/queue.js && node --check routes/packages.js && node --check routes/reports.js && node --check routes/assistant.js && node --check public/va.js && node --check public/customer.js"
+    "test": "node --check server.js && node --check database.js && node --check config.js && node --check ai_services.js && node --check queue_automation.js && node --check email_service.js && node --check lib/better_auth_bridge.js && node --check routes/auth.js && node --check routes/admin.js && node --check routes/queue.js && node --check routes/packages.js && node --check routes/reports.js && node --check routes/assistant.js && node --check public/va.js && node --check public/customer.js && node --input-type=module -e \"import('./lib/better_auth.mjs').then(()=>process.exit(0))\""
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@emailjs/nodejs": "^5.0.2",
     "axios": "^1.14.0",
     "bcrypt": "^6.0.0",
+    "better-auth": "^1.7.1",
     "body-parser": "^2.2.2",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
-    "mysql2": "^3.20.0",
+    "mysql2": "^3.23.4",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.3"
   }

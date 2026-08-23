@@ -236,6 +236,13 @@ router.post('/appointments', async (req, res) => {
     try {
         const [medical] = await pool.query('SELECT id FROM medical_records WHERE customer_id=? AND archived=false', [req.user.id]);
         if (medical.length === 0) return res.status(409).json({ error: 'Please complete your medical form before booking.', medical_form_required: true });
+        const [labCount] = await pool.query(
+            `SELECT COUNT(*) as cnt FROM package_laboratories pl JOIN laboratories l ON pl.laboratory_id = l.id
+             WHERE pl.package_id = ? AND pl.archived = false AND l.archived = false`, [package_id]
+        );
+        const [pkgRows] = await pool.query('SELECT doctor_id FROM service_packages WHERE id = ? AND archived = false', [package_id]);
+        if (pkgRows.length === 0) return res.status(404).json({ error: 'Package not found' });
+        if (labCount[0].cnt === 0 && !pkgRows[0].doctor_id) return res.status(400).json({ error: 'This service is currently unavailable.' });
         const [slotCount] = await pool.query(
             `SELECT COUNT(*) as cnt FROM appointments WHERE appointment_date=? AND status != 'cancelled' AND archived=false`,
             [appointment_date]

@@ -7,6 +7,8 @@ const { pool } = require('../database');
 const multer = require('multer');
 const aiServices = require('../ai_services');
 const { JWT_SECRET } = require('../config');
+const { sendLoginOTP, verifyLoginOTP } = require('../lib/better_auth_bridge');
+const { sendPasswordResetEmail } = require('../email_service');
 const upload = multer({ dest: 'uploads/' });
 
 // Simple in-memory rate limiter (per IP + route)
@@ -37,6 +39,14 @@ function makeCustomerUid(insertId) {
     return `MC-${year}-${String(insertId).padStart(6, '0')}`;
 }
 
+function slugifyName(name) {
+    return (name || '')
+        .toLowerCase()
+        .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+        .replace(/[^a-z0-9]+/g, '')
+        .slice(0, 40) || 'user';
+}
+
 function generateToken() {
     return require('crypto').randomBytes(32).toString('hex');
 }
@@ -56,6 +66,54 @@ async function cleanupPendingRegistration(token) {
     } catch (e) { /* ignore */ }
 }
 
+// Sweeps pending_registrations rows whose 24h token has expired: unlinks their
+// uploaded ID images and deletes the row. Nothing else ever cleans these up —
+// an abandoned wizard (closed tab, no final OTP step) would otherwise leave
+// orphaned rows/files on disk indefinitely.
+async function reapExpiredRegistrations() {
+    try {
+        const [rows] = await pool.query('SELECT token, front_id_path, back_id_path FROM pending_registrations WHERE expires_at <= NOW()');
+        for (const row of rows) {
+            if (row.front_id_path) fs.unlink(row.front_id_path, () => {});
+            if (row.back_id_path) fs.unlink(row.back_id_path, () => {});
+        }
+        if (rows.length > 0) {
+            await pool.query('DELETE FROM pending_registrations WHERE expires_at <= NOW()');
+            console.log(`[Registration Reaper] Purged ${rows.length} expired pending registration(s).`);
+        }
+    } catch (err) {
+        console.error('[Registration Reaper] Sweep failed:', err);
+    }
+}
+
+const LOGIN_REDIRECT_MAP = {
+    customer: '/customer.html', frontdesk: '/frontdesk.html',
+    laboratory: '/laboratory.html', admintechnical: '/admintechnical.html',
+    admin: '/admintechnical.html', owner: '/owner.html', doctor: '/doctor.html'
+};
+
+function maskEmail(email) {
+    const [name, domain] = email.split('@');
+    if (!domain) return email;
+    return `${name.slice(0, 2)}***@${domain}`;
+}
+
+async function issueSessionToken(user, res) {
+    const token = jwt.sign(
+        { id: user.id, username: user.username, role: user.role, category: user.customer_category },
+        JWT_SECRET, { expiresIn: '8h' }
+    );
+    // Track staff login
+    if (user.role !== 'customer') {
+        await pool.query('INSERT INTO staff_sessions (user_id) VALUES (?)', [user.id]);
+    }
+    res.json({
+        success: true, token, role: user.role,
+        category: user.customer_category, username: user.username,
+        redirect: LOGIN_REDIRECT_MAP[user.role] || '/index.html'
+    });
+}
+
 router.post('/login', rateLimit(10, 60 * 1000), async (req, res) => {
     const { username, password } = req.body;
     try {
@@ -64,34 +122,98 @@ router.post('/login', rateLimit(10, 60 * 1000), async (req, res) => {
         const user = rows[0];
         const match = await bcrypt.compare(password, user.password_hash);
         if (!match) return res.status(401).json({ error: 'Invalid credentials' });
-        const token = jwt.sign(
-            { id: user.id, username: user.username, role: user.role, category: user.customer_category },
-            JWT_SECRET, { expiresIn: '8h' }
-        );
-        // Track staff login
-        if (user.role !== 'customer') {
-            await pool.query('INSERT INTO staff_sessions (user_id) VALUES (?)', [user.id]);
+
+        // Customers get a second factor: email OTP before a session token is issued.
+        // Staff/admin/doctor/owner logins are unaffected (matches "customer login flow").
+        if (user.role === 'customer' && user.email) {
+            const challengeToken = jwt.sign({ id: user.id, purpose: 'login-otp' }, JWT_SECRET, { expiresIn: '5m' });
+            try {
+                await sendLoginOTP(user.email);
+            } catch (err) {
+                console.error('Login OTP send error:', err);
+                return res.status(500).json({ error: 'Failed to send verification code' });
+            }
+            return res.json({ success: true, otp_required: true, challenge_token: challengeToken, email_hint: maskEmail(user.email) });
         }
-        const redirectMap = {
-            customer: '/customer.html', frontdesk: '/frontdesk.html',
-            laboratory: '/laboratory.html', admintechnical: '/admintechnical.html',
-            admin: '/admintechnical.html', owner: '/owner.html', doctor: '/doctor.html'
-        };
-        res.json({
-            success: true, token, role: user.role,
-            category: user.customer_category, username: user.username,
-            redirect: redirectMap[user.role] || '/index.html'
-        });
+
+        await issueSessionToken(user, res);
     } catch (err) {
         console.error('Login error:', err);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
 
+router.post('/login/verify-otp', rateLimit(10, 5 * 60 * 1000), async (req, res) => {
+    const { challenge_token, otp } = req.body || {};
+    if (!challenge_token || !otp) return res.status(400).json({ error: 'Challenge token and code required' });
+    try {
+        let payload;
+        try { payload = jwt.verify(challenge_token, JWT_SECRET); }
+        catch (err) { return res.status(400).json({ error: 'Verification session expired. Please log in again.' }); }
+        if (payload.purpose !== 'login-otp') return res.status(400).json({ error: 'Invalid verification session' });
+
+        const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [payload.id]);
+        if (rows.length === 0) return res.status(400).json({ error: 'Invalid verification session' });
+        const user = rows[0];
+
+        const ok = await verifyLoginOTP(user.email, otp);
+        if (!ok) return res.status(400).json({ error: 'Invalid or expired code' });
+
+        await issueSessionToken(user, res);
+    } catch (err) {
+        console.error('Login verify-otp error:', err);
+        res.status(500).json({ error: 'Failed to verify code' });
+    }
+});
+
+router.post('/login/resend-otp', rateLimit(3, 10 * 60 * 1000), async (req, res) => {
+    const { challenge_token } = req.body || {};
+    if (!challenge_token) return res.status(400).json({ error: 'Challenge token required' });
+    try {
+        let payload;
+        try { payload = jwt.verify(challenge_token, JWT_SECRET); }
+        catch (err) { return res.status(400).json({ error: 'Verification session expired. Please log in again.' }); }
+        if (payload.purpose !== 'login-otp') return res.status(400).json({ error: 'Invalid verification session' });
+
+        const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [payload.id]);
+        if (rows.length === 0) return res.status(400).json({ error: 'Invalid verification session' });
+
+        await sendLoginOTP(rows[0].email);
+        res.json({ success: true, message: 'Verification code resent.' });
+    } catch (err) {
+        console.error('Login resend-otp error:', err);
+        res.status(500).json({ error: 'Failed to resend code' });
+    }
+});
+
+// Suggests a login username from a display name, appending a number if the
+// base is already taken (by an active account or another in-progress signup)
+// so two people with the same name don't collide.
+router.get('/register/suggest-username', rateLimit(30, 10 * 60 * 1000), async (req, res) => {
+    const base = slugifyName(req.query.name);
+    try {
+        const like = `${base}%`;
+        const [existing] = await pool.query('SELECT username FROM users WHERE username LIKE ?', [like]);
+        const [pending] = await pool.query('SELECT username FROM pending_registrations WHERE username LIKE ? AND expires_at > NOW()', [like]);
+        const taken = new Set([...existing, ...pending].map((r) => r.username));
+        if (!taken.has(base)) return res.json({ username: base });
+        let n = 2;
+        while (taken.has(`${base}${n}`)) n++;
+        res.json({ username: `${base}${n}`.slice(0, 50) });
+    } catch (err) {
+        console.error('Suggest username error:', err);
+        res.status(500).json({ error: 'Failed to suggest username' });
+    }
+});
+
 router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ name: 'frontId', maxCount: 1 }, { name: 'backId', maxCount: 1 }]), async (req, res) => {
-    const { username, email, verification_method, guardian_name, guardian_contact, guardian_relationship } = req.body || {};
+    const { username, full_name, email, verification_method, guardian_name, guardian_contact, guardian_relationship } = req.body || {};
     try {
         const isUnderage = verification_method === 'guardian';
+        if (!username || !full_name || !email) {
+            cleanupUpload(req.files);
+            return res.status(400).json({ error: 'Full name, username, and email are required' });
+        }
         if (!isUnderage && (!req.files || !req.files['frontId'] || !req.files['backId'])) {
             cleanupUpload(req.files);
             return res.status(400).json({ error: 'Both Front and Back ID images are required' });
@@ -108,8 +230,10 @@ router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ na
             return res.status(409).json({ error: 'Username or email already registered' });
         }
 
-        // OCR scan for category detection using the front ID
-        let category = 'Regular', gender = null, birthday = null, detectedName = '';
+        // OCR scan for category detection using the front ID. The typed full name
+        // is authoritative (OCR name extraction is unreliable); OCR only fills in
+        // gaps if the client somehow sent a blank name.
+        let category = 'Regular', gender = null, birthday = null, detectedName = full_name.trim().slice(0, 255);
         let frontIdPath = null, backIdPath = null;
         if (!isUnderage) {
             const frontFile = req.files['frontId'][0];
@@ -119,7 +243,7 @@ router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ na
             const ocrData = await aiServices.ocrScan(frontFile.path);
             if (ocrData.idType === 'Senior' || ocrData.idType === 'Elderly') category = 'Senior';
             else if (ocrData.idType === 'PWD') category = 'PWD';
-            if (ocrData.name) detectedName = ocrData.name;
+            if (!detectedName && ocrData.name) detectedName = ocrData.name;
             if (ocrData.age) {
                 const y = new Date().getFullYear() - ocrData.age;
                 birthday = `${y}-01-01`;
@@ -238,28 +362,49 @@ router.post('/register/verify-otp', rateLimit(10, 10 * 60 * 1000), async (req, r
     }
 });
 
+// Explicit void: called when the user closes/abandons the registration modal
+// mid-wizard, so the pending row + uploaded ID images are freed immediately
+// instead of waiting up to 24h for natural expiry. Idempotent and unauthenticated
+// (the token itself is the capability — same trust model as the other register/* steps).
+router.post('/register/abandon', rateLimit(20, 10 * 60 * 1000), async (req, res) => {
+    const { token } = req.body || {};
+    if (!token) return res.status(400).json({ error: 'Registration token required' });
+    await cleanupPendingRegistration(token);
+    res.json({ success: true });
+});
+
 router.post('/forgot-password', rateLimit(3, 10 * 60 * 1000), async (req, res) => {
-    const { username } = req.body;
+    const { username } = req.body || {};
     try {
         const [rows] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
-        if (rows.length > 0) {
-            const resetToken = 'RESET_' + Math.random().toString(36).substr(2, 9);
-            await pool.query('UPDATE users SET reset_token = ?, reset_expiry = DATE_ADD(NOW(), INTERVAL 1 HOUR) WHERE username = ?', [resetToken, username]);
-            console.log(`[MOCK EMAIL TO ${username}] Reset token: ${resetToken}`);
+        if (rows.length > 0 && rows[0].email) {
+            const resetToken = generateToken();
+            await pool.query('UPDATE users SET reset_token = ?, reset_expiry = DATE_ADD(NOW(), INTERVAL 1 HOUR) WHERE id = ?', [resetToken, rows[0].id]);
+            const resetLink = `${req.protocol}://${req.get('host')}/reset-password.html?token=${resetToken}`;
+            await sendPasswordResetEmail(rows[0].email, resetLink);
         }
+        // Always respond the same way regardless of whether the account/email exists, so this endpoint can't be used to enumerate accounts.
         res.json({ success: true, message: 'If the account exists, reset instructions were sent.' });
-    } catch (err) { res.status(500).json({ error: 'Error processing request' }); }
+    } catch (err) {
+        console.error('Forgot password error:', err);
+        res.status(500).json({ error: 'Error processing request' });
+    }
 });
 
 router.post('/reset-password', rateLimit(5, 10 * 60 * 1000), async (req, res) => {
-    const { username, resetToken, newPassword } = req.body;
+    const { token, newPassword } = req.body || {};
     try {
-        const [rows] = await pool.query('SELECT * FROM users WHERE username = ? AND reset_token = ? AND reset_expiry > NOW()', [username, resetToken]);
-        if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired token' });
+        if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password required' });
+        if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+        const [rows] = await pool.query('SELECT * FROM users WHERE reset_token = ? AND reset_expiry > NOW()', [token]);
+        if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired reset link' });
         const hash = await bcrypt.hash(newPassword, 10);
-        await pool.query('UPDATE users SET password_hash = ?, reset_token = NULL, reset_expiry = NULL WHERE username = ?', [hash, username]);
+        await pool.query('UPDATE users SET password_hash = ?, reset_token = NULL, reset_expiry = NULL WHERE id = ?', [hash, rows[0].id]);
         res.json({ success: true, message: 'Password reset successfully!' });
-    } catch (err) { res.status(500).json({ error: 'Error resetting password' }); }
+    } catch (err) {
+        console.error('Reset password error:', err);
+        res.status(500).json({ error: 'Error resetting password' });
+    }
 });
 
 router.post('/ocr', upload.single('idImage'), async (req, res) => {
@@ -286,3 +431,4 @@ router.post('/ocr', upload.single('idImage'), async (req, res) => {
 });
 
 module.exports = router;
+module.exports.reapExpiredRegistrations = reapExpiredRegistrations;

@@ -65,6 +65,15 @@ async function loadLabQueue() {
             ? '<tr><td colspan="4" class="text-center text-muted">Empty</td></tr>'
             : waiting.map(w => `<tr><td><strong>${w.number}</strong></td><td>${categoryBadge(w.customer_category||'Regular')}</td><td>${w.full_name||w.username||'--'}</td><td>${formatTime(w.timestamp)}</td></tr>`).join('');
 
+        const parked = queue.filter(q => q.status === 'parked');
+        document.getElementById('lab-parked-list').innerHTML = parked.length === 0
+            ? '<tr><td colspan="5" class="text-center text-muted">No one parked</td></tr>'
+            : parked.map(p => `<tr>
+                <td><strong>${p.number}</strong></td><td>${p.full_name||p.username||'--'}</td><td>${formatTime(p.parked_at)}</td>
+                <td>${p.sample_ready_at ? '<span class="badge badge-success">Ready</span>' : '<span class="text-muted">Waiting</span>'}</td>
+                <td><button class="btn btn-sm btn-primary" onclick="labUnpark('${p.id}')"><i class="fa-solid fa-arrow-rotate-left"></i> Sample Received</button></td>
+            </tr>`).join('');
+
         document.getElementById('lab-avg').textContent = analytics.avg_time + 'm';
         document.getElementById('lab-perhr').textContent = analytics.per_hour;
         document.getElementById('lab-finish').textContent = analytics.est_finish + 'm';
@@ -108,6 +117,23 @@ async function labComplete() {
     const res = await fetch('/api/queue/complete-step', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ queue_id: currentLabQueueId }) });
     const data = await res.json();
     showToast(data.finished ? 'All steps completed!' : 'Advancing to: ' + (data.next_station || 'next'), 'success');
+    loadLabQueue();
+}
+
+async function labPark() {
+    if (!currentLabQueueId) return showToast('No active patient', 'error');
+    const res = await fetch('/api/queue/park', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ queue_id: currentLabQueueId, reason: 'PENDING_BIOLOGICAL_SAMPLE' }) });
+    const data = await res.json();
+    if (data.success) showToast('Patient parked — calling next', 'success');
+    else showToast(data.error || 'Failed to park patient', 'error');
+    loadLabQueue();
+}
+
+async function labUnpark(queueId) {
+    const res = await fetch('/api/queue/unpark', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ queue_id: queueId }) });
+    const data = await res.json();
+    if (data.success) showToast('Patient re-queued with priority', 'success');
+    else showToast(data.error || 'Failed to unpark patient', 'error');
     loadLabQueue();
 }
 

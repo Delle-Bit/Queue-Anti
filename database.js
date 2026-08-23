@@ -158,7 +158,7 @@ async function initDB() {
                 station_id INT DEFAULT NULL,
                 number VARCHAR(30) NOT NULL,
                 type VARCHAR(10) NOT NULL,
-                status ENUM('waiting','serving','completed','cancelled') NOT NULL DEFAULT 'waiting',
+                status ENUM('waiting','serving','parked','completed','cancelled') NOT NULL DEFAULT 'waiting',
                 customer_id INT DEFAULT NULL,
                 sequence_id INT DEFAULT NULL,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -472,11 +472,25 @@ async function initDB() {
         await addColumnIfMissing('ai_settings', 'assistant_enabled', 'BOOLEAN DEFAULT true');
         await addColumnIfMissing('queue_sequences', 'has_doctor_step', 'BOOLEAN DEFAULT false');
         await addColumnIfMissing('queue_sequences', 'doctor_id', 'INT DEFAULT NULL');
+        await addColumnIfMissing('queue', 'parked_reason', 'VARCHAR(60) DEFAULT NULL');
+        await addColumnIfMissing('queue', 'parked_at', 'DATETIME DEFAULT NULL');
+        await addColumnIfMissing('queue', 'sample_ready_at', 'DATETIME DEFAULT NULL');
+        await addColumnIfMissing('queue', 'priority_boost', 'INT DEFAULT 0');
 
-        // Alter ENUMs to include 'doctor' safely (ignore if already present)
+        // Alter ENUMs to include 'doctor' / 'parked' safely (ignore if already present)
         try { await pool.query(`ALTER TABLE users MODIFY COLUMN role ENUM('admintechnical','admin','customer','frontdesk','laboratory','owner','doctor') NOT NULL DEFAULT 'customer'`); } catch(e) {}
         try { await pool.query(`ALTER TABLE queue MODIFY COLUMN station_type ENUM('frontdesk','laboratory','doctor') NOT NULL DEFAULT 'frontdesk'`); } catch(e) {}
         try { await pool.query(`ALTER TABLE queue_logs MODIFY COLUMN station_type ENUM('frontdesk','laboratory','doctor') DEFAULT 'frontdesk'`); } catch(e) {}
+        try { await pool.query(`ALTER TABLE queue MODIFY COLUMN status ENUM('waiting','serving','parked','completed','cancelled') NOT NULL DEFAULT 'waiting'`); } catch(e) {}
+
+        // better-auth owns its own tables (user/session/account/verification) for the
+        // customer login-OTP flow; this keeps them self-installing on boot like the rest
+        // of this file, rather than requiring a separate manual CLI migration step.
+        try {
+            await require('./lib/better_auth_bridge').migrateBetterAuth();
+        } catch (e) {
+            console.error('[DB] better-auth migration failed (login OTP may not work):', e.message);
+        }
 
         console.log('[DB] All tables created successfully.');
     } catch (err) {

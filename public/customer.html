@@ -32,6 +32,18 @@
                 <button class="btn btn-primary btn-lg mt-md" onclick="navigateTo('services')"><i
                         class="fa-solid fa-flask"></i> Browse Services</button>
             </div>
+            <div id="parked-queue-panel" class="card" style="display:none;border:2px solid var(--warning,#d97706);margin-bottom:16px;">
+                <div class="card-header">
+                    <div class="card-title"><i class="fa-solid fa-hourglass-half"></i> Active Parked Queue</div>
+                </div>
+                <div style="padding:8px 4px;">
+                    <p class="fw-600" style="font-size:1.05em;">Status: On Hold (Pending Sample)</p>
+                    <p class="text-muted" id="parked-instruction">Take your time. Once ready, bring your sample to Lab Window. Your place in line will resume with priority.</p>
+                    <button class="btn btn-primary btn-lg mt-md" id="parked-ready-btn" onclick="signalSampleReady()">
+                        <i class="fa-solid fa-check"></i> I am Ready for Hand-off / Re-queue
+                    </button>
+                </div>
+            </div>
             <div id="active-queue-panel" style="display:none;">
                 <div class="queue-status-panel">
                     <div class="queue-number-card primary">
