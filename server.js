@@ -65,10 +65,12 @@ const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const reportRoutes = require('./routes/reports');
 const packageRoutes = require('./routes/packages');
+const assistantRoutes = require('./routes/assistant');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/packages', packageRoutes);
 app.use('/api/queue', authenticateToken, queueRoutes);
+app.use('/api/assistant', authenticateToken, assistantRoutes);
 app.use('/api/reports', authenticateToken, verifyRoles('owner'), reportRoutes);
 app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
 app.use('/api', authenticateToken, adminRoutes);

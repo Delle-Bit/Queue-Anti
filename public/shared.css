@@ -548,207 +548,323 @@ tbody tr:last-child td { border-bottom: none; }
 }
 
 /* ================================================================
-   VOICE AI Virtual Assistant Widget
+   VIRTUAL NURSE ASSISTANT
+   Animated avatar (idle · listening · thinking · speaking),
+   floating speech bubbles, and the history drawer list.
    ================================================================ */
-.va-fab {
-    position: fixed; bottom: 24px; right: 24px;
-    width: 58px; height: 58px; border-radius: 50%;
-    background: linear-gradient(135deg, #C62828, #EF5350); color: #fff;
-    border: none; cursor: pointer; z-index: 150;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1.4em;
-    box-shadow: 0 4px 20px rgba(198, 40, 40, 0.38);
-    transition: var(--transition);
-    touch-action: none;
-}
-.va-fab:hover { transform: scale(1.08); box-shadow: 0 6px 26px rgba(198, 40, 40, 0.5); }
-.va-fab.listening {
-    animation: va-glow 1.5s infinite;
-}
-
-@keyframes va-glow {
-    0%, 100% { box-shadow: 0 0 0 0px rgba(46, 125, 50, 0.65), 0 4px 20px rgba(46, 125, 50, 0.45); }
-    50% { box-shadow: 0 0 0 15px rgba(46, 125, 50, 0), 0 4px 20px rgba(46, 125, 50, 0.45); }
-}
-
-.va-widget {
-    position: fixed; bottom: 96px; right: 24px;
-    width: 380px; max-width: calc(100vw - 48px);
-    max-height: calc(100vh - 140px);
-    background: rgba(255, 255, 255, 0.85);
-    backdrop-filter: blur(12px);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
-    border: 1px solid rgba(255, 255, 255, 0.4);
-    display: none; flex-direction: column;
-    z-index: 150; overflow: hidden;
-    animation: modalIn 0.25s ease;
-}
-.va-widget.open { display: flex; }
-
-.va-header {
-    background: linear-gradient(135deg, #9F1F1F, #D32F2F); color: #fff;
-    padding: 14px 18px;
-    display: flex; align-items: center; justify-content: space-between;
-}
-.va-header h4 { margin: 0; font-size: 0.95em; font-weight: 600; color: #fff; }
-.va-header .close-va {
-    background: none; border: none; color: rgba(255,255,255,0.8);
-    font-size: 1.2em; cursor: pointer;
-}
-
-.va-body {
-    padding: 16px;
+.va-stage {
+    position: fixed;
+    bottom: 24px; right: 24px;
+    z-index: 150;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    flex: 1;
-    overflow: hidden;
+    align-items: flex-end;
+    gap: 10px;
+    pointer-events: none;   /* let the dashboard stay clickable around the avatar */
+    --va-mouth: 0;
+    --va-accent: var(--primary);
 }
+.va-stage > * { pointer-events: auto; }
 
-.va-pulse-container {
-    height: 60px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-}
-
-.va-orb {
-    width: 50px; height: 50px;
-    border-radius: 50%;
-    background: radial-gradient(circle, #EF5350, #C62828);
-    box-shadow: 0 0 15px rgba(198, 40, 40, 0.4);
-    transition: var(--transition);
-}
-.va-widget.listening .va-orb {
-    animation: va-pulse-action 1.2s infinite ease-in-out;
-    background: radial-gradient(circle, #A5D6A7, #2E7D32);
-}
-
-@keyframes va-pulse-action {
-    0%, 100% { transform: scale(1); box-shadow: 0 0 15px rgba(46, 125, 50, 0.45); }
-    50% { transform: scale(1.2); box-shadow: 0 0 25px rgba(46, 125, 50, 0.75), 0 0 0 8px rgba(46, 125, 50, 0.16); }
-}
-
-.va-chat-area {
-    width: 100%;
-    flex: 1;
-    overflow-y: auto;
+/* ── Speech bubbles ─────────────────────────────────────────────── */
+.va-bubbles {
     display: flex;
     flex-direction: column;
+    align-items: flex-end;
     gap: 8px;
-    padding-right: 4px;
+    width: min(320px, calc(100vw - 48px));
 }
 
-.va-chat-label {
-    font-size: 0.75em;
-    text-transform: uppercase;
-    font-weight: 600;
-    color: var(--text-secondary);
-    width: 100%;
-    margin-top: 4px;
-}
-
-.va-text-box {
-    width: 100%;
-    background: var(--bg-card);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-sm);
+.va-bubble {
+    position: relative;
+    display: grid;
+    gap: 2px;
     padding: 10px 14px;
-    font-size: 0.85em;
-    min-height: 48px;
-    max-height: 72px;
-    overflow-y: auto;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(10px);
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border-light);
+    font-size: 0.86em;
+    line-height: 1.45;
     color: var(--text-primary);
+    max-width: 100%;
+    transform-origin: bottom right;
+    animation: va-bubble-in 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.va-text-box.response {
-    background: rgba(198, 40, 40, 0.03);
-    border-left: 3px solid var(--primary);
-    min-height: 56px;
+.va-bubble.leaving {
+    animation: va-bubble-out 0.24s ease forwards;
 }
-
-.va-controls {
-    display: flex;
-    gap: 8px;
-    width: 100%;
+.va-bubble::after {
+    content: '';
+    position: absolute;
+    right: 22px; bottom: -6px;
+    width: 12px; height: 12px;
+    background: inherit;
+    border-right: 1px solid var(--border-light);
+    border-bottom: 1px solid var(--border-light);
+    transform: rotate(45deg);
 }
-
-.va-status {
-    padding: 4px 12px;
-    border-radius: 999px;
-    background: var(--danger-light);
-    color: var(--primary-dark);
-    font-size: 0.75em;
+.va-bubble-role {
+    font-size: 0.72em;
     font-weight: 800;
     text-transform: uppercase;
-}
-.va-widget.listening .va-status { background: #E8F8EF; color: #1B5E20; }
-.va-widget.processing .va-status { background: var(--warning-light); color: #B65A00; }
-.va-widget.released .va-status { background: var(--danger-light); color: var(--danger); }
-.va-instruction {
-    width: 100%;
-    text-align: center;
-    font-size: 0.82em;
+    letter-spacing: 0.04em;
     color: var(--text-secondary);
 }
-.va-hold-btn.listening,
-.va-fab.listening {
-    background: linear-gradient(135deg, #1B5E20, #43A047);
-    animation: va-glow 1s infinite;
+.va-bubble.assistant {
+    background: rgba(255, 245, 246, 0.96);
+    border-color: rgba(198, 40, 58, 0.18);
 }
-.va-hold-btn.released,
-.va-fab.released {
-    background: var(--danger);
+.va-bubble.assistant .va-bubble-role { color: var(--primary); }
+.va-bubble.user {
+    background: rgba(232, 248, 239, 0.96);
+    border-color: rgba(39, 174, 96, 0.22);
 }
-.va-hold-btn.processing,
-.va-fab.processing {
-    background: var(--warning);
+.va-bubble.user .va-bubble-role { color: var(--success); }
+
+@keyframes va-bubble-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.92); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
 }
+@keyframes va-bubble-out {
+    to { opacity: 0; transform: translateY(-6px) scale(0.96); }
+}
+
+/* ── Avatar shell ───────────────────────────────────────────────── */
+.va-avatar {
+    position: relative;
+    width: 104px; height: 104px;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.va-avatar:focus-visible { outline: 3px solid var(--primary); outline-offset: 4px; border-radius: 50%; }
+
+.va-nurse {
+    width: 100%; height: 100%;
+    position: relative;
+    z-index: 2;
+    filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.45));
+    border-radius: 50%;
+    /* Dark-mode avatar container: navy base, subtle lift toward the face. */
+    background: radial-gradient(circle at 50% 35%, #262B36 0%, #1A1D24 70%, #14161B 100%);
+    overflow: hidden;
+    animation: va-float 4.6s ease-in-out infinite;
+}
+
+/* Nurse features */
+.va-scrubs { fill: #4FA3C7; }
+.va-hair { fill: #3B2C2A; }
+.va-cap-shape { stroke: #DCE3EB; stroke-width: 1; }
+.va-cap-cross-v, .va-cap-cross-h { fill: var(--primary); }
+.va-brow { stroke: #3B2C2A; stroke-width: 2.2; stroke-linecap: round; fill: none; }
+.va-eye { fill: #2C3E50; transform-box: fill-box; transform-origin: center; }
+.va-eye-glint { fill: #FFFFFF; opacity: 0.9; }
+.va-blush { fill: #F2A0A8; opacity: 0.5; }
+.va-mouth { fill: #A8323F; }
+.va-eyes {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: va-blink 5.4s infinite;
+}
+
+/* Mouth opening is driven by --va-mouth, written by the lip-sync ticker in va.js */
+.va-mouth-wrap {
+    transform-box: fill-box;
+    transform-origin: center;
+    transform: scaleY(calc(0.3 + var(--va-mouth) * 1.9)) scaleX(calc(1 - var(--va-mouth) * 0.16));
+    transition: transform 0.06s linear;
+}
+
+/* Aura + ripples sit behind the head */
+.va-aura {
+    position: absolute;
+    inset: -14px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(198, 40, 58, 0.22), transparent 68%);
+    opacity: 0;
+    transition: opacity 0.3s ease, background 0.3s ease;
+    z-index: 1;
+}
+.va-ripple {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid var(--va-accent);
+    opacity: 0;
+    z-index: 0;
+}
+
+.va-state-badge {
+    position: absolute;
+    bottom: -4px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 3;
+    padding: 2px 12px;
+    border-radius: 999px;
+    font-size: 0.66em;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fff;
+    background: var(--va-accent);
+    box-shadow: var(--shadow-sm);
+    white-space: nowrap;
+    transition: background 0.3s ease;
+}
+
+/* ── State machine ──────────────────────────────────────────────── */
+/* Idle: continuous float + breathing */
+.va-stage[data-va-state="idle"] { --va-accent: var(--primary); }
+
+/* Listening: green aura, expanding soundwave ripples, widened eye focus */
+.va-stage[data-va-state="listening"] { --va-accent: var(--success); }
+.va-stage[data-va-state="listening"] .va-aura {
+    opacity: 1;
+    background: radial-gradient(circle, rgba(39, 174, 96, 0.34), transparent 68%);
+}
+.va-stage[data-va-state="listening"] .va-ripple {
+    animation: va-ripple 1.9s ease-out infinite;
+}
+.va-stage[data-va-state="listening"] .va-ripple:nth-of-type(2) { animation-delay: 0.63s; }
+.va-stage[data-va-state="listening"] .va-ripple:nth-of-type(3) { animation-delay: 1.26s; }
+.va-stage[data-va-state="listening"] .va-eyes {
+    animation: none;
+    transform: scale(1.16);
+}
+.va-stage[data-va-state="listening"] .va-nurse {
+    animation: va-float 2.6s ease-in-out infinite;
+}
+
+/* Thinking: amber aura and a gentle head tilt */
+.va-stage[data-va-state="thinking"] { --va-accent: var(--warning); }
+.va-stage[data-va-state="thinking"] .va-aura {
+    opacity: 1;
+    background: radial-gradient(circle, rgba(242, 153, 74, 0.32), transparent 68%);
+}
+.va-stage[data-va-state="thinking"] .va-nurse {
+    animation: va-think 1.8s ease-in-out infinite;
+}
+
+/* Speaking: primary aura and a subtle nod under the lip-sync */
+.va-stage[data-va-state="speaking"] { --va-accent: var(--primary); }
+.va-stage[data-va-state="speaking"] .va-aura {
+    opacity: 1;
+    background: radial-gradient(circle, rgba(198, 40, 58, 0.28), transparent 68%);
+}
+.va-stage[data-va-state="speaking"] .va-nurse {
+    animation: va-speak-bob 0.9s ease-in-out infinite;
+}
+
+@keyframes va-float {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-6px) scale(1.015); }
+}
+@keyframes va-think {
+    0%, 100% { transform: rotate(-3deg) translateY(0); }
+    50% { transform: rotate(3deg) translateY(-3px); }
+}
+@keyframes va-speak-bob {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+}
+@keyframes va-blink {
+    0%, 92%, 100% { transform: scaleY(1); }
+    94%, 97% { transform: scaleY(0.08); }
+}
+@keyframes va-ripple {
+    0% { opacity: 0.55; transform: scale(0.86); }
+    100% { opacity: 0; transform: scale(1.75); }
+}
+
+/* ── Dock controls ──────────────────────────────────────────────── */
+.va-dock {
+    display: flex;
+    gap: 8px;
+    padding: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(10px);
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border-light);
+}
+.va-dock-btn {
+    width: 38px; height: 38px;
+    border-radius: 50%;
+    border: none;
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-size: 0.92em;
+    transition: var(--transition);
+}
+.va-dock-btn:hover { background: var(--border); color: var(--text-primary); }
+
+/* Mic button: literal active/inactive coloring, independent of the avatar's --va-accent.
+   Inactive (not listening) = mic-off, red. Active (listening) = mic-on, green. */
+.va-dock-btn.primary {
+    background: #F44336;
+    color: #fff;
+}
+.va-dock-btn.primary.mic-active {
+    background: #4CAF50;
+}
+.va-dock-btn.primary:hover { filter: brightness(1.06); }
+.va-dock-btn.muted { color: var(--danger); }
+
+.va-hint {
+    font-size: 0.7em;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.85);
+    padding: 2px 10px;
+    border-radius: 999px;
+}
+
+/* ── History list (inside the double-click modal) ───────────────── */
 .va-history {
     width: 100%;
-    max-height: 130px;
+    max-height: 52vh;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 8px;
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-sm);
-    background: rgba(255,255,255,0.72);
+    padding: 4px;
 }
 .va-history-empty {
     color: var(--text-secondary);
-    font-size: 0.82em;
+    font-size: 0.85em;
     text-align: center;
+    padding: 24px 0;
 }
 .va-history-item {
     display: grid;
     gap: 2px;
-    padding: 8px 10px;
-    border-radius: 8px;
-    font-size: 0.82em;
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 0.85em;
     background: var(--bg-input);
 }
-.va-history-item.user {
-    background: #E8F8EF;
-}
-.va-history-item.assistant {
-    background: var(--danger-light);
-}
+.va-history-item strong { font-size: 0.9em; }
+.va-history-item small { color: var(--text-secondary); font-size: 0.8em; }
+.va-history-item.user { background: var(--success-light); }
+.va-history-item.assistant { background: var(--danger-light); }
 
 @media (max-width: 576px) {
-    .va-widget {
-        right: 16px;
-        left: 16px;
-        bottom: 90px;
-        max-height: calc(100vh - 110px);
-    }
-    .va-fab {
-        right: 16px;
-        bottom: 16px;
-    }
+    .va-stage { right: 16px; bottom: 16px; gap: 8px; }
+    .va-avatar { width: 84px; height: 84px; }
+    .va-bubbles { width: calc(100vw - 40px); }
+    .va-hint { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .va-nurse, .va-eyes, .va-ripple, .va-bubble { animation: none !important; }
+    .va-mouth-wrap { transition: none; }
 }
 
 /* ================================================================

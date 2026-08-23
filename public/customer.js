@@ -59,24 +59,67 @@ async function loadDashboard() {
             : '--';
         document.getElementById('dash-current-station').textContent = 'Currently at: ' + stationLabel;
 
-        document.getElementById('queue-stepper-container').innerHTML = renderQueueProgressList(data.steps);
+        document.getElementById('queue-stepper-container').innerHTML = renderQueueTrack(data.steps);
     } catch (err) { console.error('Dashboard error:', err); }
     hideSectionLoader('active-queue-panel');
 }
 
-function renderQueueProgressList(steps = []) {
-    const labels = { pending: 'Pending', active: 'On Process', completed: 'Done' };
+// Linear queue track: one continuous horizontal progress rail with a department
+// milestone per step. Real-time status and wait estimates sit under each node.
+function renderQueueTrack(steps = []) {
+    if (!steps.length) return '<div class="queue-track-empty text-muted">No queue steps to show.</div>';
+
+    const labels = { pending: 'Waiting', active: 'In Progress', completed: 'Completed' };
     const icons = { pending: 'fa-clock', active: 'fa-spinner fa-spin', completed: 'fa-check' };
-    return `<div class="queue-progress-list">${steps.map((step, index) => `
-        <div class="queue-progress-item ${step.status}">
-            <div class="queue-progress-icon"><i class="fa-solid ${icons[step.status] || icons.pending}"></i></div>
-            <div class="queue-progress-copy">
-                <strong>${index + 1}. ${step.name}</strong>
-                <span>${step.type === 'frontdesk' ? 'Frontdesk verification and payment' : step.type === 'doctor' ? 'Doctor consultation' : 'Laboratory service'}</span>
+    const typeLabels = { frontdesk: 'Verification & payment', doctor: 'Consultation', laboratory: 'Laboratory' };
+
+    // Fill reaches the active node, or the far end once every department is done.
+    const activeIndex = steps.findIndex(s => s.status === 'active');
+    const completedCount = steps.filter(s => s.status === 'completed').length;
+    const reached = activeIndex >= 0 ? activeIndex : (completedCount >= steps.length ? steps.length - 1 : completedCount);
+    const fill = steps.length <= 1 ? 100 : Math.min(100, (reached / (steps.length - 1)) * 100);
+
+    const nodes = steps.map((step, index) => {
+        let detail;
+        if (step.status === 'completed') {
+            detail = 'Done';
+        } else if (step.status === 'active') {
+            const ahead = step.people_waiting > 0 ? `${step.people_waiting} ahead · ` : 'You are next · ';
+            detail = `${ahead}~${step.est_minutes || 0} min`;
+        } else {
+            detail = step.eta_minutes != null ? `Starts in ~${step.eta_minutes} min` : `~${step.est_minutes || 0} min`;
+        }
+
+        return `
+        <div class="queue-track-step ${step.status}">
+            <div class="queue-track-node">
+                <i class="fa-solid ${icons[step.status] || icons.pending}"></i>
             </div>
-            <span class="queue-progress-status">${labels[step.status] || 'Pending'}</span>
-        </div>
-    `).join('')}</div>`;
+            <div class="queue-track-meta">
+                <strong>${index + 1}. ${step.name}</strong>
+                <span class="queue-track-status">${labels[step.status] || 'Waiting'}</span>
+                <small>${typeLabels[step.type] || 'Service'} · ${detail}</small>
+            </div>
+        </div>`;
+    }).join('');
+
+    return `
+        <div class="queue-track" role="list" aria-label="Queue progress by department" style="--track-count:${steps.length};">
+            <div class="queue-track-steps">
+                <div class="queue-track-rail"><span class="queue-track-fill" style="width:${fill}%"></span></div>
+                ${nodes}
+            </div>
+        </div>`;
+}
+
+// Entry point used by the Virtual Nurse Assistant to dispatch a queue action.
+// Reuses the existing preview → confirm flow so the medical-form gate and the
+// queue preview modal still apply to voice-initiated requests.
+function vaStartPackageFlow(packageId) {
+    if (!packageId) return;
+    navigateTo('services');
+    selectedPackageId = packageId;
+    confirmPackage();
 }
 
 // ── SERVICES ───────────────────────────────────────────────────
@@ -143,7 +186,7 @@ async function confirmPackage() {
             document.getElementById('preview-ticket').textContent = data.ticket || '--';
             document.getElementById('preview-current-processing').textContent = data.current_processing || '--';
             document.getElementById('preview-estimated-time').textContent = data.estimated_total_time ? `${data.estimated_total_time} minutes` : '--';
-            document.getElementById('preview-steps').innerHTML = renderQueueProgressList((data.steps || []).map(step => ({ ...step, status: 'pending' })));
+            document.getElementById('preview-steps').innerHTML = renderQueueTrack((data.steps || []).map(step => ({ ...step, status: 'pending' })));
             openModal('queue-preview-modal');
         } else {
             if (data.medical_form_required) openModal('mandatory-med-modal');

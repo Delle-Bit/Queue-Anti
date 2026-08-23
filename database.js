@@ -393,7 +393,8 @@ async function initDB() {
                 performance_enabled BOOLEAN DEFAULT true,
                 feedback_enabled BOOLEAN DEFAULT true,
                 report_enabled BOOLEAN DEFAULT true,
-                prediction_enabled BOOLEAN DEFAULT true
+                prediction_enabled BOOLEAN DEFAULT true,
+                assistant_enabled BOOLEAN DEFAULT true
             )
         `);
         await pool.query(`INSERT IGNORE INTO ai_settings (id) VALUES (1)`);
@@ -468,6 +469,7 @@ async function initDB() {
         await addColumnIfMissing('appointments', 'checked_in_at', 'DATETIME DEFAULT NULL');
         await addIndexIfMissing('appointments', 'idx_appointments_qr_token', '(qr_token)');
         await addColumnIfMissing('service_packages', 'doctor_id', 'INT DEFAULT NULL');
+        await addColumnIfMissing('ai_settings', 'assistant_enabled', 'BOOLEAN DEFAULT true');
         await addColumnIfMissing('queue_sequences', 'has_doctor_step', 'BOOLEAN DEFAULT false');
         await addColumnIfMissing('queue_sequences', 'doctor_id', 'INT DEFAULT NULL');
 

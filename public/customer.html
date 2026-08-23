@@ -216,7 +216,7 @@
                 </div>
                 <div class="mt-md">
                     <div class="stat-label mb-md">Service Process</div>
-                    <div id="preview-steps" class="queue-progress-list"></div>
+                    <div id="preview-steps"></div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -432,34 +432,92 @@
 
 
 
-    <!-- Voice AI Assistant Widget -->
-    <button class="va-fab" aria-label="Open voice assistant"><i class="fa-solid fa-microphone"></i></button>
-    <div class="va-widget" id="va-widget">
-        <div class="va-header">
-            <h4><i class="fa-solid fa-robot"></i> Voice AI Assistant</h4>
-            <button class="close-va" onclick="toggleVaWidget()">&times;</button>
+    <!-- Virtual Nurse Assistant — animated avatar + floating speech bubbles -->
+    <div class="va-stage" id="va-stage" data-va-state="idle">
+        <!-- Floating speech bubbles anchored to the avatar -->
+        <div class="va-bubbles" id="va-bubbles" aria-live="polite"></div>
+
+        <div class="va-avatar" id="va-avatar" role="button" tabindex="0"
+            aria-label="Virtual nurse assistant. Click to speak, double-click to open conversation history.">
+            <span class="va-aura"></span>
+            <span class="va-ripple"></span>
+            <span class="va-ripple"></span>
+            <span class="va-ripple"></span>
+
+            <!-- Stylized nurse head. Animation hooks: .va-eye (blink/focus), #va-mouth (lip-sync) -->
+            <svg class="va-nurse" viewBox="0 0 120 120" aria-hidden="true">
+                <defs>
+                    <linearGradient id="va-skin" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#FBDCC4" />
+                        <stop offset="100%" stop-color="#EFC0A2" />
+                    </linearGradient>
+                    <linearGradient id="va-cap" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#FFFFFF" />
+                        <stop offset="100%" stop-color="#E8EDF3" />
+                    </linearGradient>
+                </defs>
+
+                <g class="va-nurse-body">
+                    <!-- shoulders / scrubs -->
+                    <path class="va-scrubs" d="M22 120c0-17 17-27 38-27s38 10 38 27z" />
+                    <!-- hair -->
+                    <path class="va-hair" d="M28 62c0-21 14-35 32-35s32 14 32 35c0 12-3 20-6 24 1-13-4-24-9-27-8 3-26 4-38-3-6 5-9 17-8 30-2-5-3-13-3-24z" />
+                    <!-- face -->
+                    <ellipse class="va-face" cx="60" cy="63" rx="27" ry="30" fill="url(#va-skin)" />
+                    <!-- ears -->
+                    <ellipse class="va-ear" cx="33" cy="66" rx="4.5" ry="6" fill="url(#va-skin)" />
+                    <ellipse class="va-ear" cx="87" cy="66" rx="4.5" ry="6" fill="url(#va-skin)" />
+                    <!-- nurse cap with cross -->
+                    <path class="va-cap-shape" d="M31 39c6-13 17-20 29-20s23 7 29 20c-19-7-39-7-58 0z" fill="url(#va-cap)" />
+                    <path class="va-cap-cross-v" d="M57.5 24h5v13h-5z" />
+                    <path class="va-cap-cross-h" d="M53.5 28h13v5h-13z" />
+                    <!-- brows -->
+                    <path class="va-brow" d="M43 53c3-2.5 8-2.5 11 0" />
+                    <path class="va-brow" d="M66 53c3-2.5 8-2.5 11 0" />
+                    <!-- eyes -->
+                    <g class="va-eyes">
+                        <ellipse class="va-eye" cx="48.5" cy="63" rx="4" ry="4.8" />
+                        <ellipse class="va-eye" cx="71.5" cy="63" rx="4" ry="4.8" />
+                        <circle class="va-eye-glint" cx="50" cy="61.4" r="1.3" />
+                        <circle class="va-eye-glint" cx="73" cy="61.4" r="1.3" />
+                    </g>
+                    <!-- blush -->
+                    <ellipse class="va-blush" cx="41" cy="72" rx="5.5" ry="3.2" />
+                    <ellipse class="va-blush" cx="79" cy="72" rx="5.5" ry="3.2" />
+                    <!-- mouth: scaled on the Y axis by the lip-sync ticker -->
+                    <g class="va-mouth-wrap">
+                        <ellipse id="va-mouth" class="va-mouth" cx="60" cy="79" rx="7.5" ry="3" />
+                    </g>
+                </g>
+            </svg>
+
+            <span class="va-state-badge" id="va-state-badge">Idle</span>
         </div>
-        <div class="va-body">
-            <div class="va-pulse-container">
-                <div class="va-orb" id="va-orb"></div>
+
+        <div class="va-dock">
+            <button class="va-dock-btn primary" id="va-action-btn" type="button"
+                aria-label="Talk to the nurse assistant"><i class="fa-solid fa-microphone"></i></button>
+            <button class="va-dock-btn" id="va-mute-btn" type="button" onclick="toggleVaMute()"
+                aria-label="Toggle voice output"><i class="fa-solid fa-volume-high"></i></button>
+            <button class="va-dock-btn" id="va-history-btn" type="button" onclick="openVaHistory()"
+                aria-label="Open conversation history"><i class="fa-solid fa-clock-rotate-left"></i></button>
+        </div>
+        <div class="va-hint" id="va-hint">Click to speak · Double-click nurse for history</div>
+    </div>
+
+    <!-- Conversation History (opened by double-clicking the nurse avatar) -->
+    <div id="va-history-modal" class="modal-overlay">
+        <div class="modal-box" style="max-width:520px;">
+            <div class="modal-header">
+                <div class="modal-title"><i class="fa-solid fa-comments"></i> Conversation History</div>
+                <button class="modal-close" onclick="closeModal('va-history-modal')">&times;</button>
             </div>
-            <div class="va-status" id="va-status">Idle</div>
-            <div class="va-instruction">Hold floating button OR click below to speak.</div>
-
-            <div class="va-chat-area">
-                <div class="va-chat-label">You said:</div>
-                <div class="va-text-box" id="va-transcript">Click the button below and speak to ask about clinic wait time, pricing, or queue status...</div>
-
-                <div class="va-chat-label">AI Assistant:</div>
-                <div class="va-text-box response" id="va-response">Hello! I am your AI Voice Assistant. Speak or tap the microphone to chat.</div>
-                
-                <div class="va-chat-label">Conversation:</div>
+            <div class="modal-body">
                 <div class="va-history" id="va-history" aria-live="polite"></div>
             </div>
-
-            <div class="va-controls">
-                <button class="btn btn-primary va-hold-btn" id="va-action-btn" style="flex:1;"><i class="fa-solid fa-microphone"></i> Click to Speak</button>
-                <button class="btn btn-secondary" id="va-mute-btn" onclick="toggleVaMute()" style="padding:10px;"><i class="fa-solid fa-volume-high"></i></button>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="clearVaHistory()"><i class="fa-solid fa-trash"></i> Clear</button>
+                <button class="btn btn-primary" onclick="closeModal('va-history-modal')">Close</button>
             </div>
         </div>
     </div>

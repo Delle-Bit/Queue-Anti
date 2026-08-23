@@ -4,100 +4,115 @@ This guide breaks down the customer operations within the Medical Clinic Queuein
 
 ## 1. Registration & Authentication Flow
 
-This diagram illustrates how a customer enters the system, registers with AI-assisted ID verification, and logs into their dashboard.
+There is no separate `register.html`/`login.html` — everything happens in an auth-panel overlay on `index.html`. Registration is a 4-step wizard with OCR-assisted ID verification.
 
 ```mermaid
 flowchart TD
     Start((Start)) --> IndexPage[index.html Landing Page]
-    IndexPage -->|Has Account| LoginBtn[Login]
-    IndexPage -->|New User| RegisterBtn[Customer Registration]
+    IndexPage -->|Sign In| LoginTab[Auth Overlay: Login Tab]
+    IndexPage -->|Sign Up| RegTab[Auth Overlay: Register Tab]
 
-    %% Registration Form
-    RegisterBtn --> RegPage[register.html]
-    RegPage --> UploadID[Upload Valid ID \nSenior/PWD/Regular]
-    UploadID --> SubmitReg{Submit to /api/auth/register}
-    SubmitReg -->|Trigger Mock AI| OCR[OCR / AI Service]
-    OCR -->|Extract Data & Category| DB_Insert[(Users Table : Insert)]
-    DB_Insert -->|Success| RegSuccess[Registration Complete]
-    RegSuccess --> LoginPage
+    %% Registration Wizard (4 steps)
+    RegTab --> Step1[Step 1: Upload Front/Back ID \nor Guardian Info if underage]
+    Step1 --> SubmitStep1{POST /api/auth/register/step1}
+    SubmitStep1 -->|OCR scan of ID| OCR[AI OCR Service \nfalls back to local mock]
+    OCR -->|Detect category/name/birthday| PendingInsert[(pending_registrations : Insert)]
+    PendingInsert --> Step2[Step 2: Create Password]
+    Step2 --> SubmitStep2{POST /api/auth/register/step2}
+    SubmitStep2 --> Step3[Step 3: Send Verification Code]
+    Step3 --> SubmitStep3{POST /api/auth/register/send-verification}
+    SubmitStep3 -->|Mock email w/ OTP| Step4[Step 4: Enter OTP]
+    Step4 --> SubmitStep4{POST /api/auth/register/verify-otp}
+    SubmitStep4 -->|Correct OTP| UserInsert[(users Table : Insert, category=Regular/Senior/PWD)]
+    UserInsert --> RegSuccess[Registration Complete] --> LoginTab
 
     %% Login Form
-    LoginBtn --> LoginPage[login.html]
-    LoginPage --> InputCreds[Enter Username/Password]
-    InputCreds --> SubmitLogin{Submit to /api/users/login}
-    SubmitLogin -->|Authenticate| DB_Check[(Users Table : Query)]
-    DB_Check -->|Verify Role == 'customer'| GenToken[Generate JWT Token]
-    GenToken --> Redirect[Redirect to customer.html]
-    
+    LoginTab --> InputCreds[Enter Username/Password]
+    InputCreds --> SubmitLogin{POST /api/auth/login}
+    SubmitLogin -->|Authenticate| DB_Check[(users Table : Query)]
+    DB_Check -->|bcrypt compare + role lookup| GenToken[Generate JWT Token, 8h expiry]
+    GenToken --> Redirect[Redirect by role: \ncustomer -> customer.html \nfrontdesk/laboratory/doctor -> their page \nadmin/admintechnical -> admintechnical.html \nowner -> owner.html]
+
     %% Error States
     SubmitLogin -->|Fail| ErrorMsg[Show Error Message]
-    ErrorMsg --> LoginPage
+    ErrorMsg --> LoginTab
 ```
 
 ---
 
 ## 2. Customer Dashboard & Core Actions Flow
 
-Once logged in, the customer has three primary actions they can perform on their dashboard (`customer.html`).
+Once logged in, the customer has three primary actions on their dashboard (`customer.html`), plus a voice-driven Virtual Nurse Assistant that can trigger the first and third.
 
 ```mermaid
 flowchart TD
-    Dashboard((Customer Dashboard)) --> Option1[Join Immediate Queue]
-    Dashboard --> Option2[Book Appointment via Chatbot]
-    Dashboard --> Option3[Scan QR Check-In]
+    Dashboard((Customer Dashboard)) --> Option1[Join a Service Queue]
+    Dashboard --> Option2[Book an Appointment]
+    Dashboard --> Option3[QR Check-In]
+    Dashboard --> VA[Talk to Virtual Nurse Assistant]
 
-    %% Option 1: Direct Queue
-    Option1 --> SelectDept[Select Department from List]
-    SelectDept --> AutoCat[Auto-Apply Customer Category \nRegular/Elderly/PWD]
-    AutoCat --> SubmitQueue{POST /api/queue}
-    SubmitQueue --> DB_Queue[(Queue Table : Insert)]
-    DB_Queue --> ShowTicket[Update UI: Show Queue Ticket & Wait Time]
+    %% Option 1: Join a service package queue
+    Option1 --> BrowseServices[Browse Services tab, pick a package]
+    BrowseServices --> MedGate1{Medical form complete?}
+    MedGate1 -->|No| MedForm[Mandatory Medical Form Modal]
+    MedGate1 -->|Yes| Preview{GET /api/queue/preview-package/:id}
+    Preview --> ShowPreview[Show ticket preview: ETA, station sequence]
+    ShowPreview --> ConfirmQueue{POST /api/queue/start-package}
+    ConfirmQueue --> DB_Seq[(queue_sequences + queue Table : Insert)]
+    DB_Seq --> SocketEmit1(( io.emit 'queueUpdate' ))
+    SocketEmit1 --> ShowTicket[Dashboard shows ticket + live position]
 
-    %% Option 2: Booking via Chatbot
-    Option2 --> OpenChat[Open Chat FAB]
-    OpenChat --> SendMsg[Send Message: 'I want an appointment...']
-    SendMsg --> NLP[Mock NLP Extraction]
-    NLP --> SubmitAppt{POST /api/appointments}
-    SubmitAppt --> DB_Appt[(Appointments Table : Insert)]
-    DB_Appt --> ChatResponse[Chatbot Confirms Booking]
+    %% Option 2: Book an appointment
+    Option2 --> MedGate2{Medical form complete?}
+    MedGate2 -->|No| MedForm
+    MedGate2 -->|Yes| PickSlot[Pick date from calendar + time slot]
+    PickSlot --> SubmitAppt{POST /api/appointments}
+    SubmitAppt -->|Slot free & date not full| DB_Appt[(appointments Table : Insert, w/ qr_token)]
+    DB_Appt --> ApptConfirmed[Appointment Confirmed]
 
     %% Option 3: QR Check-In
-    Option3 --> ScanQR[Click Scan QR to Check-In]
-    ScanQR --> FetchAppt{GET /api/appointments}
-    FetchAppt --> DB_FetchAppt[(Appointments Table : Query)]
-    DB_FetchAppt --> DisplayAppt[Display Scheduled Appointments]
-    DisplayAppt --> ClickCheckIn[Click Check-In on specific appointment]
-    ClickCheckIn --> ConvertQueue{POST /api/appointments/checkin}
-    ConvertQueue -->|Update Status| DB_ApptUpdate[(Appointments Table : Update)]
-    ConvertQueue -->|Add to Queue| DB_Queue2[(Queue Table : Insert)]
-    DB_Queue2 --> ShowTicket
+    Option3 --> ScanQR["Scan the appointment's QR (qr_token)"]
+    ScanQR --> CheckinPage[GET /checkin/:token \npublic confirmation page]
+    CheckinPage --> ConvertQueue{POST /api/appointments/check-in}
+    ConvertQueue -->|Update status=checked-in| DB_ApptUpdate[(appointments Table : Update)]
+    ConvertQueue -->|Promote to queue via package sequence| DB_Seq
+    DB_Seq --> ShowTicket
+
+    %% VA voice assistant
+    VA --> Speak[Speak a request: FAQ, price calc, or 'join the queue for X']
+    Speak --> Dialogue{POST /api/assistant/dialogue}
+    Dialogue -->|intent=queue_action, resolved package| ConfirmQueue
+    Dialogue -->|intent=faq/calculation| VAReply[Spoken reply, grounded in live package/queue data]
 ```
 
 ---
 
 ## 3. Real-time Status Data Flow Diagram (DFD)
 
-This diagram focuses strictly on the data exchange (Data Flow Diagram - Level 1) when the customer is actively waiting in the queue.
+Live updates are push-based over Socket.IO, not client polling. Any staff action that mutates the queue emits a `queueUpdate` event; the customer dashboard listens and re-fetches its own status.
 
 ```mermaid
 sequenceDiagram
-    participant C as Customer View (patient.js)
-    participant S as Server (server.js)
-    participant DB as MySQL Database
+    participant C as Customer View (customer.js)
+    participant S as Server (server.js + routes/queue.js)
+    participant DB as MySQL Database (clinic_v2)
+    participant Staff as Staff Action (frontdesk/laboratory/doctor)
 
-    C->>S: GET /api/queue/status (Polling every 3s)
-    S->>DB: SELECT current serving, waiting count
-    DB-->>S: Return aggregated queue data
-    S-->>C: JSON Queue Status
-    C->>C: Update "Now Serving" UI
-    C->>C: Update "Your Position" UI
-    
-    %% Broadcast Mechanism
-    C->>S: GET /api/broadcast
-    S->>DB: SELECT latest broadcast message
-    DB-->>S: Return message
-    S-->>C: JSON Broadcast string
-    C->>C: Render scrolling marquee
+    Staff->>S: e.g. POST /api/queue/next or /complete-step
+    S->>DB: UPDATE queue / queue_sequences
+    S-->>S: req.app.get('io').emit('queueUpdate', {})
+    S-->>C: Socket.IO push: 'queueUpdate'
+    C->>S: GET /api/queue/my-status (on event, not on a timer)
+    S->>DB: buildCustomerStatus() - position, ETA, current station
+    DB-->>S: Return live queue state
+    S-->>C: JSON queue status
+    C->>C: Re-render ticket, position, ETA, station track
+
+    %% Virtual Nurse Assistant grounds its answers in the same live state
+    C->>S: POST /api/assistant/dialogue {text, history}
+    S->>S: buildCustomerStatus() (shared with /my-status)
+    S-->>C: {reply, intent, action}
+    C->>C: Speak reply, optionally trigger queue-join confirm flow
 ```
 
 > [!TIP]

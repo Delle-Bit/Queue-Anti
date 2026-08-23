@@ -353,6 +353,18 @@ function switchAuthTab(tab) {
     document.getElementById('form-register').style.display = tab === 'register' ? 'block' : 'none';
     document.getElementById('tab-login').classList.toggle('active', tab === 'login');
     document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+    if (tab === 'register') {
+        // Reset to step 1
+        showRegStep(1);
+        // Ensure forms are reset
+        document.getElementById('reg-step1-form').reset();
+        document.getElementById('reg-step2-form').reset();
+        document.getElementById('reg-step3-form').reset();
+        document.getElementById('preview-front').innerHTML = '<i class="fa-solid fa-address-card"></i>';
+        document.getElementById('preview-back').innerHTML = '<i class="fa-solid fa-address-card"></i>';
+        registrationState.blobs = { front: null, back: null };
+        setVerificationMethod('id');
+    }
 }
 
 // ── Register State ─────────────────────────────────────────────────
@@ -858,24 +870,6 @@ function setupRegisterHandlers() {
         checkPasswordMatch();
     });
     document.getElementById('reg-confirm-password').addEventListener('input', checkPasswordMatch);
-}
-
-// Override switchAuthTab to initialize wizard when register tab opens
-const originalSwitchAuthTab = switchAuthTab;
-function switchAuthTab(tab) {
-    originalSwitchAuthTab(tab);
-    if (tab === 'register') {
-        // Reset to step 1
-        showRegStep(1);
-        // Ensure forms are reset
-        document.getElementById('reg-step1-form').reset();
-        document.getElementById('reg-step2-form').reset();
-        document.getElementById('reg-step3-form').reset();
-        document.getElementById('preview-front').innerHTML = '<i class="fa-solid fa-address-card"></i>';
-        document.getElementById('preview-back').innerHTML = '<i class="fa-solid fa-address-card"></i>';
-        registrationState.blobs = { front: null, back: null };
-        setVerificationMethod('id');
-    }
 }
 
 // Initialize register handlers on load

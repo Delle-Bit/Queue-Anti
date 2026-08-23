@@ -1,146 +1,181 @@
 /* ================================================================
-   VOICE AI Virtual Assistant — Speech Recognition & Synthesis
+   VIRTUAL NURSE ASSISTANT
+   Animated avatar state machine · floating speech bubbles ·
+   dialogue controller (service FAQ · calculation · queue dispatch)
    ================================================================ */
 
+// ── STATE ─────────────────────────────────────────────────────────
+// idle → listening → thinking → speaking → idle
+const VA_STATES = ['idle', 'listening', 'thinking', 'speaking'];
+const VA_HISTORY_KEY = 'vaHistory';
+const VA_MAX_BUBBLES = 3;
+const VA_SILENCE_TIMEOUT_MS = 3000; // auto-stop this long after the user stops speaking
+const VA_INITIAL_LISTEN_TIMEOUT_MS = 8000; // grace period to start speaking after the mic activates
+
+let vaState = 'idle';
 let vaMuted = localStorage.getItem('vaMuted') === 'true';
 let recognition = null;
 let isListening = false;
+let silenceTimer = null;
 let synthesisSpeech = null;
-let vaHoldActive = false;
-let vaReleaseUntil = 0;
-const vaHistory = [];
+let vaHistory = loadVaHistory();
 
-// Initialize mute UI state on load
+// Lip-sync ticker state
+let lipSyncRaf = null;
+let mouthTarget = 0;
+let mouthValue = 0;
+let nextSyllableAt = 0;
+
 document.addEventListener('DOMContentLoaded', () => {
     updateMuteButtonUI();
     bindVaListeners();
     renderVaHistory();
+    setVaState('idle');
 });
 
-// Toggle Voice Assistant Panel
-function toggleVaWidget() {
-    const widget = document.getElementById('va-widget');
-    const fab = document.querySelector('.va-fab');
-    if (!widget) return;
-    
-    const isOpen = widget.classList.toggle('open');
-    if (isOpen) {
-        setVaStatus('idle');
-        renderVaHistory();
-    }
-    if (!isOpen && isListening) {
-        stopSpeechRecognition();
-    }
-    
-    // Stop speaking if closed
-    if (!isOpen && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-    }
+// ── AVATAR STATE MACHINE ──────────────────────────────────────────
+// Drives every avatar animation through one data attribute on .va-stage,
+// so CSS owns the transitions and JS only owns the state.
+function setVaState(state, message) {
+    if (!VA_STATES.includes(state)) state = 'idle';
+    vaState = state;
+
+    const stage = document.getElementById('va-stage');
+    const badge = document.getElementById('va-state-badge');
+
+    if (stage) stage.dataset.vaState = state;
+
+    const labels = { idle: 'Idle', listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking' };
+    if (badge) badge.textContent = message || labels[state];
+
+    // The mic button only recognizes two states — actively capturing audio, or not —
+    // per the active/inactive mic-on/mic-off spec. Thinking and speaking count as inactive.
+    updateMicButtonUI(state === 'listening');
+
+    // Mouth rests closed outside the speaking state.
+    if (state !== 'speaking') setMouthOpen(0);
 }
 
+// Active (listening): mic-on icon, green background. Inactive: mic-off icon, red background.
+function updateMicButtonUI(isActive) {
+    const btn = document.getElementById('va-action-btn');
+    if (!btn) return;
+    btn.classList.toggle('mic-active', isActive);
+    btn.innerHTML = isActive
+        ? '<i class="fa-solid fa-microphone"></i>'
+        : '<i class="fa-solid fa-microphone-slash"></i>';
+    btn.setAttribute('aria-label', isActive ? 'Stop listening' : 'Talk to the nurse assistant');
+}
+
+// ── FLOATING SPEECH BUBBLES ───────────────────────────────────────
+// Replaces the old fixed chat panel: bubbles float above the avatar and
+// retire on their own, keeping the dashboard visible underneath.
+function pushVaBubble(role, text, options = {}) {
+    const wrap = document.getElementById('va-bubbles');
+    if (!wrap || !text) return null;
+
+    const bubble = document.createElement('div');
+    bubble.className = `va-bubble ${role}`;
+    bubble.innerHTML = `
+        <span class="va-bubble-role">${role === 'user' ? 'You' : 'Nurse'}</span>
+        <span class="va-bubble-text">${escapeHtml(text)}</span>
+    `;
+    wrap.appendChild(bubble);
+
+    // Keep the stack shallow so the avatar is never buried.
+    while (wrap.children.length > VA_MAX_BUBBLES) {
+        retireVaBubble(wrap.firstElementChild);
+    }
+
+    if (!options.persist) {
+        const readMs = Math.min(12000, Math.max(3500, text.length * 70));
+        bubble.dataset.timer = setTimeout(() => retireVaBubble(bubble), readMs);
+    }
+    return bubble;
+}
+
+function retireVaBubble(bubble) {
+    if (!bubble) return;
+    if (bubble.dataset.timer) clearTimeout(Number(bubble.dataset.timer));
+    bubble.classList.add('leaving');
+    setTimeout(() => bubble.remove(), 260);
+}
+
+function dismissVaBubble(bubble, delay = 0) {
+    if (!bubble) return;
+    setTimeout(() => retireVaBubble(bubble), delay);
+}
+
+// Bubble + history + voice in one call — the assistant's only output path.
+function vaSay(text, options = {}) {
+    if (!text) return;
+    addVaHistory('assistant', text);
+    const bubble = pushVaBubble('assistant', text, { persist: true });
+    speakAloud(text, () => dismissVaBubble(bubble, options.holdMs ?? 2200));
+}
+
+// ── INTERACTION BINDINGS ──────────────────────────────────────────
+// Single click → start listening (silence detection stops it automatically,
+// or a second click stops it early). Double click → conversation history.
 function bindVaListeners() {
-    const fab = document.querySelector('.va-fab');
+    const avatar = document.getElementById('va-avatar');
     const actionBtn = document.getElementById('va-action-btn');
-    const widget = document.getElementById('va-widget');
 
-    let fabHoldTimeout = null;
-    let wasHold = false;
+    const toggleListening = () => {
+        if (isListening) stopSpeechRecognition();
+        else startSpeechRecognition();
+    };
 
-    if (fab) {
-        const startFabHold = (event) => {
+    if (avatar) {
+        let clickTimer = null;
+
+        avatar.addEventListener('click', (event) => {
             event.preventDefault();
-            if (isListening) return; // already listening
-            wasHold = false;
-            
-            fabHoldTimeout = setTimeout(() => {
-                wasHold = true;
-                // Open the widget if it's not open so the user sees results
-                if (widget && !widget.classList.contains('open')) {
-                    toggleVaWidget();
-                }
-                startSpeechRecognition();
-            }, 250);
-        };
+            // Defer the tap action so a second click can claim it as a double-click.
+            if (clickTimer) return;
+            clickTimer = setTimeout(() => {
+                clickTimer = null;
+                toggleListening();
+            }, 260);
+        });
 
-        const endFabHold = (event) => {
+        // Gesture: double-click the nurse to open the full conversation history.
+        avatar.addEventListener('dblclick', (event) => {
             event.preventDefault();
-            if (fabHoldTimeout) {
-                clearTimeout(fabHoldTimeout);
-                fabHoldTimeout = null;
-            }
-            if (wasHold) {
-                stopSpeechRecognition(true);
-            }
-        };
+            if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+            openVaHistory();
+        });
 
-        const cancelFabHold = (event) => {
-            if (fabHoldTimeout) {
-                clearTimeout(fabHoldTimeout);
-                fabHoldTimeout = null;
-            }
-            if (wasHold) {
-                stopSpeechRecognition(true);
-                wasHold = false;
-            }
-        };
-
-        fab.addEventListener('pointerdown', startFabHold);
-        fab.addEventListener('pointerup', endFabHold);
-        fab.addEventListener('pointercancel', cancelFabHold);
-        fab.addEventListener('pointerleave', cancelFabHold);
-
-        fab.addEventListener('click', (event) => {
-            if (wasHold) {
-                // Intercept and prevent the click handler from toggling the panel
+        avatar.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                event.stopPropagation();
-                wasHold = false;
-            } else {
-                toggleVaWidget();
+                toggleListening();
             }
+            if (event.key.toLowerCase() === 'h') openVaHistory();
         });
     }
 
     if (actionBtn) {
         actionBtn.addEventListener('click', (event) => {
             event.preventDefault();
-            if (isListening) {
-                stopSpeechRecognition(true);
-            } else {
-                startSpeechRecognition();
-            }
+            toggleListening();
         });
     }
 }
 
-function setVaStatus(state, message) {
-    const widget = document.getElementById('va-widget');
-    const fab = document.querySelector('.va-fab');
-    const actionBtn = document.getElementById('va-action-btn');
-    const status = document.getElementById('va-status');
-    [widget, fab, actionBtn].forEach(el => {
-        if (!el) return;
-        el.classList.remove('listening', 'processing', 'released');
-        if (state !== 'idle') el.classList.add(state);
-    });
-    if (status) {
-        status.textContent = message || (state === 'listening' ? 'Listening' : state === 'processing' ? 'Processing' : state === 'released' ? 'Stopped' : 'Idle');
-    }
-    if (actionBtn) {
-        const labels = {
-            idle: '<i class="fa-solid fa-microphone"></i> Click to Speak',
-            listening: '<i class="fa-solid fa-microphone-slash"></i> Stop Listening',
-            processing: '<i class="fa-solid fa-spinner fa-spin"></i> Processing...',
-            released: '<i class="fa-solid fa-circle-stop"></i> Stopped'
-        };
-        actionBtn.innerHTML = labels[state] || labels.idle;
-    }
+// ── CONVERSATION HISTORY ──────────────────────────────────────────
+function loadVaHistory() {
+    try {
+        const stored = JSON.parse(localStorage.getItem(VA_HISTORY_KEY) || '[]');
+        return Array.isArray(stored) ? stored.slice(-50) : [];
+    } catch (e) { return []; }
 }
 
 function addVaHistory(role, text) {
     if (!text) return;
-    vaHistory.push({ role, text });
-    if (vaHistory.length > 8) vaHistory.shift();
+    vaHistory.push({ role, text, at: new Date().toISOString() });
+    if (vaHistory.length > 50) vaHistory = vaHistory.slice(-50);
+    try { localStorage.setItem(VA_HISTORY_KEY, JSON.stringify(vaHistory)); } catch (e) { /* quota — keep in memory */ }
     renderVaHistory();
 }
 
@@ -148,248 +183,326 @@ function renderVaHistory() {
     const box = document.getElementById('va-history');
     if (!box) return;
     if (vaHistory.length === 0) {
-        box.innerHTML = '<div class="va-history-empty">No conversation yet.</div>';
+        box.innerHTML = '<div class="va-history-empty">No conversation yet. Click the nurse avatar and speak.</div>';
         return;
     }
     box.innerHTML = vaHistory.map(item => `
         <div class="va-history-item ${item.role}">
-            <strong>${item.role === 'user' ? 'You' : 'Assistant'}</strong>
+            <strong>${item.role === 'user' ? 'You' : 'Nurse Assistant'}</strong>
             <span>${escapeHtml(item.text)}</span>
+            <small>${item.at ? formatTime(item.at) : ''}</small>
         </div>
     `).join('');
     box.scrollTop = box.scrollHeight;
 }
 
-// Toggle Mute Audio Output
+function openVaHistory() {
+    renderVaHistory();
+    openModal('va-history-modal');
+}
+
+function clearVaHistory() {
+    vaHistory = [];
+    localStorage.removeItem(VA_HISTORY_KEY);
+    renderVaHistory();
+    showToast('Conversation history cleared', 'info');
+}
+
+// ── VOICE OUTPUT + LIP SYNC ───────────────────────────────────────
 function toggleVaMute() {
     vaMuted = !vaMuted;
     localStorage.setItem('vaMuted', vaMuted);
     updateMuteButtonUI();
-    
+
     if (vaMuted && window.speechSynthesis) {
-        window.speechSynthesis.cancel(); // Stop talking instantly
+        window.speechSynthesis.cancel();
+        stopLipSync();
+        if (vaState === 'speaking') setVaState('idle');
     } else if (!vaMuted) {
-        speakAloud("Voice audio output enabled.");
+        speakAloud('Voice output enabled.');
     }
 }
 
 function updateMuteButtonUI() {
     const btn = document.getElementById('va-mute-btn');
     if (!btn) return;
-    btn.innerHTML = vaMuted 
-        ? '<i class="fa-solid fa-volume-xmark"></i>' 
+    btn.classList.toggle('muted', vaMuted);
+    btn.innerHTML = vaMuted
+        ? '<i class="fa-solid fa-volume-xmark"></i>'
         : '<i class="fa-solid fa-volume-high"></i>';
 }
 
-// Speak text aloud using SpeechSynthesis
-function speakAloud(text) {
-    if (vaMuted || !window.speechSynthesis) return;
+// Voice synthesis drives the speaking animation: the avatar's mouth opens while
+// the utterance plays, and word boundaries punch the jaw open where supported.
+function speakAloud(text, onDone) {
+    if (!text) return;
+    if (vaMuted || !window.speechSynthesis) {
+        // Text output stays available even with audio muted — just skip the speaking state.
+        if (vaState !== 'listening') setVaState('idle');
+        if (typeof onDone === 'function') onDone();
+        return;
+    }
 
-    // Cancel active speech
     window.speechSynthesis.cancel();
 
-    // Clean text of markdown links or tags
     const cleanText = text.replace(/<[^>]*>/g, '').replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1');
-
     synthesisSpeech = new SpeechSynthesisUtterance(cleanText);
-    
-    // Attempt to select a clear natural English voice if available
+    synthesisSpeech.rate = 1;
+    synthesisSpeech.pitch = 1.08; // slightly warmer nurse voice
+
     const voices = window.speechSynthesis.getVoices();
-    const voice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Google')) || 
-                  voices.find(v => v.lang.startsWith('en')) || 
+    const voice = voices.find(v => v.lang.startsWith('en') && /female|zira|samantha|google/i.test(v.name)) ||
+                  voices.find(v => v.lang.startsWith('en')) ||
                   voices[0];
     if (voice) synthesisSpeech.voice = voice;
 
+    synthesisSpeech.onstart = () => {
+        setVaState('speaking');
+        startLipSync();
+    };
+    synthesisSpeech.onboundary = () => {
+        // Real word boundary → force a full mouth opening for that syllable.
+        mouthTarget = 1;
+        nextSyllableAt = performance.now() + 90;
+    };
+    let finished = false;
+    const finish = () => {
+        if (finished) return;
+        finished = true;
+        stopLipSync();
+        if (vaState === 'speaking' || vaState === 'thinking') setVaState('idle');
+        if (typeof onDone === 'function') onDone();
+    };
+    synthesisSpeech.onend = finish;
+    synthesisSpeech.onerror = finish;
+
     window.speechSynthesis.speak(synthesisSpeech);
+
+    // Safety net: if the browser never fires onstart (autoplay policy, no voices),
+    // don't strand the avatar in the thinking state.
+    setTimeout(() => {
+        if (vaState === 'thinking' && !window.speechSynthesis.speaking) finish();
+    }, 1500);
 }
 
-// Start Speech Recognition
+function setMouthOpen(value) {
+    const stage = document.getElementById('va-stage');
+    if (stage) stage.style.setProperty('--va-mouth', Math.max(0, Math.min(1, value)).toFixed(3));
+}
+
+// Approximates visemes with a syllable clock; onboundary events sync it to real words.
+function startLipSync() {
+    stopLipSync();
+    mouthTarget = 0.6;
+    mouthValue = 0;
+    nextSyllableAt = 0;
+
+    const tick = (now) => {
+        if (now >= nextSyllableAt) {
+            mouthTarget = 0.35 + Math.random() * 0.65;
+            nextSyllableAt = now + 90 + Math.random() * 90;
+        }
+        mouthTarget *= 0.9;
+        mouthValue += (mouthTarget - mouthValue) * 0.4;
+        setMouthOpen(mouthValue);
+        lipSyncRaf = requestAnimationFrame(tick);
+    };
+    lipSyncRaf = requestAnimationFrame(tick);
+}
+
+function stopLipSync() {
+    if (lipSyncRaf) cancelAnimationFrame(lipSyncRaf);
+    lipSyncRaf = null;
+    mouthTarget = 0;
+    mouthValue = 0;
+    setMouthOpen(0);
+}
+
+// ── VOICE INPUT ───────────────────────────────────────────────────
+// Continuous + interim recognition so we can see speech arriving in real time.
+// A single debounced timer (VA_SILENCE_TIMEOUT_MS) is reset on every result —
+// interim or final — and left to run out when the user goes quiet. When it fires,
+// we stop recognition ourselves rather than waiting on the browser's own cutoff,
+// which is what gives us an exact, predictable 3-second silence window.
 function startSpeechRecognition() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-        showToast('Speech Recognition not supported in this browser. Please type or use Chrome.', 'error');
-        document.getElementById('va-response').textContent = "Voice recognition is not supported by your browser. Please use Google Chrome.";
+        showToast('Speech recognition needs Google Chrome.', 'error');
+        pushVaBubble('assistant', 'Voice input is not supported by this browser. Please use Google Chrome.');
         return;
     }
-
-    if (isListening) {
-        return;
-    }
+    if (isListening) return;
 
     recognition = new SpeechRecognition();
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.lang = 'en-US';
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
-    const widget = document.getElementById('va-widget');
-    const orb = document.getElementById('va-orb');
-    const actionBtn = document.getElementById('va-action-btn');
-    const transcriptBox = document.getElementById('va-transcript');
+    let listeningBubble = null;
+    let finalTranscript = '';
+
+    const armSilenceTimer = (ms) => {
+        clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => {
+            if (recognition) { try { recognition.stop(); } catch (e) { /* already stopped */ } }
+        }, ms);
+    };
 
     recognition.onstart = () => {
         isListening = true;
-        setVaStatus('listening');
-        if (orb) orb.classList.add('listening');
-        transcriptBox.textContent = "Listening...";
-        
-        // Stop any active speech synthesis so it doesn't listen to itself
+        setVaState('listening');
+        // Stop the assistant talking over itself.
         if (window.speechSynthesis) window.speechSynthesis.cancel();
+        stopLipSync();
+        listeningBubble = pushVaBubble('user', 'Listening…', { persist: true });
+        // Grace period to start speaking — much longer than the post-speech cutoff,
+        // since it takes a moment to react to the mic turning on.
+        armSilenceTimer(VA_INITIAL_LISTEN_TIMEOUT_MS);
     };
 
     recognition.onresult = (event) => {
-        const speechResult = event.results[0][0].transcript;
-        transcriptBox.textContent = speechResult;
-        addVaHistory('user', speechResult);
-        processVoiceCommand(speechResult);
+        armSilenceTimer(VA_SILENCE_TIMEOUT_MS); // speech detected — tighten to the 3s post-speech countdown
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) finalTranscript += transcript + ' ';
+            else interim += transcript;
+        }
+        const preview = (finalTranscript + interim).trim();
+        if (listeningBubble && preview) {
+            const textEl = listeningBubble.querySelector('.va-bubble-text');
+            if (textEl) textEl.textContent = preview;
+        }
     };
 
     recognition.onerror = (event) => {
         console.error('Speech recognition error:', event.error);
-        transcriptBox.textContent = "Sorry, I couldn't hear you clearly. Click below to try again.";
-        stopSpeechRecognition(true);
+        if (event.error !== 'aborted' && event.error !== 'no-speech') {
+            pushVaBubble('assistant', "I couldn't hear that clearly. Click the nurse and try again.");
+        }
     };
 
     recognition.onend = () => {
-        stopSpeechRecognition(false);
+        clearTimeout(silenceTimer);
+        isListening = false;
+        if (vaState === 'listening') setVaState('idle');
+        retireVaBubble(listeningBubble);
+        listeningBubble = null;
+
+        const text = finalTranscript.trim();
+        if (text) {
+            pushVaBubble('user', text);
+            addVaHistory('user', text);
+            processVoiceCommand(text);
+        }
     };
 
     recognition.start();
 }
 
-function stopSpeechRecognition(showRelease = false) {
-    isListening = false;
-    const widget = document.getElementById('va-widget');
-    const orb = document.getElementById('va-orb');
-    const actionBtn = document.getElementById('va-action-btn');
-    
-    if (widget) widget.classList.remove('listening');
-    if (orb) orb.classList.remove('listening');
-    if (showRelease) {
-        vaReleaseUntil = Date.now() + 550;
-        setVaStatus('released');
-        setTimeout(() => {
-            const currentStatus = document.getElementById('va-status')?.textContent;
-            if (currentStatus === 'Stopped') setVaStatus('idle');
-        }, 550);
-    } else if (Date.now() >= vaReleaseUntil) {
-        setVaStatus('idle');
-    }
-
+// Manual stop (second click / Enter) goes through the same recognition.stop() path
+// as the silence timer, so transcript finalization only ever happens in one place: onend.
+function stopSpeechRecognition() {
+    clearTimeout(silenceTimer);
     if (recognition) {
-        try { recognition.stop(); } catch(e) {}
+        try { recognition.stop(); } catch (e) { /* already stopped */ }
     }
 }
 
-// Command Processing with Intent Matching
+// ── DIALOGUE CONTROLLER ───────────────────────────────────────────
+// Deterministic queue intents are answered locally from live status (instant, no API).
+// Everything else goes to /api/assistant/dialogue, which handles service FAQs,
+// arithmetic, and queue dispatch, and returns a resolved action for the client.
 async function processVoiceCommand(text) {
-    const query = text.toLowerCase().trim();
-    const responseBox = document.getElementById('va-response');
-    setVaStatus('processing');
-    responseBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing command...';
+    const query = String(text || '').toLowerCase().trim();
+    if (!query) return;
+    setVaState('thinking');
 
-    // 1. Intent Check: Welcome / Greetings
-    if (query === 'hello' || query === 'hi' || query.includes('who are you')) {
-        const reply = "Hello! I am your Voice AI Assistant. Ask me about your queue status, service pricing, or estimated wait times.";
-        responseBox.textContent = reply;
-        addVaHistory('assistant', reply);
-        setVaStatus('idle');
-        speakAloud(reply);
-        return;
-    }
-
-    // 2. Intent Check: Active Queue Status
-    if (query.includes('status') || query.includes('queue') || query.includes('ticket') || query.includes('my position')) {
-        try {
-            const res = await fetch('/api/queue/my-status', { headers: authHeaders() });
-            const status = await res.json();
-            if (status.active) {
-                const currentStation = status.current_queue 
-                    ? (status.current_queue.station_type === 'frontdesk' ? 'Front Desk' : status.steps.find(s=>s.status==='active')?.name || 'next step')
-                    : 'your current step';
-                const reply = `Your ticket number is ${status.current_queue.number}. You are currently at the ${currentStation}. There are ${status.people_ahead} people ahead of you, and your estimated wait time is ${status.estimated_time} minutes.`;
-                responseBox.textContent = reply;
-                addVaHistory('assistant', reply);
-                setVaStatus('idle');
-                speakAloud(reply);
-            } else {
-                const reply = "You do not have an active queue ticket right now. Go to the Services tab to select a package and join the queue.";
-                responseBox.textContent = reply;
-                addVaHistory('assistant', reply);
-                setVaStatus('idle');
-                speakAloud(reply);
-            }
-        } catch(e) {
-            responseBox.textContent = "Error fetching queue status.";
-            setVaStatus('idle');
+    try {
+        // Plain greeting — brief intro only, no capability laundry list.
+        if (/^(hi|hello|hey|good (morning|afternoon|evening))\b/.test(query)) {
+            vaSay("Hello! I'm your virtual nurse assistant.");
+            return;
         }
-        return;
-    }
 
-    // 3. Intent Check: Wait Time Estimation
-    if (query.includes('wait') || query.includes('how long') || query.includes('eta') || query.includes('time')) {
-        try {
-            const res = await fetch('/api/queue/my-status', { headers: authHeaders() });
-            const status = await res.json();
-            if (status.active) {
-                const reply = `Your estimated wait time is ${status.estimated_time} minutes.`;
-                responseBox.textContent = reply;
-                addVaHistory('assistant', reply);
-                setVaStatus('idle');
-                speakAloud(reply);
-            } else {
-                const reply = "You do not have an active ticket. Average waiting time for check-ins is around ten minutes per station.";
-                responseBox.textContent = reply;
-                addVaHistory('assistant', reply);
-                setVaStatus('idle');
-                speakAloud(reply);
-            }
-        } catch(e) {
-            responseBox.textContent = "Error fetching wait time.";
-            setVaStatus('idle');
+        // Explicit capability question — state what it can do, only when asked.
+        if (/who are you|what (can|do) you do|what are you|how can you help/.test(query)) {
+            vaSay('I can answer questions about our services and prices, do quick calculations, and help you join a queue.');
+            return;
         }
-        return;
-    }
 
-    // 4. Intent Check: Price Matching (General Pricing FAQs)
-    if (query.includes('price') || query.includes('how much') || query.includes('cost') || query.includes('package') || query.includes('service')) {
-        try {
-            const res = await fetch('/api/packages');
-            const packages = await res.json();
-            
-            // Look for specific package name matches
-            let foundPkg = null;
-            for (const p of packages) {
-                if (query.includes(p.name.toLowerCase()) || p.name.toLowerCase().split(/\s+/).some(word => word.length > 3 && query.includes(word))) {
-                    foundPkg = p;
-                    break;
-                }
-            }
-
-            if (foundPkg) {
-                const reply = `The price for ${foundPkg.name} is ${formatCurrency(foundPkg.price)}. The estimated processing time is ${foundPkg.est_time_minutes} minutes.`;
-                responseBox.textContent = reply;
-                addVaHistory('assistant', reply);
-                setVaStatus('idle');
-                speakAloud(reply);
-            } else {
-                // Return generic pricing list
-                const reply = "Available packages include Complete Blood Count for 450 pesos, Ultrasound for 2800 pesos, and Pre employment Medical for 3500 pesos. You can browse the full price list in the Services tab.";
-                responseBox.textContent = reply;
-                addVaHistory('assistant', reply);
-                setVaStatus('idle');
-                speakAloud(reply);
-            }
-        } catch(e) {
-            responseBox.textContent = "Error loading package pricing list.";
-            setVaStatus('idle');
+        if (/\b(status|my ticket|my number|my position|what.?s my queue)\b/.test(query) ||
+            (/\bqueue\b/.test(query) && !/\b(join|enqueue|line me|book|put me|cancel|leave)\b/.test(query))) {
+            await answerQueueStatus();
+            return;
         }
+
+        if (/\b(wait|how long|eta|estimate)\b/.test(query) && !/\b(cost|price|much)\b/.test(query)) {
+            await answerWaitTime();
+            return;
+        }
+
+        // Service FAQ · calculation · queue dispatch
+        const res = await fetch('/api/assistant/dialogue', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ text, history: vaHistory.slice(-6) })
+        });
+        if (!res.ok) throw new Error('Assistant request failed');
+        const data = await res.json();
+
+        vaSay(data.reply);
+        executeVaAction(data.action);
+    } catch (err) {
+        console.error('Assistant error:', err);
+        vaSay("I'm having trouble reaching the clinic assistant right now. Please try again in a moment.");
+    }
+}
+
+// Executes the action the dialogue controller resolved. Queue dispatch always
+// routes through the existing preview/confirm flow — the nurse never queues silently.
+function executeVaAction(action) {
+    if (!action || action.type === 'none') return;
+
+    switch (action.type) {
+        case 'join_queue':
+            if (action.package_id && typeof vaStartPackageFlow === 'function') {
+                vaStartPackageFlow(action.package_id);
+            }
+            break;
+        case 'cancel_queue':
+            if (typeof cancelQueue === 'function') cancelQueue();
+            break;
+        case 'show_status':
+            navigateTo('dashboard');
+            break;
+        case 'open_services':
+            navigateTo('services');
+            break;
+    }
+}
+
+async function answerQueueStatus() {
+    const res = await fetch('/api/queue/my-status', { headers: authHeaders() });
+    const status = await res.json();
+    if (!status.active) {
+        vaSay('You do not have an active ticket right now. Tell me which service you need and I can queue you for it.');
         return;
     }
+    const station = status.steps.find(s => s.status === 'active')?.name || 'the front desk';
+    vaSay(`Your ticket is ${status.current_queue?.number || 'pending'}. You are at ${station} with ${status.people_ahead} ahead of you, and about ${status.estimated_time} minutes to go.`);
+    navigateTo('dashboard');
+}
 
-    const reply = "I can help with queue status, estimated wait time, and service pricing. Please ask one of those clinic service questions.";
-    responseBox.textContent = reply;
-    addVaHistory('assistant', reply);
-    speakAloud(reply);
-    setVaStatus('idle');
+async function answerWaitTime() {
+    const res = await fetch('/api/queue/my-status', { headers: authHeaders() });
+    const status = await res.json();
+    if (!status.active) {
+        vaSay('You have no active ticket. Check in at the front desk usually takes about ten minutes per station.');
+        return;
+    }
+    const next = status.steps.find(s => s.status === 'pending');
+    const tail = next ? ` After that, ${next.name} starts in roughly ${next.eta_minutes} minutes.` : '';
+    vaSay(`Your estimated remaining wait is ${status.estimated_time} minutes.${tail}`);
 }

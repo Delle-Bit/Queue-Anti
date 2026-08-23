@@ -1,248 +1,252 @@
-# Graph Report - Attempt1  (2026-08-20)
+# Graph Report - .  (2026-08-23)
 
 ## Corpus Check
-- 53 files · ~62,934 words
+- 2 files · ~67,523 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 555 nodes · 709 edges · 47 communities (34 shown, 13 thin omitted)
-- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 44 edges (avg confidence: 0.5)
-- Token cost: 0 input · 0 output
-
-## Graph Freshness
-- Built from commit: `49c2ff82`
-- Run `git rev-parse HEAD` and compare to check if the graph is stale.
-- Run `graphify update .` after code changes (no API cost).
+- 645 nodes · 952 edges · 36 communities (34 shown, 2 thin omitted)
+- Extraction: 93% EXTRACTED · 7% INFERRED · 0% AMBIGUOUS · INFERRED: 67 edges (avg confidence: 0.63)
+- Token cost: 79,499 input · 0 output
 
 ## Community Hubs (Navigation)
-- customer.js
-- dependencies
-- owner.js
-- admintechnical.js
-- index.js
-- What You Must Do When Invoked
-- What You Must Do When Invoked
-- frontdesk.js
-- shared.js
-- server.js
-- doctor.js
-- laboratory.js
-- queue.js
-- va.js
-- auth.js
-- graphify reference: extra exports and benchmark
-- graphify reference: extra exports and benchmark
-- admin.js
-- queue_automation.js
-- Sample Data
-- packages.js
-- graphify reference: query, path, explain
-- graphify reference: query, path, explain
-- database.js
-- ai_services.js
-- Medical Clinic Queueing System - Local Setup Instructions
-- Customer Side Flowchart & Data Flow Guide
-- graphify reference: add a URL and watch a folder
-- graphify reference: commit hook and native CLAUDE.md integration
-- graphify reference: incremental update and cluster-only
-- graphify reference: add a URL and watch a folder
-- graphify reference: commit hook and native CLAUDE.md integration
-- graphify reference: incremental update and cluster-only
-- graphify reference: GitHub clone and cross-repo merge
-- graphify reference: transcribe video and audio
-- graphify reference: GitHub clone and cross-repo merge
-- graphify reference: transcribe video and audio
-- AGENTS.md
-- rules/graphify.md
-- .agents/skills/graphify/references/extraction-spec.md
-- workflows/graphify.md
-- CLAUDE.md
-- .claude/CLAUDE.md
-- .claude/skills/graphify/references/extraction-spec.md
-- GEMINI.md
-- Medical Clinic Queueing System
-- pytesseract_ocr.py
+- Landing Page Auth & Registration
+- Customer Dashboard (customer.js)
+- Admin Technical Dashboard
+- Core NPM Dependencies
+- Owner Dashboard
+- Setup & Flowchart Docs (Current)
+- Virtual Nurse Assistant Widget
+- Front Desk Dashboard
+- Server Entry Point & Routing
+- Shared Frontend Utilities
+- VA Backend Dialogue Route
+- Laboratory/Doctor Dashboard Assets
+- Project Guidance Docs
+- AI Services & Fallback Chain
+- Doctor Dashboard
+- Graphify Export Steps
+- Auth & Registration Routes
+- Graphify Transcribe & Update Refs
+- Graphify Pipeline Steps
+- Graphify Pipeline Steps
+- Graphify Query/Path/Explain Reference
+- Role & Auth Config + Packages Route
+- Database Schema & Migrations
+- Graphify Skill Core
+- Graphify Subcommand Reference Index
+- Graphify Subcommand Reference Index
+- Admin Routes (admin.js)
+- Project README
+- Graphify Add/Watch Reference
+- Graphify Hooks Reference
+- Graphify Extraction Spec
+- Seed Test Accounts
+- Graphify GitHub Merge Reference
+- Queue Priority Scoring
+- OCR Script
+- CLAUDE.md Graphify Note
 
 ## God Nodes (most connected - your core abstractions)
-1. `What You Must Do When Invoked` - 12 edges
-2. `What You Must Do When Invoked` - 12 edges
-3. `/graphify` - 11 edges
-4. `/graphify` - 10 edges
-5. `pool` - 9 edges
-6. `loadLabQueue()` - 8 edges
-7. `graphify reference: extra exports and benchmark` - 8 edges
-8. `graphify reference: extra exports and benchmark` - 8 edges
-9. `Medical Clinic Queueing System` - 8 edges
-10. `loadFdQueue()` - 7 edges
+1. `CLAUDE.md — Project Guidance` - 28 edges
+2. `Graphify SKILL.md (.agents)` - 15 edges
+3. `Graphify SKILL.md (.claude)` - 14 edges
+4. `What You Must Do When Invoked` - 12 edges
+5. `What You Must Do When Invoked` - 12 edges
+6. `/graphify` - 11 edges
+7. `README.md — Project Overview` - 11 edges
+8. `/graphify` - 10 edges
+9. `pool` - 10 edges
+10. `graphify reference: extra exports and benchmark` - 8 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `buildPackagePreview()` --calls--> `peekTicketNumber()`  [EXTRACTED]
-  routes/queue.js → queue_automation.js
-- `startServer()` --calls--> `initDB()`  [EXTRACTED]
-  server.js → database.js
-- `startQueueFromAppointment()` --calls--> `nextTicketNumber()`  [EXTRACTED]
-  server.js → queue_automation.js
+- `Zero-Migration Auto Schema Creation` --references--> `initDB()`  [EXTRACTED]
+  INSTRUCTIONS.md → database.js
+- `Graphify SKILL.md (.agents)` --semantically_similar_to--> `Graphify SKILL.md (.claude)`  [INFERRED] [semantically similar]
+  .agents/skills/graphify/SKILL.md → .claude/skills/graphify/SKILL.md
+- `Honesty Rules` --semantically_similar_to--> `Honesty Rules`  [INFERRED] [semantically similar]
+  .agents/skills/graphify/SKILL.md → .claude/skills/graphify/SKILL.md
+- `Add-Watch Reference (.agents)` --semantically_similar_to--> `Add-Watch Reference (.claude)`  [INFERRED] [semantically similar]
+  .agents/skills/graphify/references/add-watch.md → .claude/skills/graphify/references/add-watch.md
+- `Exports & Benchmark Reference (.agents)` --semantically_similar_to--> `Exports & Benchmark Reference (.claude)`  [INFERRED] [semantically similar]
+  .agents/skills/graphify/references/exports.md → .claude/skills/graphify/references/exports.md
 
 ## Import Cycles
 - None detected.
 
-## Communities (47 total, 13 thin omitted)
+## Hyperedges (group relationships)
+- **Four-Step Registration Wizard** — flowchart_registration_wizard [EXTRACTED 1.00]
+- **Live Queue Status Sync Pattern** — routes_queue_buildcustomerstatus [EXTRACTED 1.00]
+- **Graphify Skill + Core References (.agents)** — agents_skills_graphify_skill, agents_skills_graphify_references_extraction_spec, agents_skills_graphify_references_query, agents_skills_graphify_references_update [EXTRACTED 1.00]
+- **Graphify Skill + Core References (.claude)** — claude_skills_graphify_skill, claude_skills_graphify_references_extraction_spec, claude_skills_graphify_references_query, claude_skills_graphify_references_update [EXTRACTED 1.00]
+- **Self-Improving Query Loop (save-result + reflect + hook)** — agents_skills_graphify_references_query, agents_skills_graphify_references_query_work_memory, agents_skills_graphify_references_hooks [INFERRED 0.85]
+- **Graphify Instructions Duplicated Across Config Files** — agents_graphify, claude_overview, gemini_graphify, concept_graphify [INFERRED 0.85]
+- **Staff Role-Gated Dashboard Page Family** — public_admintechnical_page, public_owner_page, public_frontdesk_page, public_doctor_page, public_laboratory_page [INFERRED 0.75]
+- **Seed Account & Role Matrix Documentation** — readme_overview, example_accounts_seedlist, concept_seed_accounts, concept_role_based_access [INFERRED 0.75]
 
-### Community 0 - "customer.js"
-Cohesion: 0.09
-Nodes (31): APPT_SLOTS, apptNextStep(), apptPrevStep(), bookAppointment(), calendarDate, cancelQueue(), changeCalendarMonth(), checkMandatoryMedicalForm() (+23 more)
+## Communities (36 total, 2 thin omitted)
 
-### Community 1 - "dependencies"
+### Community 0 - "Landing Page Auth & Registration"
+Cohesion: 0.06
+Nodes (39): authOverlay, captureRegID(), checkPasswordMatch(), checkPasswordStrength(), closeAuthPanel(), finishRegistration(), formatTime(), goToStep() (+31 more)
+
+### Community 1 - "Customer Dashboard (customer.js)"
+Cohesion: 0.08
+Nodes (39): APPT_SLOTS, apptNextStep(), apptPrevStep(), bookAppointment(), calendarDate, cancelQueue(), changeCalendarMonth(), checkMandatoryMedicalForm() (+31 more)
+
+### Community 2 - "Admin Technical Dashboard"
+Cohesion: 0.08
+Nodes (29): allDoctors, allLabs, createAccount(), deleteLab(), deleteUser(), editService(), editUser(), fetchAllLabs() (+21 more)
+
+### Community 3 - "Core NPM Dependencies"
 Cohesion: 0.06
 Nodes (34): axios, bcrypt, body-parser, cors, dotenv, express, jsonwebtoken, multer (+26 more)
 
-### Community 2 - "owner.js"
+### Community 4 - "Owner Dashboard"
 Cohesion: 0.08
-Nodes (26): allAudits, allDoctors, allLabs, deleteLab(), deleteUser(), editService(), editUser(), fetchAllLabs() (+18 more)
+Nodes (28): allAudits, allDoctors, allLabs, deleteLab(), deleteUser(), editService(), editUser(), fetchAllLabs() (+20 more)
 
-### Community 3 - "admintechnical.js"
+### Community 5 - "Setup & Flowchart Docs (Current)"
+Cohesion: 0.08
+Nodes (30): 1. Registration & Authentication Flow, 2. Customer Dashboard & Core Actions Flow, 3. Real-time Status Data Flow Diagram (DFD), Book an Appointment Flow, Customer Dashboard & Core Actions Flow, Customer Side Flowchart & Data Flow Guide, Join a Service Queue Flow, Login Flow (+22 more)
+
+### Community 6 - "Virtual Nurse Assistant Widget"
+Cohesion: 0.18
+Nodes (26): Virtual Nurse Assistant Widget (customer.html), addVaHistory(), answerQueueStatus(), answerWaitTime(), bindVaListeners(), clearVaHistory(), dismissVaBubble(), executeVaAction() (+18 more)
+
+### Community 7 - "Front Desk Dashboard"
+Cohesion: 0.13
+Nodes (19): allFdLogs, allLabs, editService(), fdCallNext(), fdComplete(), filterFdLogs(), labSequence, loadFdQueue() (+11 more)
+
+### Community 8 - "Server Entry Point & Routing"
 Cohesion: 0.09
-Nodes (24): allDoctors, allLabs, deleteLab(), deleteUser(), editService(), editUser(), fetchAllLabs(), initCreateForm() (+16 more)
+Nodes (22): adminRoutes, app, assistantRoutes, authRoutes, bcrypt, bodyParser, cors, dotenv (+14 more)
 
-### Community 4 - "index.js"
-Cohesion: 0.07
-Nodes (35): authOverlay, captureRegID(), checkPasswordMatch(), checkPasswordStrength(), closeAuthPanel(), finishRegistration(), formatTime(), goToStep() (+27 more)
-
-### Community 5 - "What You Must Do When Invoked"
-Cohesion: 0.07
-Nodes (26): For /graphify add and --watch, For /graphify query, For the commit hook and native CLAUDE.md integration, For --update and --cluster-only, /graphify, Honesty Rules, Interpreter guard for subcommands, Part A - Structural extraction for code files (+18 more)
-
-### Community 6 - "What You Must Do When Invoked"
-Cohesion: 0.08
-Nodes (24): For /graphify add and --watch, For /graphify query, For the commit hook and native CLAUDE.md integration, For --update and --cluster-only, /graphify, Honesty Rules, Interpreter guard for subcommands, Part A - Structural extraction for code files (+16 more)
-
-### Community 7 - "frontdesk.js"
-Cohesion: 0.13
-Nodes (16): allFdLogs, allLabs, editService(), fdCallNext(), fdComplete(), filterFdLogs(), labSequence, loadFdQueue() (+8 more)
-
-### Community 8 - "shared.js"
-Cohesion: 0.13
+### Community 9 - "Shared Frontend Utilities"
+Cohesion: 0.14
 Nodes (10): authHeaders(), getRole(), getToken(), getUserId(), getUsername(), initDefaultSection(), logout(), navigateTo() (+2 more)
 
-### Community 9 - "server.js"
-Cohesion: 0.08
-Nodes (23): nextTicketNumber(), adminRoutes, app, authRoutes, bcrypt, bodyParser, cors, dotenv (+15 more)
+### Community 10 - "VA Backend Dialogue Route"
+Cohesion: 0.14
+Nodes (18): peekTicketNumber(), aiServices, { buildCustomerStatus }, express, loadAssistantContext(), { pool }, router, buildCustomerStatus() (+10 more)
 
-### Community 10 - "doctor.js"
+### Community 11 - "Laboratory/Doctor Dashboard Assets"
+Cohesion: 0.17
+Nodes (18): Clinic Heart Logo SVG (repo root copy), Doctor Dashboard Page, Clinic Heart Logo SVG (served copy), addWorkspaceLabNote(), allLabLogs, filterLabLogs(), findMyLab(), labCallNext() (+10 more)
+
+### Community 12 - "Project Guidance Docs"
+Cohesion: 0.18
+Nodes (17): graphify, CLAUDE.md — Project Guidance, Graphify Knowledge Graph Tool, Priority Queueing (Senior/PWD/Pregnant), Role-Based Access Matrix, Seeded Dev Accounts, Auto-Migrating Schema Convention (addColumnIfMissing/addIndexIfMissing in initDB), Soft Deletion Convention (archived/archived_at columns, no hard deletes) (+9 more)
+
+### Community 13 - "AI Services & Fallback Chain"
+Cohesion: 0.12
+Nodes (11): aiServices, axios, callMockAI(), checkAIToggle(), dotenv, fs, logAI(), nvidiaFallback() (+3 more)
+
+### Community 14 - "Doctor Dashboard"
 Cohesion: 0.22
-Nodes (16): addPrescriptionItem(), commitClinicalRecord(), docCallNext(), docComplete(), findMyDoctor(), loadDocQueue(), loadDraftFromLocalStorage(), loadPatientMedicalFile() (+8 more)
+Nodes (17): addPrescriptionItem(), commitClinicalRecord(), docCallNext(), docComplete(), findMyDoctor(), loadDocQueue(), loadDraftFromLocalStorage(), loadPatientMedicalFile() (+9 more)
 
-### Community 11 - "laboratory.js"
-Cohesion: 0.25
-Nodes (13): addWorkspaceLabNote(), allLabLogs, filterLabLogs(), findMyLab(), labCallNext(), labComplete(), loadLabQueue(), loadResultsWorkspace() (+5 more)
+### Community 15 - "Graphify Export Steps"
+Cohesion: 0.11
+Nodes (18): Exports & Benchmark Reference (.agents), graphify reference: extra exports and benchmark, Step 6b - Wiki (only if --wiki flag), Step 7 - Neo4j export (only if --neo4j or --neo4j-push flag), Step 7a - FalkorDB export (only if --falkordb or --falkordb-push flag), Step 7b - SVG export (only if --svg flag), Step 7c - GraphML export (only if --graphml flag), Step 7d - MCP server (only if --mcp flag) (+10 more)
 
-### Community 12 - "queue.js"
-Cohesion: 0.25
-Nodes (10): buildPackagePreview(), express, getCurrentProcessing(), getPackageSteps(), getQueueType(), getStationAverageMinutes(), { pool }, queueAutomation (+2 more)
-
-### Community 13 - "va.js"
-Cohesion: 0.37
-Nodes (12): addVaHistory(), bindVaListeners(), processVoiceCommand(), renderVaHistory(), setVaStatus(), speakAloud(), startSpeechRecognition(), stopSpeechRecognition() (+4 more)
-
-### Community 14 - "auth.js"
+### Community 16 - "Auth & Registration Routes"
 Cohesion: 0.11
 Nodes (11): aiServices, bcrypt, express, fs, jwt, { JWT_SECRET }, multer, { pool } (+3 more)
 
-### Community 15 - "graphify reference: extra exports and benchmark"
-Cohesion: 0.22
-Nodes (8): graphify reference: extra exports and benchmark, Step 6b - Wiki (only if --wiki flag), Step 7 - Neo4j export (only if --neo4j or --neo4j-push flag), Step 7a - FalkorDB export (only if --falkordb or --falkordb-push flag), Step 7b - SVG export (only if --svg flag), Step 7c - GraphML export (only if --graphml flag), Step 7d - MCP server (only if --mcp flag), Step 8 - Token reduction benchmark (only if total_words > 5000)
+### Community 17 - "Graphify Transcribe & Update Refs"
+Cohesion: 0.14
+Nodes (15): Transcribe Reference (.agents), graphify reference: transcribe video and audio, Step 2.5 - Transcribe video / audio files (only if video files detected), Update & Cluster-Only Reference (.agents), For --cluster-only, For --update (incremental re-extraction), graphify reference: incremental update and cluster-only, Stamp-Only-On-Output Manifest Rule (+7 more)
 
-### Community 16 - "graphify reference: extra exports and benchmark"
-Cohesion: 0.22
-Nodes (8): graphify reference: extra exports and benchmark, Step 6b - Wiki (only if --wiki flag), Step 7 - Neo4j export (only if --neo4j or --neo4j-push flag), Step 7a - FalkorDB export (only if --falkordb or --falkordb-push flag), Step 7b - SVG export (only if --svg flag), Step 7c - GraphML export (only if --graphml flag), Step 7d - MCP server (only if --mcp flag), Step 8 - Token reduction benchmark (only if total_words > 5000)
+### Community 18 - "Graphify Pipeline Steps"
+Cohesion: 0.13
+Nodes (15): Part A - Structural extraction for code files, Part B - Semantic extraction (parallel subagents), Part C - Merge AST + semantic into final extraction, Step 0 - GitHub repos and multi-path merge (only if a URL or several paths), Step 1 - Ensure graphify is installed, Step 2.5 - Video and audio (only if video files detected), Step 2 - Detect files, Step 3 - Extract entities and relationships (+7 more)
 
-### Community 17 - "admin.js"
-Cohesion: 0.20
-Nodes (8): bcrypt, crypto, ELEVATED_ROLES, express, { pool }, QRCode, { requireStaff, requireAdmin }, router
+### Community 19 - "Graphify Pipeline Steps"
+Cohesion: 0.13
+Nodes (15): Part A - Structural extraction for code files, Part B - Semantic extraction (parallel subagents), Part C - Merge AST + semantic into final extraction, Step 0 - GitHub repos and multi-path merge (only if a URL or several paths), Step 1 - Ensure graphify is installed, Step 2.5 - Video and audio (only if video files detected), Step 2 - Detect files, Step 3 - Extract entities and relationships (+7 more)
 
-### Community 18 - "queue_automation.js"
-Cohesion: 0.47
-Nodes (5): calculateScore(), getNextFromList(), getNextPatient(), peekTicketNumber(), { pool }
+### Community 20 - "Graphify Query/Path/Explain Reference"
+Cohesion: 0.15
+Nodes (14): Query/Path/Explain Reference (.agents), For /graphify explain, For /graphify path, graphify reference: query, path, explain, Step 0 — Constrained query expansion (REQUIRED before traversal), Step 1 — Traversal, Constrained Query Vocabulary Expansion, Work Memory / Self-Improving Loop (+6 more)
 
-### Community 19 - "Sample Data"
-Cohesion: 0.29
-Nodes (6): Doctor Stations, Example Test Accounts, Laboratories, Role Descriptions, Sample Data, Service Packages
-
-### Community 20 - "packages.js"
+### Community 21 - "Role & Auth Config + Packages Route"
 Cohesion: 0.19
 Nodes (10): ADMIN_ROLES, requireAdmin(), requireStaff(), STAFF_ROLES, aiServices, express, jwt, { JWT_SECRET, requireStaff } (+2 more)
 
-### Community 21 - "graphify reference: query, path, explain"
-Cohesion: 0.33
-Nodes (5): For /graphify explain, For /graphify path, graphify reference: query, path, explain, Step 0 — Constrained query expansion (REQUIRED before traversal), Step 1 — Traversal
-
-### Community 22 - "graphify reference: query, path, explain"
-Cohesion: 0.33
-Nodes (5): For /graphify explain, For /graphify path, graphify reference: query, path, explain, Step 0 — Constrained query expansion (REQUIRED before traversal), Step 1 — Traversal
-
-### Community 23 - "database.js"
+### Community 22 - "Database Schema & Migrations"
 Cohesion: 0.21
 Nodes (10): addColumnIfMissing(), addIndexIfMissing(), DEFAULT_SERVICES, initDB(), mysql, pool, aiServices, express (+2 more)
 
-### Community 24 - "ai_services.js"
-Cohesion: 0.16
-Nodes (11): aiServices, axios, callMockAI(), checkAIToggle(), dotenv, fs, logAI(), nvidiaFallback() (+3 more)
+### Community 23 - "Graphify Skill Core"
+Cohesion: 0.20
+Nodes (8): graphify, Graphify SKILL.md (.agents), Graphify Full Pipeline (Steps 0-9), #479 Shrink-Guard, Workflow: graphify, graphify, Graphify SKILL.md (.claude), PowerShell 5.1 Scrolling Fix
 
-### Community 25 - "Medical Clinic Queueing System - Local Setup Instructions"
-Cohesion: 0.33
-Nodes (5): 1. Prerequisites, 2. MySQL Setup, 3. Running the Application Locally, 4. Features, Medical Clinic Queueing System - Local Setup Instructions
+### Community 24 - "Graphify Subcommand Reference Index"
+Cohesion: 0.20
+Nodes (10): For /graphify add and --watch, For /graphify query, For the commit hook and native CLAUDE.md integration, For --update and --cluster-only, /graphify, Honesty Rules, Interpreter guard for subcommands, Usage (+2 more)
 
-### Community 26 - "Customer Side Flowchart & Data Flow Guide"
-Cohesion: 0.40
-Nodes (4): 1. Registration & Authentication Flow, 2. Customer Dashboard & Core Actions Flow, 3. Real-time Status Data Flow Diagram (DFD), Customer Side Flowchart & Data Flow Guide
+### Community 25 - "Graphify Subcommand Reference Index"
+Cohesion: 0.20
+Nodes (10): For /graphify add and --watch, For /graphify query, For the commit hook and native CLAUDE.md integration, For --update and --cluster-only, /graphify, Interpreter guard for subcommands, PowerShell 5.1: Vertical scrolling stops working, Troubleshooting (+2 more)
 
-### Community 27 - "graphify reference: add a URL and watch a folder"
-Cohesion: 0.50
-Nodes (3): For /graphify add, For --watch, graphify reference: add a URL and watch a folder
+### Community 26 - "Admin Routes (admin.js)"
+Cohesion: 0.20
+Nodes (8): bcrypt, crypto, ELEVATED_ROLES, express, { pool }, QRCode, { requireStaff, requireAdmin }, router
 
-### Community 28 - "graphify reference: commit hook and native CLAUDE.md integration"
-Cohesion: 0.50
-Nodes (3): For git commit hook, For native CLAUDE.md integration, graphify reference: commit hook and native CLAUDE.md integration
-
-### Community 29 - "graphify reference: incremental update and cluster-only"
-Cohesion: 0.50
-Nodes (3): For --cluster-only, For --update (incremental re-extraction), graphify reference: incremental update and cluster-only
-
-### Community 30 - "graphify reference: add a URL and watch a folder"
-Cohesion: 0.50
-Nodes (3): For /graphify add, For --watch, graphify reference: add a URL and watch a folder
-
-### Community 31 - "graphify reference: commit hook and native CLAUDE.md integration"
-Cohesion: 0.50
-Nodes (3): For git commit hook, For native CLAUDE.md integration, graphify reference: commit hook and native CLAUDE.md integration
-
-### Community 32 - "graphify reference: incremental update and cluster-only"
-Cohesion: 0.50
-Nodes (3): For --cluster-only, For --update (incremental re-extraction), graphify reference: incremental update and cluster-only
-
-### Community 45 - "Medical Clinic Queueing System"
+### Community 27 - "Project README"
 Cohesion: 0.22
 Nodes (8): Key routes, Medical Clinic Queueing System, Notes, Roles & access, Scripts, Seed accounts (dev only — change before any real deployment), Setup, Stack
 
+### Community 28 - "Graphify Add/Watch Reference"
+Cohesion: 0.25
+Nodes (8): Add-Watch Reference (.agents), For /graphify add, For --watch, graphify reference: add a URL and watch a folder, Add-Watch Reference (.claude), For /graphify add, For --watch, graphify reference: add a URL and watch a folder
+
+### Community 29 - "Graphify Hooks Reference"
+Cohesion: 0.25
+Nodes (6): For git commit hook, For native CLAUDE.md integration, graphify reference: commit hook and native CLAUDE.md integration, For git commit hook, For native CLAUDE.md integration, graphify reference: commit hook and native CLAUDE.md integration
+
+### Community 30 - "Graphify Extraction Spec"
+Cohesion: 0.33
+Nodes (7): Extraction Subagent Spec (.agents), Discrete Confidence Rubric, graphify reference: extraction subagent prompt, Node ID Format Rule, Extraction Subagent Spec (.claude), Discrete Confidence Rubric, graphify reference: extraction subagent prompt
+
+### Community 31 - "Seed Test Accounts"
+Cohesion: 0.29
+Nodes (6): Doctor Stations, Example Test Accounts, Laboratories, Role Descriptions, Sample Data, Service Packages
+
+### Community 32 - "Graphify GitHub Merge Reference"
+Cohesion: 0.33
+Nodes (6): GitHub Clone & Merge Reference (.agents), graphify reference: GitHub clone and cross-repo merge, Step 0 - Clone GitHub repo(s) (only if a GitHub URL was given), GitHub Clone & Merge Reference (.claude), graphify reference: GitHub clone and cross-repo merge, Step 0 - Clone GitHub repo(s) (only if a GitHub URL was given)
+
+### Community 33 - "Queue Priority Scoring"
+Cohesion: 0.60
+Nodes (4): calculateScore(), getNextFromList(), getNextPatient(), { pool }
+
+## Ambiguous Edges - Review These
+- `README.md — Project Overview` → `server_pid.txt — Runtime Process ID Scratch File`  [AMBIGUOUS]
+  server_pid.txt · relation: conceptually_related_to
+- `Customize Section (admintechnical.html)` → `Clinic Building Exterior Photo`  [AMBIGUOUS]
+  public/admintechnical.html · relation: references
+
 ## Knowledge Gaps
-- **217 isolated node(s):** `axios`, `{ pool }`, `{ spawn }`, `path`, `fs` (+212 more)
+- **228 isolated node(s):** `graphify`, `Usage`, `What graphify is for`, `Step 0 - GitHub repos and multi-path merge (only if a URL or several paths)`, `Step 1 - Ensure graphify is installed` (+223 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **13 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **2 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `pool` connect `database.js` to `server.js`, `queue.js`, `auth.js`, `admin.js`, `queue_automation.js`, `packages.js`, `ai_services.js`?**
-  _High betweenness centrality (0.004) - this node is a cross-community bridge._
-- **What connects `axios`, `{ pool }`, `{ spawn }` to the rest of the system?**
-  _217 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `customer.js` be split into smaller, more focused modules?**
-  _Cohesion score 0.09103840682788052 - nodes in this community are weakly interconnected._
-- **Should `dependencies` be split into smaller, more focused modules?**
-  _Cohesion score 0.05714285714285714 - nodes in this community are weakly interconnected._
-- **Should `owner.js` be split into smaller, more focused modules?**
-  _Cohesion score 0.08377896613190731 - nodes in this community are weakly interconnected._
-- **Should `admintechnical.js` be split into smaller, more focused modules?**
-  _Cohesion score 0.08522727272727272 - nodes in this community are weakly interconnected._
-- **Should `index.js` be split into smaller, more focused modules?**
-  _Cohesion score 0.06567992599444958 - nodes in this community are weakly interconnected._
+- **What is the exact relationship between `README.md — Project Overview` and `server_pid.txt — Runtime Process ID Scratch File`?**
+  _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
+- **What is the exact relationship between `Customize Section (admintechnical.html)` and `Clinic Building Exterior Photo`?**
+  _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
+- **Why does `Customer Dashboard Page` connect `Customer Dashboard (customer.js)` to `Laboratory/Doctor Dashboard Assets`, `Virtual Nurse Assistant Widget`?**
+  _High betweenness centrality (0.310) - this node is a cross-community bridge._
+- **Why does `Clinic Heart Logo SVG (served copy)` connect `Laboratory/Doctor Dashboard Assets` to `Landing Page Auth & Registration`, `Customer Dashboard (customer.js)`, `Admin Technical Dashboard`, `Owner Dashboard`, `Front Desk Dashboard`?**
+  _High betweenness centrality (0.287) - this node is a cross-community bridge._
+- **Why does `CLAUDE.md — Project Guidance` connect `Project Guidance Docs` to `Queue Priority Scoring`, `Shared Frontend Utilities`, `VA Backend Dialogue Route`, `AI Services & Fallback Chain`, `Role & Auth Config + Packages Route`, `Database Schema & Migrations`?**
+  _High betweenness centrality (0.243) - this node is a cross-community bridge._
+- **Are the 3 inferred relationships involving `CLAUDE.md — Project Guidance` (e.g. with `graphify` and `graphify`) actually correct?**
+  _`CLAUDE.md — Project Guidance` has 3 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 2 inferred relationships involving `Graphify SKILL.md (.agents)` (e.g. with `rules/graphify.md` and `Graphify SKILL.md (.claude)`) actually correct?**
+  _`Graphify SKILL.md (.agents)` has 2 INFERRED edges - model-reasoned connections that need verification._

@@ -86,6 +86,10 @@ async function buildPackagePreview(packageId, category) {
     let estimatedTotalTime = 0;
     for (let i = 0; i < steps.length; i++) {
         const avg = await getStationAverageMinutes(steps[i].type, steps[i].station_id, steps[i].est_time_minutes);
+        // Cumulative ETA per department, so the linear track can label each node before joining.
+        steps[i].est_minutes = avg;
+        steps[i].eta_minutes = Math.ceil(estimatedTotalTime);
+        steps[i].people_waiting = i === 0 ? frontDeskWaiting[0].cnt : 0;
         estimatedTotalTime += i === 0 ? (frontDeskWaiting[0].cnt + 1) * avg : avg;
     }
     return {
@@ -296,61 +300,100 @@ router.post('/next', requireStaff, async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed to call next' }); }
 });
 
-// Get customer's queue status
-router.get('/my-status', async (req, res) => {
-    try {
-        const [seqs] = await pool.query(
-            `SELECT qs.*, sp.name as package_name, sp.price FROM queue_sequences qs
-             JOIN service_packages sp ON qs.package_id = sp.id
-             WHERE qs.customer_id = ? AND qs.status = 'in_progress' AND qs.archived=false`, [req.user.id]
-        );
-        if (seqs.length === 0) return res.json({ active: false });
+// Build the customer's live queue status.
+// Shared by GET /my-status and the Virtual Assistant dialogue controller.
+async function buildCustomerStatus(customerId) {
+    const [seqs] = await pool.query(
+        `SELECT qs.*, sp.name as package_name, sp.price FROM queue_sequences qs
+         JOIN service_packages sp ON qs.package_id = sp.id
+         WHERE qs.customer_id = ? AND qs.status = 'in_progress' AND qs.archived=false`, [customerId]
+    );
+    if (seqs.length === 0) return { active: false };
 
-        const seq = seqs[0];
-        const serviceSteps = await getPackageSteps(seq.package_id);
+    const seq = seqs[0];
+    const serviceSteps = await getPackageSteps(seq.package_id);
 
-        // Current queue entry
-        const [currentQ] = await pool.query(
-            `SELECT * FROM queue WHERE sequence_id = ? AND status IN ('waiting','serving') AND archived=false ORDER BY timestamp ASC LIMIT 1`, [seq.id]
-        );
+    // Current queue entry
+    const [currentQ] = await pool.query(
+        `SELECT * FROM queue WHERE sequence_id = ? AND status IN ('waiting','serving') AND archived=false ORDER BY timestamp ASC LIMIT 1`, [seq.id]
+    );
 
-        // Calculate position, current processing number, and total service estimate from live station data.
-        let position = 0, eta = 0, currentProcessing = '--';
-        if (currentQ.length > 0) {
-            const cq = currentQ[0];
-            let countQuery = `SELECT COUNT(*) as cnt FROM queue WHERE station_type=? AND status='waiting' AND archived=false AND timestamp < ?`;
-            const countParams = [cq.station_type, cq.timestamp];
-            if (cq.station_id) { countQuery += ' AND station_id=?'; countParams.push(cq.station_id); }
-            const [posRows] = await pool.query(countQuery, countParams);
-            position = posRows[0].cnt + 1;
-            currentProcessing = await getCurrentProcessing(cq.station_type, cq.station_id);
+    // Calculate position, current processing number, and total service estimate from live station data.
+    let position = 0, eta = 0, currentProcessing = '--';
+    if (currentQ.length > 0) {
+        const cq = currentQ[0];
+        let countQuery = `SELECT COUNT(*) as cnt FROM queue WHERE station_type=? AND status='waiting' AND archived=false AND timestamp < ?`;
+        const countParams = [cq.station_type, cq.timestamp];
+        if (cq.station_id) { countQuery += ' AND station_id=?'; countParams.push(cq.station_id); }
+        const [posRows] = await pool.query(countQuery, countParams);
+        position = posRows[0].cnt + 1;
+        currentProcessing = await getCurrentProcessing(cq.station_type, cq.station_id);
 
-            for (let i = seq.current_step; i < serviceSteps.length; i++) {
-                const step = serviceSteps[i];
-                const avg = await getStationAverageMinutes(step.type, step.station_id, step.est_time_minutes);
-                eta += i === seq.current_step ? position * avg : avg;
+        for (let i = seq.current_step; i < serviceSteps.length; i++) {
+            const step = serviceSteps[i];
+            const avg = await getStationAverageMinutes(step.type, step.station_id, step.est_time_minutes);
+            eta += i === seq.current_step ? position * avg : avg;
+        }
+    }
+
+    // Build steps array with per-department timing for the linear queue track.
+    // eta_minutes is cumulative: minutes from now until that department starts serving this customer.
+    let runningEta = 0;
+    const steps = [];
+    for (let i = 0; i < serviceSteps.length; i++) {
+        const step = serviceSteps[i];
+        let status = 'pending';
+        if (seq.current_step > i) status = 'completed';
+        else if (seq.current_step === i) status = 'active';
+
+        const avg = await getStationAverageMinutes(step.type, step.station_id, step.est_time_minutes);
+        let waiting = 0;
+        let etaMinutes = null;
+        if (status !== 'completed') {
+            if (status === 'active') {
+                waiting = Math.max(0, position - 1);
+                etaMinutes = 0;
+                runningEta = position * avg;
+            } else {
+                const [wRows] = await pool.query(
+                    `SELECT COUNT(*) as cnt FROM queue WHERE station_type=? AND status='waiting' AND archived=false
+                     ${step.station_id ? 'AND station_id=?' : ''}`,
+                    step.station_id ? [step.type, step.station_id] : [step.type]
+                );
+                waiting = wRows[0].cnt;
+                etaMinutes = Math.ceil(runningEta);
+                runningEta += avg;
             }
         }
 
-        // Build steps array
-        const steps = serviceSteps.map((step, i) => {
-            let status = 'pending';
-            if (seq.current_step > i) status = 'completed';
-            else if (seq.current_step === i) status = 'active';
-            return { name: step.name, type: step.type, status };
+        steps.push({
+            name: step.name,
+            type: step.type,
+            status,
+            est_minutes: avg,
+            eta_minutes: etaMinutes,
+            people_waiting: waiting,
+            is_current_station: status === 'active'
         });
+    }
 
-        res.json({
-            active: true,
-            sequence: seq,
-            steps,
-            current_queue: currentQ[0] || null,
-            current_processing: currentProcessing,
-            position,
-            estimated_time: Math.ceil(eta),
-            estimated_total_time: Math.ceil(eta),
-            people_ahead: Math.max(0, position - 1)
-        });
+    return {
+        active: true,
+        sequence: seq,
+        steps,
+        current_queue: currentQ[0] || null,
+        current_processing: currentProcessing,
+        position,
+        estimated_time: Math.ceil(eta),
+        estimated_total_time: Math.ceil(eta),
+        people_ahead: Math.max(0, position - 1)
+    };
+}
+
+// Get customer's queue status
+router.get('/my-status', async (req, res) => {
+    try {
+        res.json(await buildCustomerStatus(req.user.id));
     } catch (err) {
         console.error('My status error:', err);
         res.status(500).json({ error: 'Failed to fetch status' });
@@ -421,3 +464,6 @@ router.get('/booked-dates', async (req, res) => {
 });
 
 module.exports = router;
+// Exposed for the Virtual Assistant dialogue controller (routes/assistant.js),
+// which grounds its answers in the same live queue state the dashboard renders.
+module.exports.buildCustomerStatus = buildCustomerStatus;
