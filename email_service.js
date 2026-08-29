@@ -1,56 +1,29 @@
-const axios = require('axios');
 const emailjs = require('@emailjs/nodejs');
 
-let warnedMissingKey = false;
-let warnedMissingEmailJSConfig = false;
+let warnedMissingOtpConfig = false;
+let warnedMissingResetConfig = false;
 
-// Sends a one-time-password email via the Resend HTTP API. Falls back to the
-// same console-mock pattern used by the registration OTP flow (routes/auth.js)
-// when RESEND_API_KEY isn't configured, so login isn't hard-blocked in dev.
+// Sends a one-time-password email via EmailJS, using its own dedicated
+// service/template/keys — deliberately separate from the password-reset
+// EmailJS config below (different EmailJS service, different template, so
+// they need their own credentials). Falls back to a console-mock when not
+// fully configured, so OTP flows aren't hard-blocked in dev. The OTP template's
+// "To Email" field (Settings tab, EmailJS dashboard) is bound to `{{email}}`
+// (not `to_email`), and its body displays the code via `{{passcode}}`. Used by
+// both the registration verification step (routes/auth.js) and login OTP
+// (lib/better_auth.mjs).
 async function sendOtpEmail(email, otp) {
-    const apiKey = process.env.RESEND_API_KEY;
-    const from = process.env.FROM_EMAIL || 'onboarding@resend.dev';
+    const serviceId = process.env.EMAILJS_OTP_SERVICE_ID;
+    const templateId = process.env.EMAILJS_OTP_TEMPLATE_ID;
+    const publicKey = process.env.EMAILJS_OTP_PUBLIC_KEY;
+    const privateKey = process.env.EMAILJS_OTP_PRIVATE_KEY;
 
-    if (!apiKey) {
-        if (!warnedMissingKey) {
-            console.warn('[email_service] RESEND_API_KEY not set — OTP emails will only be logged to console.');
-            warnedMissingKey = true;
+    if (!serviceId || !templateId || !publicKey || !privateKey) {
+        if (!warnedMissingOtpConfig) {
+            console.warn('[email_service] EMAILJS_OTP_SERVICE_ID / EMAILJS_OTP_TEMPLATE_ID / EMAILJS_OTP_PUBLIC_KEY / EMAILJS_OTP_PRIVATE_KEY not fully set — OTP emails will only be logged to console.');
+            warnedMissingOtpConfig = true;
         }
-        console.log(`[MOCK EMAIL TO ${email}] Your login verification code: ${otp}`);
-        return;
-    }
-
-    try {
-        await axios.post('https://api.resend.com/emails', {
-            from,
-            to: email,
-            subject: 'Your login verification code',
-            html: `<p>Your verification code is:</p><h2 style="letter-spacing:0.3em;">${otp}</h2><p>This code expires in 5 minutes.</p>`
-        }, {
-            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
-        });
-    } catch (err) {
-        console.error('[email_service] Failed to send OTP email via Resend:', err.response?.data || err.message);
-        console.log(`[FALLBACK LOG] OTP for ${email}: ${otp}`);
-    }
-}
-
-// Sends a password-reset link via EmailJS. Falls back to a console-mock (same
-// pattern as sendOtpEmail) when the EmailJS template/keys aren't configured.
-// The EmailJS template referenced by EMAILJS_TEMPLATE_ID must define variables
-// named `to_email` and `reset_link` for this call's templateParams to populate.
-async function sendPasswordResetEmail(email, resetLink) {
-    const serviceId = process.env.EMAILJS_SERVICE_ID || 'service_fme5x5o';
-    const templateId = process.env.EMAILJS_TEMPLATE_ID;
-    const publicKey = process.env.EMAILJS_PUBLIC_KEY;
-    const privateKey = process.env.EMAILJS_PRIVATE_KEY;
-
-    if (!templateId || !publicKey || !privateKey) {
-        if (!warnedMissingEmailJSConfig) {
-            console.warn('[email_service] EMAILJS_TEMPLATE_ID / EMAILJS_PUBLIC_KEY / EMAILJS_PRIVATE_KEY not fully set — password reset emails will only be logged to console.');
-            warnedMissingEmailJSConfig = true;
-        }
-        console.log(`[MOCK EMAIL TO ${email}] Reset your password: ${resetLink}`);
+        console.log(`[MOCK EMAIL TO ${email}] Your verification code: ${otp}`);
         return;
     }
 
@@ -58,12 +31,49 @@ async function sendPasswordResetEmail(email, resetLink) {
         await emailjs.send(
             serviceId,
             templateId,
-            { to_email: email, reset_link: resetLink },
+            { email, to_email: email, passcode: otp, otp_code: otp },
+            { publicKey, privateKey }
+        );
+    } catch (err) {
+        console.error('[email_service] Failed to send OTP email via EmailJS:', err.message || err);
+        console.log(`[FALLBACK LOG] OTP for ${email}: ${otp}`);
+    }
+}
+
+// Sends a password-reset verification code via EmailJS, using its own dedicated
+// service/template/keys — separate from the registration/login OTP config above
+// (own EmailJS service, own template). Falls back to a console-mock when not
+// fully configured. Template variable bindings unconfirmed as of this writing —
+// sends both `email`/`to_email` and `otp_code`/`passcode` so it has a chance of
+// matching whichever names the template actually uses; narrow this once the
+// template's Settings/Content tabs are checked (see registration OTP's history
+// with this exact issue for the pattern: 403 -> non-browser toggle, 422 -> "To
+// Email" variable name mismatch, "no code shown" -> body variable name mismatch).
+async function sendPasswordResetEmail(email, otp) {
+    const serviceId = process.env.EMAILJS_SERVICE_ID || 'service_q7v7ddo';
+    const templateId = process.env.EMAILJS_TEMPLATE_ID;
+    const publicKey = process.env.EMAILJS_PUBLIC_KEY;
+    const privateKey = process.env.EMAILJS_PRIVATE_KEY;
+
+    if (!templateId || !publicKey || !privateKey) {
+        if (!warnedMissingResetConfig) {
+            console.warn('[email_service] EMAILJS_TEMPLATE_ID / EMAILJS_PUBLIC_KEY / EMAILJS_PRIVATE_KEY not fully set — password reset emails will only be logged to console.');
+            warnedMissingResetConfig = true;
+        }
+        console.log(`[MOCK EMAIL TO ${email}] Your password reset code: ${otp}`);
+        return;
+    }
+
+    try {
+        await emailjs.send(
+            serviceId,
+            templateId,
+            { email, to_email: email, otp_code: otp, passcode: otp },
             { publicKey, privateKey }
         );
     } catch (err) {
         console.error('[email_service] Failed to send password reset email via EmailJS:', err.message || err);
-        console.log(`[FALLBACK LOG] Reset link for ${email}: ${resetLink}`);
+        console.log(`[FALLBACK LOG] Password reset code for ${email}: ${otp}`);
     }
 }
 

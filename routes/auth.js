@@ -8,7 +8,7 @@ const multer = require('multer');
 const aiServices = require('../ai_services');
 const { JWT_SECRET } = require('../config');
 const { sendLoginOTP, verifyLoginOTP } = require('../lib/better_auth_bridge');
-const { sendPasswordResetEmail } = require('../email_service');
+const { sendOtpEmail, sendPasswordResetEmail } = require('../email_service');
 const upload = multer({ dest: 'uploads/' });
 
 // Simple in-memory rate limiter (per IP + route)
@@ -283,13 +283,21 @@ router.post('/register/step2', rateLimit(5, 10 * 60 * 1000), async (req, res) =>
     try {
         if (!token) return res.status(400).json({ error: 'Registration token required' });
         if (!password || !confirm_password) return res.status(400).json({ error: 'Password and confirmation required' });
-        if (password !== confirm_password) return res.status(400).json({ error: 'Passwords do not match' });
-        if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+        // Client trims leading/trailing whitespace, but this is the actual security
+        // boundary — the client can be bypassed. Trim here too (NIST SP 800-63B allows
+        // internal spaces for passphrases; only the accidental edges get stripped),
+        // and compare/measure the trimmed value so an incidental edge space typed
+        // in only one of the two boxes doesn't produce a confusing mismatch.
+        const trimmedPassword = password.replace(/^\s+|\s+$/g, '');
+        const trimmedConfirm = confirm_password.replace(/^\s+|\s+$/g, '');
+        if (trimmedPassword !== trimmedConfirm) return res.status(400).json({ error: 'Passwords do not match' });
+        if (trimmedPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+        if (trimmedPassword.length > 16) return res.status(400).json({ error: 'Password cannot exceed 16 characters' });
 
         const [rows] = await pool.query('SELECT * FROM pending_registrations WHERE token = ? AND expires_at > NOW()', [token]);
         if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired registration token' });
 
-        const hash = await bcrypt.hash(password, 10);
+        const hash = await bcrypt.hash(trimmedPassword, 10);
         await pool.query('UPDATE pending_registrations SET password_hash = ? WHERE token = ?', [hash, token]);
 
         res.json({ success: true, message: 'Password set. Proceed to verification.' });
@@ -312,8 +320,7 @@ router.post('/register/send-verification', rateLimit(3, 10 * 60 * 1000), async (
         const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
         await pool.query('UPDATE pending_registrations SET otp_code = ?, otp_expires_at = ?, otp_attempts = 0 WHERE token = ?', [otp, otpExpires, token]);
 
-        // Mock email sending
-        console.log(`[MOCK EMAIL TO ${rows[0].email}] Your verification code: ${otp}`);
+        await sendOtpEmail(rows[0].email, otp);
 
         res.json({ success: true, message: 'Verification code sent to your email.' });
     } catch (err) {
@@ -376,18 +383,53 @@ router.post('/register/abandon', rateLimit(20, 10 * 60 * 1000), async (req, res)
 router.post('/forgot-password', rateLimit(3, 10 * 60 * 1000), async (req, res) => {
     const { username } = req.body || {};
     try {
+        // Always issue an opaque session token in the response, whether or not the
+        // account exists — otherwise "did a token come back" becomes an account
+        // enumeration oracle. A token for a nonexistent account just never matches
+        // any row's reset_token later, so it fails the same way an expired one does.
+        const resetToken = generateToken();
         const [rows] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
         if (rows.length > 0 && rows[0].email) {
-            const resetToken = generateToken();
-            await pool.query('UPDATE users SET reset_token = ?, reset_expiry = DATE_ADD(NOW(), INTERVAL 1 HOUR) WHERE id = ?', [resetToken, rows[0].id]);
-            const resetLink = `${req.protocol}://${req.get('host')}/reset-password.html?token=${resetToken}`;
-            await sendPasswordResetEmail(rows[0].email, resetLink);
+            const otp = generateOTP();
+            await pool.query(
+                'UPDATE users SET reset_token = ?, reset_expiry = DATE_ADD(NOW(), INTERVAL 15 MINUTE), reset_otp = ?, reset_otp_attempts = 0 WHERE id = ?',
+                [resetToken, otp, rows[0].id]
+            );
+            await sendPasswordResetEmail(rows[0].email, otp);
         }
-        // Always respond the same way regardless of whether the account/email exists, so this endpoint can't be used to enumerate accounts.
-        res.json({ success: true, message: 'If the account exists, reset instructions were sent.' });
+        res.json({ success: true, message: 'If the account exists, a verification code was sent.', token: resetToken });
     } catch (err) {
         console.error('Forgot password error:', err);
         res.status(500).json({ error: 'Error processing request' });
+    }
+});
+
+// Verifies the emailed code before the client is allowed to proceed to the
+// "new password" step. Clearing reset_otp here is what /reset-password below
+// requires — a password can only be set after this step has succeeded.
+router.post('/reset-password/verify-otp', rateLimit(10, 10 * 60 * 1000), async (req, res) => {
+    const { token, otp } = req.body || {};
+    try {
+        if (!token || !otp) return res.status(400).json({ error: 'Token and code required' });
+        const [rows] = await pool.query('SELECT * FROM users WHERE reset_token = ? AND reset_expiry > NOW()', [token]);
+        if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired session. Please request a new code.' });
+
+        const user = rows[0];
+        if (user.reset_otp === null) return res.status(400).json({ error: 'Code already verified.' });
+        if (user.reset_otp_attempts >= 5) {
+            await pool.query('UPDATE users SET reset_token = NULL, reset_expiry = NULL, reset_otp = NULL WHERE id = ?', [user.id]);
+            return res.status(429).json({ error: 'Too many failed attempts. Please request a new code.' });
+        }
+        if (user.reset_otp !== otp) {
+            await pool.query('UPDATE users SET reset_otp_attempts = reset_otp_attempts + 1 WHERE id = ?', [user.id]);
+            return res.status(400).json({ error: 'Invalid code' });
+        }
+
+        await pool.query('UPDATE users SET reset_otp = NULL WHERE id = ?', [user.id]);
+        res.json({ success: true, message: 'Code verified. Choose a new password.' });
+    } catch (err) {
+        console.error('Reset password verify-otp error:', err);
+        res.status(500).json({ error: 'Failed to verify code' });
     }
 });
 
@@ -395,11 +437,13 @@ router.post('/reset-password', rateLimit(5, 10 * 60 * 1000), async (req, res) =>
     const { token, newPassword } = req.body || {};
     try {
         if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password required' });
-        if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-        const [rows] = await pool.query('SELECT * FROM users WHERE reset_token = ? AND reset_expiry > NOW()', [token]);
-        if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired reset link' });
-        const hash = await bcrypt.hash(newPassword, 10);
-        await pool.query('UPDATE users SET password_hash = ?, reset_token = NULL, reset_expiry = NULL WHERE id = ?', [hash, rows[0].id]);
+        const trimmedPassword = newPassword.replace(/^\s+|\s+$/g, '');
+        if (trimmedPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+        if (trimmedPassword.length > 16) return res.status(400).json({ error: 'Password cannot exceed 16 characters' });
+        const [rows] = await pool.query('SELECT * FROM users WHERE reset_token = ? AND reset_expiry > NOW() AND reset_otp IS NULL', [token]);
+        if (rows.length === 0) return res.status(400).json({ error: 'Verification required before resetting your password.' });
+        const hash = await bcrypt.hash(trimmedPassword, 10);
+        await pool.query('UPDATE users SET password_hash = ?, reset_token = NULL, reset_expiry = NULL, reset_otp = NULL, reset_otp_attempts = 0 WHERE id = ?', [hash, rows[0].id]);
         res.json({ success: true, message: 'Password reset successfully!' });
     } catch (err) {
         console.error('Reset password error:', err);

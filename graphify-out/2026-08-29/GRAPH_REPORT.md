@@ -1,11 +1,11 @@
-# Graph Report - Attempt1  (2026-08-23)
+# Graph Report - Attempt1  (2026-08-29)
 
 ## Corpus Check
-- 132 files · ~363,739 words
+- 132 files · ~364,497 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1159 nodes · 1876 edges · 64 communities (57 shown, 7 thin omitted)
+- 1162 nodes · 1882 edges · 68 communities (61 shown, 7 thin omitted)
 - Extraction: 89% EXTRACTED · 11% INFERRED · 0% AMBIGUOUS · INFERRED: 202 edges (avg confidence: 0.7)
 - Token cost: 0 input · 0 output
 
@@ -57,16 +57,16 @@
 - BM25
 - design_system.py
 - _select_palette_for_mode
-- _palette_is_dark
+- test_design_system_mode.py
 - UI/UX Pro Max - Design Intelligence
 - TestThresholdGate
 - CatalogRefreshTest
-- _normalize
-- test_design_system_mode.py
+- read_rows
+- _filter_anti_patterns_for_mode
 - persist_design_system
 - Pre-Delivery Checklist (canonical — the only one)
 - Quick Reference
-- .tokenize
+- detect_domain
 - _style_is_dark_primary
 - /graphify
 - test_text_layout_resilience.py
@@ -78,7 +78,11 @@
 - web-design-guidelines.md
 - AI Agent Instructions & Skills
 - Skills Resolution & Global Skills Rule
-- search.py
+- .generate
+- _normalize
+- parse_decision_rules
+- test_data_contracts.py
+- TestGeneratedCatalogContract
 
 ## God Nodes (most connected - your core abstractions)
 1. `DesignSystemGenerator` - 48 edges
@@ -117,11 +121,11 @@
 - **Staff Role-Gated Dashboard Page Family** — public_admintechnical_page, public_owner_page, public_frontdesk_page, public_doctor_page, public_laboratory_page [INFERRED 0.75]
 - **Seed Account & Role Matrix Documentation** — readme_overview, example_accounts_seedlist, concept_seed_accounts, concept_role_based_access [INFERRED 0.75]
 
-## Communities (64 total, 7 thin omitted)
+## Communities (68 total, 7 thin omitted)
 
 ### Community 0 - "index.js"
-Cohesion: 0.06
-Nodes (56): abandonPendingRegistration(), authOverlay, cancelLoginOTP(), captureRegID(), checkPasswordMatch(), checkPasswordStrength(), closeAuthPanel(), closeForgotModal() (+48 more)
+Cohesion: 0.05
+Nodes (58): abandonPendingRegistration(), authOverlay, cancelLoginOTP(), captureRegID(), checkPasswordMatch(), checkPasswordStrength(), closeAuthPanel(), closeForgotModal() (+50 more)
 
 ### Community 1 - "customer.js"
 Cohesion: 0.07
@@ -156,8 +160,8 @@ Cohesion: 0.09
 Nodes (22): adminRoutes, app, assistantRoutes, authRoutes, bcrypt, bodyParser, cors, dotenv (+14 more)
 
 ### Community 9 - "shared.js"
-Cohesion: 0.13
-Nodes (10): authHeaders(), getRole(), getToken(), getUserId(), getUsername(), initDefaultSection(), logout(), navigateTo() (+2 more)
+Cohesion: 0.12
+Nodes (12): authHeaders(), enforcePasswordPolicy(), getRole(), getToken(), getUserId(), getUsername(), initDefaultSection(), logout() (+4 more)
 
 ### Community 10 - "queue.js"
 Cohesion: 0.14
@@ -232,8 +236,8 @@ Cohesion: 0.25
 Nodes (8): Add-Watch Reference (.agents), For /graphify add, For --watch, graphify reference: add a URL and watch a folder, Add-Watch Reference (.claude), For /graphify add, For --watch, graphify reference: add a URL and watch a folder
 
 ### Community 29 - "core.py"
-Cohesion: 0.13
-Nodes (23): _contains_phrase(), _domain_keywords(), _exact_stack_identifier(), _file_signature(), _get_bm25(), _load_csv(), _load_csv_snapshot(), _load_product_keywords() (+15 more)
+Cohesion: 0.10
+Nodes (29): _contains_phrase(), _domain_keywords(), _file_signature(), _get_bm25(), _load_csv(), _load_csv_snapshot(), _load_product_keywords(), _load_rows_or_empty() (+21 more)
 
 ### Community 30 - "Extraction Subagent Spec (.agents)"
 Cohesion: 0.33
@@ -252,32 +256,32 @@ Cohesion: 0.47
 Nodes (5): calculateScore(), getNextFromList(), getNextPatient(), { pool }, callNextAtStation()
 
 ### Community 36 - "DesignSystemGenerator"
-Cohesion: 0.05
-Nodes (26): DesignSystemGenerator, Generates design system recommendations from aggregated searches., Load reasoning rules from CSV., Execute searches across multiple domains., Find matching reasoning rule for a category., Apply reasoning rules to search results., Select best matching result based on priority keywords., Extract results list from search result dict. (+18 more)
+Cohesion: 0.18
+Nodes (6): DesignSystemGenerator, Generates design system recommendations from aggregated searches., Load reasoning rules from CSV., TestReasoningMatch, The exact reproduction from issue #428., TestEndToEndCoherence
 
 ### Community 37 - "search_stack"
 Cohesion: 0.11
 Nodes (6): Search stack-specific guidelines, search_stack(), _rows(), TestNativeDesktopStackFreshness, _rows(), TestWebStackFreshness
 
 ### Community 38 - "search"
-Cohesion: 0.12
-Nodes (7): Resolve a deprecated in-domain alias, or expose a cross-domain redirect., Main search function with auto-domain detection, search(), _style_search_destination(), TestSearchDomains, read_rows(), TestStyleTaxonomy
+Cohesion: 0.11
+Nodes (9): _exact_stack_identifier(), Resolve a deprecated in-domain alias, or expose a cross-domain redirect., Main search function with auto-domain detection, Resolve a standalone API identifier even when its BM25 IDF is low., search(), _style_search_destination(), TestSearchDomains, read_rows() (+1 more)
 
 ### Community 39 - "BM25"
-Cohesion: 0.09
-Nodes (11): BM25, detect_domain(), BM25 ranking algorithm for text search, Auto-detect the most relevant domain from query. Matches are weighted by…, generate_design_system(), Main entry point for design system generation. Args: query: Search query (e.g.,…, TestBm25CoreBehavior, TestDiagnosticsContracts (+3 more)
+Cohesion: 0.11
+Nodes (10): BM25, BM25 ranking algorithm for text search, generate_design_system(), Main entry point for design system generation. Args: query: Search query (e.g.,…, format_output(), Format results for Claude consumption (token-optimized), TestBm25CoreBehavior, TestDiagnosticsContracts (+2 more)
 
 ### Community 40 - "design_system.py"
 Cohesion: 0.15
 Nodes (16): ansi_ljust(), _detect_page_type(), format_ascii_box(), format_markdown(), format_page_override_md(), _generate_intelligent_overrides(), hex_to_ansi(), Format a page-specific override file with intelligent AI-generated content. (+8 more)
 
 ### Community 41 - "_select_palette_for_mode"
-Cohesion: 0.22
-Nodes (7): _contrast_ratio(), _derive_dark_palette(), WCAG contrast ratio for two hex colors, or None if either is invalid., Keep product brand tokens while deriving accessible dark surfaces., Pick the highest-ranked palette matching the resolved mode. Only the dark case…, _select_palette_for_mode(), TestPaletteSelection
+Cohesion: 0.29
+Nodes (5): _derive_dark_palette(), Keep product brand tokens while deriving accessible dark surfaces., Pick the highest-ranked palette matching the resolved mode. Only the dark case…, _select_palette_for_mode(), TestPaletteSelection
 
-### Community 42 - "_palette_is_dark"
-Cohesion: 0.18
-Nodes (5): _palette_is_dark(), True when a colors.csv row's Background is a dark surface., The exact reproduction from issue #428., TestEndToEndCoherence, TestLuminance
+### Community 42 - "test_design_system_mode.py"
+Cohesion: 0.23
+Nodes (7): _contrast_ratio(), _palette_is_dark(), WCAG relative luminance of a #RRGGBB string, or None if unparseable., True when a colors.csv row's Background is a dark surface., WCAG contrast ratio for two hex colors, or None if either is invalid., _relative_luminance(), TestLuminance
 
 ### Community 43 - "UI/UX Pro Max - Design Intelligence"
 Cohesion: 0.11
@@ -287,13 +291,13 @@ Nodes (17): Before Delivering App UI, Example Workflow, If a search returns 0 re
 Cohesion: 0.13
 Nodes (3): TestFixtureValidation, TestMetricMath, TestThresholdGate
 
-### Community 46 - "_normalize"
-Cohesion: 0.25
-Nodes (9): _exact_match_diagnostic(), _legacy_successor_guidance(), _normalize(), Apply longest-first synonym substitution at token boundaries., Whether a stack query explicitly targets an older framework generation., Choose one coherent applicability generation for stack retrieval., Prefer the explicit successor row for a brand-new app on legacy-only stacks., _stack_query_requests_legacy() (+1 more)
+### Community 46 - "read_rows"
+Cohesion: 0.16
+Nodes (3): read_rows(), TestLandingAndStackContract, TestReasoningContract
 
-### Community 47 - "test_design_system_mode.py"
-Cohesion: 0.29
-Nodes (5): _filter_anti_patterns_for_mode(), WCAG relative luminance of a #RRGGBB string, or None if unparseable., Drop "avoid dark mode" advice once dark mode is the resolved answer., _relative_luminance(), TestAntiPatternGating
+### Community 47 - "_filter_anti_patterns_for_mode"
+Cohesion: 0.43
+Nodes (3): _filter_anti_patterns_for_mode(), Drop "avoid dark mode" advice once dark mode is the resolved answer., TestAntiPatternGating
 
 ### Community 48 - "persist_design_system"
 Cohesion: 0.25
@@ -307,9 +311,9 @@ Nodes (12): Accessibility, Common Rules for Professional UI + Pre-Delivery Check
 Cohesion: 0.15
 Nodes (12): 10. Charts & Data (LOW), 1. Accessibility (CRITICAL), 2. Touch & Interaction (CRITICAL), 3. Performance (HIGH), 4. Style Selection (HIGH), 5. Layout & Responsive (HIGH), 6. Typography & Color (MEDIUM), 7. Animation (MEDIUM) (+4 more)
 
-### Community 51 - ".tokenize"
-Cohesion: 0.21
-Nodes (8): _passes_threshold(), _query_coverage(), Lowercase, normalize synonyms, split, remove punctuation, filter stopwords, Build BM25 index from documents, Score all documents against query, All indexed terms, for suggestion/typo-recovery purposes., Nearest known vocabulary terms for a query that returned 0 hits, so the caller…, _suggest_terms()
+### Community 51 - "detect_domain"
+Cohesion: 0.23
+Nodes (3): detect_domain(), Auto-detect the most relevant domain from query. Matches are weighted by…, TestDomainDetection
 
 ### Community 52 - "_style_is_dark_primary"
 Cohesion: 0.21
@@ -347,6 +351,22 @@ Nodes (4): AI Agent Instructions & Skills, Skills Resolution Priority, ui-ux-pro
 Cohesion: 0.50
 Nodes (3): Available Global Skills, Skill Resolution Priority, Skills Resolution & Global Skills Rule
 
+### Community 63 - ".generate"
+Cohesion: 0.14
+Nodes (8): Execute searches across multiple domains., Find matching reasoning rule for a category., Apply reasoning rules to search results., Select best matching result based on priority keywords., Extract results list from search result dict., Generate complete design system recommendation. variance/motion/density are…, Bucket a 1-10 dial value into its tier config. Returns None if value is None., _resolve_dial()
+
+### Community 64 - "_normalize"
+Cohesion: 0.25
+Nodes (9): _exact_match_diagnostic(), _legacy_successor_guidance(), _normalize(), Apply longest-first synonym substitution at token boundaries., Whether a stack query explicitly targets an older framework generation., Choose one coherent applicability generation for stack retrieval., Prefer the explicit successor row for a brand-new app on legacy-only stacks., _stack_query_requests_legacy() (+1 more)
+
+### Community 65 - "parse_decision_rules"
+Cohesion: 0.27
+Nodes (6): apply_decision_rules(), _object_without_duplicates(), parse_decision_rules(), Return deterministic mutations and an audit trail; never execute data., Parse the canonical condition -> action-array representation., _validate_action()
+
+### Community 66 - "test_data_contracts.py"
+Cohesion: 0.33
+Nodes (4): split_values(), style_identities(), TestStyleIdentityContract, _check_reasoning_contract()
+
 ## Ambiguous Edges - Review These
 - `README.md — Project Overview` → `server_pid.txt — Runtime Process ID Scratch File`  [AMBIGUOUS]
   server_pid.txt · relation: conceptually_related_to
@@ -366,11 +386,11 @@ _Questions this graph is uniquely positioned to answer:_
 - **What is the exact relationship between `Customize Section (admintechnical.html)` and `Clinic Building Exterior Photo`?**
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
 - **Why does `Customer Dashboard Page` connect `customer.js` to `va.js`, `doctor.js`?**
-  _High betweenness centrality (0.127) - this node is a cross-community bridge._
+  _High betweenness centrality (0.126) - this node is a cross-community bridge._
 - **Why does `Clinic Heart Logo SVG (served copy)` connect `doctor.js` to `index.js`, `customer.js`, `admintechnical.js`, `owner.js`, `frontdesk.js`?**
   _High betweenness centrality (0.105) - this node is a cross-community bridge._
 - **Why does `CLAUDE.md — Project Guidance` connect `CLAUDE.md — Project Guidance` to `queue_automation.js`, `shared.js`, `queue.js`, `ai_services.js`, `admin.js`, `database.js`?**
-  _High betweenness centrality (0.103) - this node is a cross-community bridge._
+  _High betweenness centrality (0.102) - this node is a cross-community bridge._
 - **Are the 30 inferred relationships involving `DesignSystemGenerator` (e.g. with `TestBm25CoreBehavior` and `TestDiagnosticsContracts`) actually correct?**
   _`DesignSystemGenerator` has 30 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 21 inferred relationships involving `search()` (e.g. with `.generate()` and `._multi_domain_search()`) actually correct?**

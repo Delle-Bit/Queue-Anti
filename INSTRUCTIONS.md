@@ -17,11 +17,23 @@ This guide will help you run the application on your local machine using a local
    ```
    PORT=3000
    JWT_SECRET=<any random string>
-   GEMINI_API_KEY=      # optional - enables Gemini for AI features
-   API_ALLAROUND=       # optional - Hugging Face fallback
-   NVIDIA_API_KEY=      # optional - enables the NVIDIA Nemotron VA/AI fallback
+   GEMINI_API_KEY=          # optional - enables Gemini for AI features
+   API_ALLAROUND=           # optional - Hugging Face fallback
+   NVIDIA_API_KEY=          # optional - enables the NVIDIA Nemotron VA/AI fallback
+   # Password-reset emails (template needs `to_email`, `reset_link`)
+   EMAILJS_SERVICE_ID=       # optional - defaults to a shared service ID if unset
+   EMAILJS_TEMPLATE_ID=      # optional
+   EMAILJS_PUBLIC_KEY=       # required alongside EMAILJS_TEMPLATE_ID for real email delivery
+   EMAILJS_PRIVATE_KEY=      # required alongside EMAILJS_TEMPLATE_ID for real email delivery
+
+   # OTP emails: registration verification + login (template needs `to_email`, `otp_code`)
+   # Deliberately separate EmailJS service/template/keys from the reset-password ones above.
+   EMAILJS_OTP_SERVICE_ID=   # optional
+   EMAILJS_OTP_TEMPLATE_ID=  # optional
+   EMAILJS_OTP_PUBLIC_KEY=   # required alongside EMAILJS_OTP_TEMPLATE_ID for real email delivery
+   EMAILJS_OTP_PRIVATE_KEY=  # required alongside EMAILJS_OTP_TEMPLATE_ID for real email delivery
    ```
-   All AI features (OCR-assisted registration, the Virtual Assistant, analytics helpers) degrade gracefully to local mock logic if no keys are set — nothing is required to run the app.
+   All AI features (OCR-assisted registration, the Virtual Assistant, analytics helpers) degrade gracefully to local mock logic if no keys are set — nothing is required to run the app. Likewise, without EmailJS configured, OTP codes and password-reset links are only logged to the server console (`[MOCK EMAIL TO ...]`) instead of actually emailed — set the EmailJS vars above (each pointing at its own EmailJS template) to send real emails.
 
 2. **Install dependencies**: open a terminal in the project folder and run:
    ```bash

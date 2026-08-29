@@ -259,7 +259,191 @@ function initSocket() {
     }
 }
 
+// ── PASSWORD VISIBILITY TOGGLE ─────────────────────────────────────
+// Adds a show/hide eye button to every password input on the page, wherever
+// it lives (auth wizard, admin forms, reset-password) — no per-page markup.
+function enhancePasswordToggles(root = document) {
+    root.querySelectorAll('input[type="password"]').forEach((input) => {
+        if (input.dataset.pwToggleEnhanced) return;
+        input.dataset.pwToggleEnhanced = 'true';
+
+        const wrap = document.createElement('span');
+        wrap.className = 'pw-toggle-wrap';
+        input.parentNode.insertBefore(wrap, input);
+        wrap.appendChild(input);
+        input.classList.add('pw-toggle-input');
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pw-toggle-btn';
+        btn.tabIndex = -1;
+        btn.setAttribute('aria-label', 'Show password');
+        btn.innerHTML = '<i class="fa-solid fa-eye"></i>';
+        btn.addEventListener('click', () => {
+            const showing = input.type === 'text';
+            input.type = showing ? 'password' : 'text';
+            btn.innerHTML = showing ? '<i class="fa-solid fa-eye"></i>' : '<i class="fa-solid fa-eye-slash"></i>';
+            btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+        });
+        wrap.appendChild(btn);
+    });
+}
+
+// ── OTP BOX UI ──────────────────────────────────────────────────────
+// Progressively enhances a 6-digit OTP <input> into 6 separate single-digit
+// boxes. The original input is kept (hidden) as the source of truth via a
+// value getter/setter, so any existing code that reads/writes/resets its
+// .value elsewhere keeps working without changes.
+function enhanceOtpInput(inputId, length = 6) {
+    const original = document.getElementById(inputId);
+    if (!original || original.dataset.otpEnhanced) return;
+    original.dataset.otpEnhanced = 'true';
+    original.type = 'hidden';
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'otp-box-group';
+    original.insertAdjacentElement('afterend', wrapper);
+
+    const boxes = [];
+    for (let i = 0; i < length; i++) {
+        const box = document.createElement('input');
+        box.type = 'text';
+        box.inputMode = 'numeric';
+        box.autocomplete = i === 0 ? 'one-time-code' : 'off';
+        box.maxLength = 1;
+        box.className = 'otp-box';
+        wrapper.appendChild(box);
+        boxes.push(box);
+    }
+
+    let internalValue = '';
+    Object.defineProperty(original, 'value', {
+        get() { return internalValue; },
+        set(v) {
+            internalValue = (v || '').replace(/[^0-9]/g, '').slice(0, length);
+            boxes.forEach((b, i) => { b.value = internalValue[i] || ''; });
+        },
+        configurable: true
+    });
+
+    function syncFromBoxes() {
+        internalValue = boxes.map((b) => b.value).join('');
+    }
+
+    boxes.forEach((box, i) => {
+        box.addEventListener('input', () => {
+            box.value = box.value.replace(/[^0-9]/g, '').slice(-1);
+            syncFromBoxes();
+            if (box.value && i < boxes.length - 1) boxes[i + 1].focus();
+        });
+        box.addEventListener('keydown', (e) => {
+            if (e.key === 'Backspace' && !box.value && i > 0) {
+                boxes[i - 1].focus();
+                boxes[i - 1].value = '';
+                syncFromBoxes();
+            }
+        });
+        box.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const digits = (e.clipboardData.getData('text') || '').replace(/[^0-9]/g, '').slice(0, length);
+            digits.split('').forEach((d, idx) => { if (boxes[idx]) boxes[idx].value = d; });
+            syncFromBoxes();
+            const next = boxes[Math.min(digits.length, boxes.length - 1)];
+            if (next) next.focus();
+        });
+    });
+}
+
+// ── PASSWORD POLICY (length + whitespace hygiene) ──────────────────
+// NIST SP 800-63B §5.1.1.2 sets an 8-char minimum and explicitly says the
+// space character SHOULD be accepted in memorized secrets. This app caps the
+// max at 16 (a product choice, not a NIST recommendation — NIST suggests
+// allowing at least 64 to keep multi-word passphrases viable). Either way,
+// the space character itself is never blocked or stripped mid-password; only
+// leading/trailing whitespace is trimmed (never intentional — usually a
+// copy-paste artifact — and would otherwise make a password silently fail to
+// match on next login).
+const PASSWORD_MIN_LENGTH = 8;
+const PASSWORD_MAX_LENGTH = 16;
+
+function stripEdgeWhitespace(value) {
+    return value.replace(/^\s+|\s+$/g, '');
+}
+
+function enforcePasswordPolicy(root = document) {
+    root.querySelectorAll('input[type="password"]').forEach((input) => {
+        if (input.dataset.pwPolicyEnhanced) return;
+        input.dataset.pwPolicyEnhanced = 'true';
+
+        input.maxLength = PASSWORD_MAX_LENGTH;
+        if (!input.minLength || input.minLength < PASSWORD_MIN_LENGTH) input.minLength = PASSWORD_MIN_LENGTH;
+
+        const hintId = input.dataset.lengthHint;
+        const hint = hintId ? document.getElementById(hintId) : null;
+        if (hint) {
+            const existing = (input.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+            if (!existing.includes(hintId)) input.setAttribute('aria-describedby', [...existing, hintId].join(' '));
+        }
+
+        // The visible requirements checklist item (static "8-16 characters" text)
+        // gets a live checkmark toggle — separate from `hint` above, which is a
+        // role=alert element reserved for the transient violation message and
+        // shouldn't also carry permanent static content.
+        const reqId = input.dataset.requirementItem;
+        const reqItem = reqId ? document.getElementById(reqId) : null;
+
+        function reportLength() {
+            const len = input.value.length;
+            const withinRange = len >= PASSWORD_MIN_LENGTH && len <= PASSWORD_MAX_LENGTH;
+            if (reqItem) reqItem.classList.toggle('met', len > 0 && withinRange);
+            if (!hint) return;
+            if (len > 0 && len < PASSWORD_MIN_LENGTH) {
+                hint.textContent = `Password must be at least ${PASSWORD_MIN_LENGTH} characters (${len}/${PASSWORD_MIN_LENGTH}).`;
+                hint.classList.add('mismatch');
+                input.setAttribute('aria-invalid', 'true');
+            } else if (len >= PASSWORD_MAX_LENGTH) {
+                hint.textContent = `Password cannot exceed ${PASSWORD_MAX_LENGTH} characters.`;
+                hint.classList.add('mismatch');
+                input.setAttribute('aria-invalid', 'true');
+            } else {
+                hint.textContent = '';
+                hint.classList.remove('mismatch');
+                input.removeAttribute('aria-invalid');
+            }
+        }
+        input.addEventListener('input', reportLength);
+
+        // Trim only on blur (not live on every keystroke) — trimming while
+        // typing would delete the space the instant it's pressed mid-passphrase,
+        // since it's technically "trailing" until the next character is typed.
+        input.addEventListener('blur', () => {
+            const trimmed = stripEdgeWhitespace(input.value);
+            if (trimmed !== input.value) {
+                input.value = trimmed;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        });
+
+        input.addEventListener('paste', (e) => {
+            const text = (e.clipboardData || window.clipboardData)?.getData('text');
+            if (text == null) return;
+            const cleaned = stripEdgeWhitespace(text).slice(0, PASSWORD_MAX_LENGTH);
+            if (cleaned === text) return;
+            e.preventDefault();
+            const start = input.selectionStart ?? input.value.length;
+            const end = input.selectionEnd ?? input.value.length;
+            const next = (input.value.slice(0, start) + cleaned + input.value.slice(end)).slice(0, PASSWORD_MAX_LENGTH);
+            input.value = next;
+            const pos = Math.min(start + cleaned.length, next.length);
+            input.setSelectionRange(pos, pos);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    });
+}
+
 // ── INIT ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     initSocket();
+    enhancePasswordToggles();
+    enforcePasswordPolicy();
 });

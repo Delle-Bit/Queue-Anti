@@ -237,7 +237,7 @@
                         <label class="form-label" for="login-password">Password</label>
                         <div class="input-icon-wrap">
                             <i class="fa-solid fa-lock input-icon"></i>
-                            <input type="password" id="login-password" class="form-input input-with-icon" placeholder="Enter password" required autocomplete="current-password">
+                            <input type="password" id="login-password" class="form-input input-with-icon" placeholder="Enter password" required autocomplete="current-password" maxlength="16">
                         </div>
                     </div>
                     <button type="submit" class="btn btn-primary btn-block btn-lg" id="login-btn">
@@ -245,7 +245,7 @@
                     </button>
                 </form>
                 <div class="auth-link">
-                    <a href="#" onclick="openModal('forgot-modal');return false;">Forgot password?</a>
+                    <a href="#" onclick="openForgotModal();return false;">Forgot password?</a>
                 </div>
             </div>
 
@@ -415,8 +415,13 @@
                         <label class="form-label" for="reg-password">Password</label>
                         <div class="input-icon-wrap">
                             <i class="fa-solid fa-lock input-icon"></i>
-                            <input type="password" id="reg-password" class="form-input input-with-icon" placeholder="Create password (min 8 chars)" required autocomplete="new-password" minlength="8">
+                            <input type="password" id="reg-password" class="form-input input-with-icon" placeholder="Create password (8-16 characters)" required autocomplete="new-password" minlength="8" maxlength="16" data-length-hint="reg-password-length-hint" data-requirement-item="reg-password-req-length">
                         </div>
+                        <ul class="pw-requirements">
+                            <li id="reg-password-req-length"><i class="fa-solid fa-circle-check"></i> 8-16 characters</li>
+                            <li class="pw-requirements-note"><i class="fa-solid fa-circle-info"></i> Spaces are allowed — try a memorable passphrase</li>
+                        </ul>
+                        <small class="text-muted" id="reg-password-length-hint" role="alert" aria-live="polite"></small>
                         <div class="password-strength" id="password-strength" style="display:none;">
                             <div class="strength-bar"><div class="strength-fill" id="strength-fill"></div></div>
                             <small class="strength-text" id="strength-text"></small>
@@ -426,7 +431,7 @@
                         <label class="form-label" for="reg-confirm-password">Confirm Password</label>
                         <div class="input-icon-wrap">
                             <i class="fa-solid fa-lock input-icon"></i>
-                            <input type="password" id="reg-confirm-password" class="form-input input-with-icon" placeholder="Confirm password" required autocomplete="new-password" minlength="8">
+                            <input type="password" id="reg-confirm-password" class="form-input input-with-icon" placeholder="Confirm password" required autocomplete="new-password" minlength="8" maxlength="16">
                         </div>
                         <small class="text-muted" id="password-match-hint"></small>
                     </div>
@@ -486,18 +491,57 @@
         <div class="modal-box">
             <div class="modal-header">
                 <div class="modal-title" id="forgot-modal-title"><i class="fa-solid fa-key"></i> Reset Password</div>
-                <button class="modal-close" onclick="closeModal('forgot-modal')" aria-label="Close modal">&times;</button>
+                <button class="modal-close" onclick="closeForgotModal()" aria-label="Close modal">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="text-muted text-sm">Enter your username and we'll send reset instructions.</p>
-                <div class="form-group mt-md">
-                    <input type="text" id="forgot-username" class="form-input" placeholder="Username" autocomplete="username">
+                <div id="forgot-error" class="auth-error"></div>
+
+                <!-- STEP 1: request code -->
+                <div id="forgot-step-1">
+                    <p class="text-muted text-sm">Enter your username and we'll send a verification code to your email.</p>
+                    <div class="form-group mt-md">
+                        <input type="text" id="forgot-username" class="form-input" placeholder="Username" autocomplete="username">
+                    </div>
                 </div>
-                <div id="forgot-msg" class="auth-success"></div>
+
+                <!-- STEP 2: enter OTP -->
+                <div id="forgot-step-2" style="display:none;">
+                    <p class="text-muted text-sm">Enter the 6-digit code we sent to your email.</p>
+                    <div class="form-group mt-md">
+                        <label class="form-label" for="forgot-otp">Verification Code</label>
+                        <div class="input-icon-wrap">
+                            <i class="fa-solid fa-key input-icon"></i>
+                            <input type="text" id="forgot-otp" class="form-input input-with-icon" placeholder="Enter 6-digit code" maxlength="6" pattern="\d{6}" autocomplete="one-time-code" style="letter-spacing: 0.5em; text-align: center;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 3: new password -->
+                <div id="forgot-step-3" style="display:none;">
+                    <p class="text-muted text-sm">Choose a new password for your account.</p>
+                    <div class="form-group mt-md">
+                        <label class="form-label" for="forgot-new-password">New Password</label>
+                        <input type="password" id="forgot-new-password" class="form-input" placeholder="Create password (8-16 characters)" minlength="8" maxlength="16" autocomplete="new-password" data-length-hint="forgot-new-password-hint" data-requirement-item="forgot-password-req-length">
+                        <ul class="pw-requirements">
+                            <li id="forgot-password-req-length"><i class="fa-solid fa-circle-check"></i> 8-16 characters</li>
+                            <li class="pw-requirements-note"><i class="fa-solid fa-circle-info"></i> Spaces are allowed — try a memorable passphrase</li>
+                        </ul>
+                        <small class="text-muted" id="forgot-new-password-hint" role="alert" aria-live="polite"></small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="forgot-confirm-password">Confirm Password</label>
+                        <input type="password" id="forgot-confirm-password" class="form-input" placeholder="Confirm password" minlength="8" maxlength="16" autocomplete="new-password">
+                    </div>
+                </div>
+
+                <!-- STEP 4: success -->
+                <div id="forgot-step-4" style="display:none;">
+                    <p class="text-muted text-sm"><i class="fa-solid fa-circle-check" style="color:#22c55e;"></i> Your password has been reset. You can now sign in.</p>
+                </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('forgot-modal')">Cancel</button>
-                <button class="btn btn-primary" onclick="requestReset()" id="forgot-send-btn">Send Reset</button>
+                <button class="btn btn-secondary" onclick="closeForgotModal()" id="forgot-cancel-btn">Cancel</button>
+                <button class="btn btn-primary" onclick="forgotStepAction()" id="forgot-action-btn">Send Code</button>
             </div>
         </div>
     </div>
@@ -517,6 +561,7 @@
         </div>
     </footer>
 
+    <script src="shared.js"></script>
     <script src="index.js"></script>
 </body>
 

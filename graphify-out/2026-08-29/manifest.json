@@ -70,8 +70,8 @@
     "semantic_hash": ""
   },
   "public/shared.js": {
-    "mtime": 1787968620.364647,
-    "ast_hash": "e5865d5dd18bec3416a58b889c8f53b3",
+    "mtime": 1787968424.058916,
+    "ast_hash": "b20f79674a03f9c133ecd4f520ce58cb",
     "semantic_hash": ""
   },
   "public/va.js": {
@@ -275,8 +275,8 @@
     "semantic_hash": "236dfc713fa649f88fc97fd99b86ea66"
   },
   "public/index.html": {
-    "mtime": 1787968644.433745,
-    "ast_hash": "ae34919b53af1e1ad8ae4e9fbc62ca5f",
+    "mtime": 1787968450.2763255,
+    "ast_hash": "d3a0518f392e1b608b0c511b6051ff0d",
     "semantic_hash": ""
   },
   "public/laboratory.html": {

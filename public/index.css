@@ -1168,6 +1168,15 @@ body {
     line-height: 1.5;
 }
 
+/* The wizard's step indicator ("Step 2 of 4: ...") is a wayfinding cue the
+   user re-reads on every step, not passive subtitle copy — give it more
+   weight than the generic .auth-welcome p it would otherwise inherit. */
+#reg-step-title {
+    font-size: 0.95em;
+    font-weight: 600;
+    color: #4B5563;
+}
+
 /* Input with icon */
 .input-icon-wrap {
     position: relative;
@@ -1288,7 +1297,7 @@ body {
     transition: all 0.3s ease;
 }
 .reg-step-label {
-    font-size: 0.65em;
+    font-size: 0.75em;
     color: #9CA3AF;
     font-weight: 500;
     white-space: nowrap;
@@ -1368,6 +1377,12 @@ body {
     font-size: 0.7em;
     color: var(--success);
 }
+.reg-step-form small.mismatch,
+.modal-body small.mismatch {
+    color: var(--danger);
+    display: block;
+    margin-top: 4px;
+}
 #password-match-hint.mismatch {
     color: var(--danger);
 }
@@ -1380,8 +1395,12 @@ body {
     padding-top: 8px;
 }
 .reg-step-actions .btn {
-    flex: 1;
-    max-width: 160px;
+    /* Hug content instead of growing to fill the row — flex:1 was forcing
+       every button (even a lone "Continue") to stretch toward the shared
+       cap regardless of how short its label was. */
+    flex: 0 1 auto;
+    white-space: normal;
+    text-align: center;
 }
 .reg-step-actions .btn-primary {
     margin-left: auto;

@@ -374,6 +374,48 @@ body {
 }
 .form-input::placeholder { color: var(--text-muted); }
 
+/* Password visibility toggle */
+.pw-toggle-wrap { position: relative; display: block; }
+.pw-toggle-input { padding-right: 40px !important; }
+.pw-toggle-btn {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    width: 30px; height: 30px;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; cursor: pointer;
+    color: var(--text-secondary); font-size: 0.9em; z-index: 2;
+}
+.pw-toggle-btn:hover { color: var(--text-primary); }
+
+/* OTP box UI: one input per digit */
+.otp-box-group { display: flex; gap: 8px; justify-content: center; }
+.otp-box {
+    width: 42px; height: 50px;
+    text-align: center; font-size: 1.3em; font-weight: 600;
+    border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--bg-card); color: var(--text-primary);
+    transition: var(--transition);
+}
+.otp-box:focus {
+    outline: none; border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(198,40,40,0.12);
+}
+
+/* Password requirements checklist: static guidance shown up front, not just
+   after a violation. The length item gets a live checkmark; the passphrase
+   note is purely informational and never toggles. */
+.pw-requirements {
+    list-style: none; margin: 6px 0 0; padding: 0;
+    display: flex; flex-direction: column; gap: 3px;
+}
+.pw-requirements li {
+    font-size: 0.78em; color: var(--text-secondary);
+    display: flex; align-items: center; gap: 6px;
+}
+.pw-requirements li i { color: var(--text-muted); font-size: 0.95em; }
+.pw-requirements li.met { color: var(--success); }
+.pw-requirements li.met i { color: var(--success); }
+.pw-requirements li.pw-requirements-note i { color: var(--info); }
+
 /* ================================================================
    TABLES
    ================================================================ */

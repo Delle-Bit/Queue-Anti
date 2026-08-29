@@ -83,6 +83,8 @@ async function initDB() {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 reset_token VARCHAR(255),
                 reset_expiry DATETIME,
+                reset_otp VARCHAR(10) DEFAULT NULL,
+                reset_otp_attempts INT DEFAULT 0,
                 archived BOOLEAN DEFAULT false,
                 archived_at DATETIME DEFAULT NULL
             )
@@ -465,6 +467,8 @@ async function initDB() {
         await addColumnIfMissing('users', 'guardian_name', "VARCHAR(255) DEFAULT ''");
         await addColumnIfMissing('users', 'guardian_contact', "VARCHAR(100) DEFAULT ''");
         await addColumnIfMissing('users', 'guardian_relationship', "VARCHAR(100) DEFAULT ''");
+        await addColumnIfMissing('users', 'reset_otp', 'VARCHAR(10) DEFAULT NULL');
+        await addColumnIfMissing('users', 'reset_otp_attempts', 'INT DEFAULT 0');
         await addColumnIfMissing('appointments', 'qr_token', 'VARCHAR(120) DEFAULT NULL');
         await addColumnIfMissing('appointments', 'checked_in_at', 'DATETIME DEFAULT NULL');
         await addIndexIfMissing('appointments', 'idx_appointments_qr_token', '(qr_token)');
