@@ -1,12 +1,12 @@
 # Graph Report - Attempt1  (2026-08-31)
 
 ## Corpus Check
-- 221 files · ~394,172 words
+- 221 files · ~392,504 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1676 nodes · 2854 edges · 88 communities (80 shown, 8 thin omitted)
-- Extraction: 95% EXTRACTED · 4% INFERRED · 0% AMBIGUOUS · INFERRED: 128 edges (avg confidence: 0.59)
+- 1655 nodes · 2808 edges · 84 communities (75 shown, 9 thin omitted)
+- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 128 edges (avg confidence: 0.58)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
@@ -35,12 +35,12 @@
 - Update & Cluster-Only Reference (.agents)
 - What You Must Do When Invoked
 - assistant.js
-- packages.js
+- admin.js
 - Query/Path/Explain Reference (.agents)
-- What You Must Do When Invoked
+- database.js
 - Graphify SKILL.md (.agents)
 - /graphify
-- .generate
+- TestDiagnosticsContracts
 - auth.ts
 - Medical Clinic Queueing System
 - graphify reference: add a URL and watch a folder
@@ -48,7 +48,6 @@
 - Extraction Subagent Spec (.agents)
 - Sample Data
 - GitHub Clone & Merge Reference (.agents)
-- _palette_is_dark
 - pytesseract_ocr.py
 - CLAUDE.md
 - DesignSystemGenerator
@@ -56,29 +55,26 @@
 - search
 - BM25
 - .claude/skills/ui-ux-pro-max/scripts/design_system.py
-- _select_palette_for_mode
-- admin.js
+- .claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py
 - UI/UX Pro Max - Design Intelligence
 - TestThresholdGate
 - CatalogRefreshTest
-- .claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py
+- read_rows
 - .agents/skills/ui-ux-pro-max/scripts/validate_data.py
 - graphify reference: extra exports and benchmark
 - Pre-Delivery Checklist (canonical — the only one)
 - Quick Reference
 - detect_domain
-- .claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py
+- _style_is_dark_primary
 - /graphify
 - test_text_layout_resilience.py
-- _normalize
 - .agents/skills/ui-ux-pro-max/scripts/core.py
-- _row_identities
+- _suggest_identities
 - Web Interface Guidelines
 - ui-ux-pro-max.md
 - web-design-guidelines.md
 - AI Agent Instructions & Skills
 - Skills Resolution & Global Skills Rule
-- TestGeneratedCatalogContract
 - search_stack
 - parse_decision_rules
 - search
@@ -99,8 +95,8 @@
 - .claude/skills/ui-ux-pro-max/scripts/tests/test_core.py
 - .agents/skills/ui-ux-pro-max/scripts/tests/test_text_layout_resilience.py
 - .agents/skills/ui-ux-pro-max/scripts/tests/test_core.py
-- .generate
-- AI Agent Instructions & Skills
+- _filter_anti_patterns_for_mode
+- TestGeneratedCatalogContract
 - _row_identities
 - Web Interface Guidelines
 
@@ -141,7 +137,7 @@
 - **Staff Role-Gated Dashboard Page Family** — public_admintechnical_page, public_owner_page, public_frontdesk_page, public_doctor_page, public_laboratory_page [INFERRED 0.75]
 - **Seed Account & Role Matrix Documentation** — readme_overview, example_accounts_seedlist, concept_seed_accounts, concept_role_based_access [INFERRED 0.75]
 
-## Communities (88 total, 8 thin omitted)
+## Communities (84 total, 9 thin omitted)
 
 ### Community 0 - "index.js"
 Cohesion: 0.05
@@ -153,14 +149,14 @@ Nodes (59): APPT_SLOTS, apptNextStep(), apptPrevStep(), bookAppointment(), calen
 
 ### Community 2 - "admintechnical.js"
 Cohesion: 0.08
-Nodes (29): allDoctors, allLabs, createAccount(), deleteLab(), deleteUser(), editService(), editUser(), fetchAllLabs() (+21 more)
+Nodes (30): allDoctors, allLabs, createAccount(), deleteLab(), deleteUser(), editService(), editUser(), fetchAllLabs() (+22 more)
 
 ### Community 3 - "dependencies"
 Cohesion: 0.05
 Nodes (38): axios, bcrypt, better-auth, body-parser, cors, dotenv, @emailjs/nodejs, express (+30 more)
 
 ### Community 4 - "owner.js"
-Cohesion: 0.09
+Cohesion: 0.08
 Nodes (29): allAudits, allDoctors, allLabs, deleteLab(), deleteUser(), editService(), editUser(), fetchAllLabs() (+21 more)
 
 ### Community 5 - "Customer Dashboard & Core Actions Flow"
@@ -176,12 +172,12 @@ Cohesion: 0.13
 Nodes (20): allFdLogs, allLabs, editService(), fdCallNext(), fdComplete(), fetchLabs(), filterFdLogs(), labSequence (+12 more)
 
 ### Community 8 - "server.js"
-Cohesion: 0.07
-Nodes (34): addColumnIfMissing(), addIndexIfMissing(), DEFAULT_SERVICES, DOCTOR_SEEDS, initDB(), LAB_SEEDS, mysql, SERVICE_STEPS (+26 more)
+Cohesion: 0.09
+Nodes (25): adminRoutes, app, assistantRoutes, authRoutes, bcrypt, bodyParser, composeFullName(), cors (+17 more)
 
 ### Community 9 - "shared.js"
-Cohesion: 0.06
-Nodes (50): ANNOUNCEMENT_STAFF_ROLES, ANNOUNCEMENT_STATION_BY_ROLE, applyBackgroundImage(), applyBranding(), applyLoadedSettings(), applyNavbarColor(), applySiteSettings(), applyTheme() (+42 more)
+Cohesion: 0.10
+Nodes (28): ANNOUNCEMENT_STAFF_ROLES, ANNOUNCEMENT_STATION_BY_ROLE, authHeaders(), closeModal(), dismissedAnnouncementIds, draftAnnouncement(), enforcePasswordPolicy(), escapeHtml() (+20 more)
 
 ### Community 10 - "queue.js"
 Cohesion: 0.16
@@ -192,8 +188,8 @@ Cohesion: 0.08
 Nodes (46): read_rows(), TestAccessibilityGuidance, TestChartsTypographyAndIcons, TestCurrentReactGuidance, TestSemanticColors, _catalog_date(), _check_app_interface_contract(), _check_catalog_contract() (+38 more)
 
 ### Community 12 - "CLAUDE.md — Project Guidance"
-Cohesion: 0.21
-Nodes (17): graphify, CLAUDE.md — Project Guidance, Graphify Knowledge Graph Tool, Priority Queueing (Senior/PWD/Pregnant), Role-Based Access Matrix, Seeded Dev Accounts, Auto-Migrating Schema Convention (addColumnIfMissing/addIndexIfMissing in initDB), Soft Deletion Convention (archived/archived_at columns, no hard deletes) (+9 more)
+Cohesion: 0.13
+Nodes (22): AI Agent Instructions & Skills, graphify, Skills Resolution Priority, ui-ux-pro-max, web-design-guidelines, CLAUDE.md — Project Guidance, Graphify Knowledge Graph Tool, Priority Queueing (Senior/PWD/Pregnant) (+14 more)
 
 ### Community 13 - "ai_services.js"
 Cohesion: 0.12
@@ -216,24 +212,24 @@ Cohesion: 0.14
 Nodes (15): Transcribe Reference (.agents), graphify reference: transcribe video and audio, Step 2.5 - Transcribe video / audio files (only if video files detected), Update & Cluster-Only Reference (.agents), For --cluster-only, For --update (incremental re-extraction), graphify reference: incremental update and cluster-only, Stamp-Only-On-Output Manifest Rule (+7 more)
 
 ### Community 18 - "What You Must Do When Invoked"
-Cohesion: 0.13
-Nodes (15): Part A - Structural extraction for code files, Part B - Semantic extraction (parallel subagents), Part C - Merge AST + semantic into final extraction, Step 0 - GitHub repos and multi-path merge (only if a URL or several paths), Step 1 - Ensure graphify is installed, Step 2.5 - Video and audio (only if video files detected), Step 2 - Detect files, Step 3 - Extract entities and relationships (+7 more)
+Cohesion: 0.06
+Nodes (30): Part A - Structural extraction for code files, Part B - Semantic extraction (parallel subagents), Part C - Merge AST + semantic into final extraction, Step 0 - GitHub repos and multi-path merge (only if a URL or several paths), Step 1 - Ensure graphify is installed, Step 2.5 - Video and audio (only if video files detected), Step 2 - Detect files, Step 3 - Extract entities and relationships (+22 more)
 
 ### Community 19 - "assistant.js"
-Cohesion: 0.15
-Nodes (10): pool, aiServices, { buildCustomerStatus }, express, { pool }, router, aiServices, express (+2 more)
+Cohesion: 0.29
+Nodes (5): aiServices, { buildCustomerStatus }, express, { pool }, router
 
-### Community 20 - "packages.js"
-Cohesion: 0.19
-Nodes (10): ADMIN_ROLES, requireAdmin(), requireStaff(), STAFF_ROLES, aiServices, express, jwt, { JWT_SECRET, requireStaff } (+2 more)
+### Community 20 - "admin.js"
+Cohesion: 0.10
+Nodes (20): ADMIN_ROLES, requireAdmin(), requireStaff(), STAFF_ROLES, aiServices, ANNOUNCEMENT_DEPARTMENT_NAMES, bcrypt, crypto (+12 more)
 
 ### Community 21 - "Query/Path/Explain Reference (.agents)"
 Cohesion: 0.10
 Nodes (20): For git commit hook, For native CLAUDE.md integration, graphify reference: commit hook and native CLAUDE.md integration, Query/Path/Explain Reference (.agents), For /graphify explain, For /graphify path, graphify reference: query, path, explain, Step 0 — Constrained query expansion (REQUIRED before traversal) (+12 more)
 
-### Community 22 - "What You Must Do When Invoked"
-Cohesion: 0.13
-Nodes (15): Part A - Structural extraction for code files, Part B - Semantic extraction (parallel subagents), Part C - Merge AST + semantic into final extraction, Step 0 - GitHub repos and multi-path merge (only if a URL or several paths), Step 1 - Ensure graphify is installed, Step 2.5 - Video and audio (only if video files detected), Step 2 - Detect files, Step 3 - Extract entities and relationships (+7 more)
+### Community 22 - "database.js"
+Cohesion: 0.16
+Nodes (13): addColumnIfMissing(), addIndexIfMissing(), DOCTOR_SEEDS, initDB(), LAB_SEEDS, mysql, pool, SERVICE_STEPS (+5 more)
 
 ### Community 23 - "Graphify SKILL.md (.agents)"
 Cohesion: 0.13
@@ -242,10 +238,6 @@ Nodes (15): graphify, Add-Watch Reference (.agents), For /graphify add, For --wa
 ### Community 24 - "/graphify"
 Cohesion: 0.25
 Nodes (8): For /graphify add and --watch, For /graphify query, For the commit hook and native CLAUDE.md integration, For --update and --cluster-only, /graphify, Interpreter guard for subcommands, Usage, What graphify is for
-
-### Community 25 - ".generate"
-Cohesion: 0.16
-Nodes (8): _filter_anti_patterns_for_mode(), Drop "avoid dark mode" advice once dark mode is the resolved answer., Execute searches across multiple domains., Extract results list from search result dict., Generate complete design system recommendation. variance/motion/density are…, Bucket a 1-10 dial value into its tier config. Returns None if value is None., _resolve_dial(), TestAntiPatternGating
 
 ### Community 27 - "Medical Clinic Queueing System"
 Cohesion: 0.22
@@ -256,8 +248,8 @@ Cohesion: 0.67
 Nodes (3): For /graphify add, For --watch, graphify reference: add a URL and watch a folder
 
 ### Community 29 - ".claude/skills/ui-ux-pro-max/scripts/core.py"
-Cohesion: 0.12
-Nodes (25): _contains_phrase(), _domain_keywords(), _file_signature(), _get_bm25(), _load_csv(), _load_csv_snapshot(), _load_product_keywords(), _load_rows_or_empty() (+17 more)
+Cohesion: 0.11
+Nodes (30): _contains_phrase(), _domain_keywords(), _exact_match_diagnostic(), _file_signature(), _get_bm25(), _legacy_successor_guidance(), _load_csv(), _load_csv_snapshot() (+22 more)
 
 ### Community 30 - "Extraction Subagent Spec (.agents)"
 Cohesion: 0.33
@@ -271,17 +263,13 @@ Nodes (6): Doctor Stations, Example Test Accounts, Laboratories, Role Descriptio
 Cohesion: 0.33
 Nodes (6): GitHub Clone & Merge Reference (.agents), graphify reference: GitHub clone and cross-repo merge, Step 0 - Clone GitHub repo(s) (only if a GitHub URL was given), GitHub Clone & Merge Reference (.claude), graphify reference: GitHub clone and cross-repo merge, Step 0 - Clone GitHub repo(s) (only if a GitHub URL was given)
 
-### Community 33 - "_palette_is_dark"
-Cohesion: 0.18
-Nodes (7): _palette_is_dark(), WCAG relative luminance of a #RRGGBB string, or None if unparseable., True when a colors.csv row's Background is a dark surface., _relative_luminance(), The exact reproduction from issue #428., TestEndToEndCoherence, TestLuminance
-
 ### Community 36 - "DesignSystemGenerator"
-Cohesion: 0.14
-Nodes (6): DesignSystemGenerator, Generates design system recommendations from aggregated searches., Load reasoning rules from CSV., TestReasoningMatch, read_rows(), TestReasoningContract
+Cohesion: 0.10
+Nodes (12): DesignSystemGenerator, Generates design system recommendations from aggregated searches., Load reasoning rules from CSV., Execute searches across multiple domains., Select best matching result based on priority keywords., Extract results list from search result dict., Generate complete design system recommendation. variance/motion/density are…, Bucket a 1-10 dial value into its tier config. Returns None if value is None. (+4 more)
 
 ### Community 37 - "search_stack"
 Cohesion: 0.09
-Nodes (12): _exact_stack_identifier(), _project_row(), Resolve a standalone API identifier even when its BM25 IDF is low., Search stack-specific guidelines, search_stack(), _valid_max_results(), format_output(), Format results for Claude consumption (token-optimized) (+4 more)
+Nodes (10): _exact_stack_identifier(), Resolve a standalone API identifier even when its BM25 IDF is low., Search stack-specific guidelines, search_stack(), format_output(), Format results for Claude consumption (token-optimized), _rows(), TestNativeDesktopStackFreshness (+2 more)
 
 ### Community 38 - "search"
 Cohesion: 0.12
@@ -289,19 +277,15 @@ Nodes (7): Resolve a deprecated in-domain alias, or expose a cross-domain redire
 
 ### Community 39 - "BM25"
 Cohesion: 0.14
-Nodes (8): BM25, BM25 ranking algorithm for text search, Lowercase, normalize synonyms, split, remove punctuation, filter stopwords, Build BM25 index from documents, Suggest complete public identities so a retry can bypass score thresholds., _suggest_identities(), TestBm25CoreBehavior, TestTokenizer
+Nodes (11): BM25, _passes_threshold(), _query_coverage(), BM25 ranking algorithm for text search, Lowercase, normalize synonyms, split, remove punctuation, filter stopwords, Build BM25 index from documents, Score all documents against query, All indexed terms, for suggestion/typo-recovery purposes. (+3 more)
 
 ### Community 40 - ".claude/skills/ui-ux-pro-max/scripts/design_system.py"
 Cohesion: 0.12
 Nodes (23): ansi_ljust(), _detect_page_type(), format_ascii_box(), format_master_md(), format_page_override_md(), _generate_intelligent_overrides(), hex_to_ansi(), persist_design_system() (+15 more)
 
-### Community 41 - "_select_palette_for_mode"
-Cohesion: 0.22
-Nodes (7): _contrast_ratio(), _derive_dark_palette(), WCAG contrast ratio for two hex colors, or None if either is invalid., Keep product brand tokens while deriving accessible dark surfaces., Pick the highest-ranked palette matching the resolved mode. Only the dark case…, _select_palette_for_mode(), TestPaletteSelection
-
-### Community 42 - "admin.js"
-Cohesion: 0.14
-Nodes (12): aiServices, ANNOUNCEMENT_DEPARTMENT_NAMES, bcrypt, crypto, ELEVATED_ROLES, express, { pool }, QRCode (+4 more)
+### Community 41 - ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py"
+Cohesion: 0.12
+Nodes (15): _contrast_ratio(), _derive_dark_palette(), _filter_anti_patterns_for_mode(), _palette_is_dark(), WCAG relative luminance of a #RRGGBB string, or None if unparseable., True when a colors.csv row's Background is a dark surface., WCAG contrast ratio for two hex colors, or None if either is invalid., Keep product brand tokens while deriving accessible dark surfaces. (+7 more)
 
 ### Community 43 - "UI/UX Pro Max - Design Intelligence"
 Cohesion: 0.11
@@ -311,13 +295,13 @@ Nodes (17): Before Delivering App UI, Example Workflow, If a search returns 0 re
 Cohesion: 0.13
 Nodes (3): TestFixtureValidation, TestMetricMath, TestThresholdGate
 
-### Community 46 - ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py"
-Cohesion: 0.21
-Nodes (4): split_values(), style_identities(), TestLandingAndStackContract, TestStyleIdentityContract
+### Community 46 - "read_rows"
+Cohesion: 0.11
+Nodes (7): read_rows(), split_values(), style_identities(), TestGeneratedCatalogContract, TestLandingAndStackContract, TestReasoningContract, TestStyleIdentityContract
 
 ### Community 47 - ".agents/skills/ui-ux-pro-max/scripts/validate_data.py"
-Cohesion: 0.07
-Nodes (46): read_rows(), TestAccessibilityGuidance, TestChartsTypographyAndIcons, TestCurrentReactGuidance, TestSemanticColors, _catalog_date(), _check_app_interface_contract(), _check_catalog_contract() (+38 more)
+Cohesion: 0.08
+Nodes (45): read_rows(), TestAccessibilityGuidance, TestChartsTypographyAndIcons, TestCurrentReactGuidance, TestSemanticColors, _catalog_date(), _check_app_interface_contract(), _check_catalog_contract() (+37 more)
 
 ### Community 48 - "graphify reference: extra exports and benchmark"
 Cohesion: 0.25
@@ -335,8 +319,8 @@ Nodes (12): 10. Charts & Data (LOW), 1. Accessibility (CRITICAL), 2. Touch & Int
 Cohesion: 0.23
 Nodes (3): detect_domain(), Auto-detect the most relevant domain from query. Matches are weighted by…, TestDomainDetection
 
-### Community 52 - ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py"
-Cohesion: 0.23
+### Community 52 - "_style_is_dark_primary"
+Cohesion: 0.21
 Nodes (7): _query_wants_dark(), True when a styles.csv row describes itself as dark-first., True when the query explicitly asks for a dark theme., Resolve the mode the rest of the output has to agree with., _resolve_color_mode(), _style_is_dark_primary(), TestModeResolution
 
 ### Community 53 - "/graphify"
@@ -347,17 +331,13 @@ Nodes (10): For /graphify add and --watch, For /graphify query, For the commit h
 Cohesion: 0.22
 Nodes (3): read_rows(), TestTextLayoutDataContracts, TestTextLayoutRetrieval
 
-### Community 55 - "_normalize"
-Cohesion: 0.25
-Nodes (9): _exact_match_diagnostic(), _legacy_successor_guidance(), _normalize(), Apply longest-first synonym substitution at token boundaries., Whether a stack query explicitly targets an older framework generation., Choose one coherent applicability generation for stack retrieval., Prefer the explicit successor row for a brand-new app on legacy-only stacks., _stack_query_requests_legacy() (+1 more)
-
 ### Community 56 - ".agents/skills/ui-ux-pro-max/scripts/core.py"
 Cohesion: 0.10
-Nodes (32): _contains_phrase(), _domain_keywords(), _exact_match_diagnostic(), _file_signature(), _get_bm25(), _legacy_successor_guidance(), _load_csv(), _load_csv_snapshot() (+24 more)
+Nodes (32): _contains_phrase(), _domain_keywords(), _exact_match_diagnostic(), _exact_stack_identifier(), _file_signature(), _get_bm25(), _legacy_successor_guidance(), _load_csv() (+24 more)
 
-### Community 57 - "_row_identities"
-Cohesion: 0.33
-Nodes (6): _exact_row_identity(), Return non-empty public identities from ordinary and alias fields., Resolve an explicit style identity without opening generic variant ranking., Return one row whose stable public identity exactly matches the query., _row_identities(), _style_identity()
+### Community 57 - "_suggest_identities"
+Cohesion: 0.25
+Nodes (8): _exact_row_identity(), Suggest complete public identities so a retry can bypass score thresholds., Return non-empty public identities from ordinary and alias fields., Resolve an explicit style identity without opening generic variant ranking., Return one row whose stable public identity exactly matches the query., _row_identities(), _style_identity(), _suggest_identities()
 
 ### Community 58 - "Web Interface Guidelines"
 Cohesion: 0.40
@@ -376,16 +356,16 @@ Cohesion: 0.11
 Nodes (6): Search stack-specific guidelines, search_stack(), _rows(), TestNativeDesktopStackFreshness, _rows(), TestWebStackFreshness
 
 ### Community 65 - "parse_decision_rules"
-Cohesion: 0.16
-Nodes (9): Find matching reasoning rule for a category., Apply reasoning rules to search results., Select best matching result based on priority keywords., apply_decision_rules(), _object_without_duplicates(), parse_decision_rules(), Return deterministic mutations and an audit trail; never execute data., Parse the canonical condition -> action-array representation. (+1 more)
+Cohesion: 0.19
+Nodes (8): Find matching reasoning rule for a category., Apply reasoning rules to search results., apply_decision_rules(), _object_without_duplicates(), parse_decision_rules(), Return deterministic mutations and an audit trail; never execute data., Parse the canonical condition -> action-array representation., _validate_action()
 
 ### Community 66 - "search"
 Cohesion: 0.11
-Nodes (7): _exact_stack_identifier(), Main search function with auto-domain detection, Resolve a standalone API identifier even when its BM25 IDF is low., search(), TestSearchDomains, read_rows(), TestStyleTaxonomy
+Nodes (7): Resolve a deprecated in-domain alias, or expose a cross-domain redirect., Main search function with auto-domain detection, search(), _style_search_destination(), TestSearchDomains, read_rows(), TestStyleTaxonomy
 
 ### Community 67 - "read_rows"
-Cohesion: 0.11
-Nodes (7): read_rows(), split_values(), style_identities(), TestGeneratedCatalogContract, TestLandingAndStackContract, TestReasoningContract, TestStyleIdentityContract
+Cohesion: 0.12
+Nodes (7): read_rows(), split_values(), style_identities(), TestLandingAndStackContract, TestReasoningContract, TestStyleIdentityContract, _check_reasoning_contract()
 
 ### Community 68 - "BM25"
 Cohesion: 0.11
@@ -396,11 +376,11 @@ Cohesion: 0.11
 Nodes (25): ansi_ljust(), _detect_page_type(), format_ascii_box(), format_markdown(), format_master_md(), format_page_override_md(), _generate_intelligent_overrides(), hex_to_ansi() (+17 more)
 
 ### Community 70 - "DesignSystemGenerator"
-Cohesion: 0.13
-Nodes (9): DesignSystemGenerator, Generates design system recommendations from aggregated searches., Load reasoning rules from CSV., Find matching reasoning rule for a category., Apply reasoning rules to search results., Select best matching result based on priority keywords., TestReasoningMatch, The exact reproduction from issue #428. (+1 more)
+Cohesion: 0.09
+Nodes (14): DesignSystemGenerator, Generates design system recommendations from aggregated searches., Load reasoning rules from CSV., Execute searches across multiple domains., Find matching reasoning rule for a category., Apply reasoning rules to search results., Select best matching result based on priority keywords., Extract results list from search result dict. (+6 more)
 
 ### Community 71 - "parse_decision_rules"
-Cohesion: 0.27
+Cohesion: 0.31
 Nodes (6): apply_decision_rules(), _object_without_duplicates(), parse_decision_rules(), Return deterministic mutations and an audit trail; never execute data., Parse the canonical condition -> action-array representation., _validate_action()
 
 ### Community 72 - "UI/UX Pro Max - Design Intelligence"
@@ -436,8 +416,8 @@ Cohesion: 0.24
 Nodes (7): _query_wants_dark(), True when a styles.csv row describes itself as dark-first., True when the query explicitly asks for a dark theme., Resolve the mode the rest of the output has to agree with., _resolve_color_mode(), _style_is_dark_primary(), TestModeResolution
 
 ### Community 81 - ".claude/skills/ui-ux-pro-max/scripts/tests/test_core.py"
-Cohesion: 0.20
-Nodes (6): format_markdown(), generate_design_system(), Format design system as markdown., Main entry point for design system generation. Args: query: Search query (e.g.,…, TestDiagnosticsContracts, TestPersistence
+Cohesion: 0.18
+Nodes (6): format_markdown(), generate_design_system(), Format design system as markdown., Main entry point for design system generation. Args: query: Search query (e.g.,…, TestBm25CoreBehavior, TestPersistence
 
 ### Community 82 - ".agents/skills/ui-ux-pro-max/scripts/tests/test_text_layout_resilience.py"
 Cohesion: 0.22
@@ -447,13 +427,9 @@ Nodes (3): read_rows(), TestTextLayoutDataContracts, TestTextLayoutRetrieval
 Cohesion: 0.18
 Nodes (6): generate_design_system(), Main entry point for design system generation. Args: query: Search query (e.g.,…, format_output(), Format results for Claude consumption (token-optimized), TestDiagnosticsContracts, TestPersistence
 
-### Community 84 - ".generate"
-Cohesion: 0.16
-Nodes (8): _filter_anti_patterns_for_mode(), Drop "avoid dark mode" advice once dark mode is the resolved answer., Execute searches across multiple domains., Extract results list from search result dict., Generate complete design system recommendation. variance/motion/density are…, Bucket a 1-10 dial value into its tier config. Returns None if value is None., _resolve_dial(), TestAntiPatternGating
-
-### Community 85 - "AI Agent Instructions & Skills"
-Cohesion: 0.40
-Nodes (4): AI Agent Instructions & Skills, Skills Resolution Priority, ui-ux-pro-max, web-design-guidelines
+### Community 84 - "_filter_anti_patterns_for_mode"
+Cohesion: 0.43
+Nodes (3): _filter_anti_patterns_for_mode(), Drop "avoid dark mode" advice once dark mode is the resolved answer., TestAntiPatternGating
 
 ### Community 86 - "_row_identities"
 Cohesion: 0.33
@@ -470,9 +446,9 @@ Nodes (4): Guidelines Source, How It Works, Usage, Web Interface Guidelines
   public/admintechnical.html · relation: references
 
 ## Knowledge Gaps
-- **346 isolated node(s):** `axios`, `{ pool }`, `{ spawn }`, `path`, `fs` (+341 more)
+- **340 isolated node(s):** `axios`, `{ pool }`, `{ spawn }`, `path`, `fs` (+335 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **8 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **9 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
@@ -481,13 +457,13 @@ _Questions this graph is uniquely positioned to answer:_
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **What is the exact relationship between `Customize Section (admintechnical.html)` and `Clinic Building Exterior Photo`?**
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
-- **Why does `DesignSystemGenerator` connect `DesignSystemGenerator` to `.generate`, `_palette_is_dark`, `DesignSystemGenerator`, `search`, `BM25`, `_select_palette_for_mode`, `.claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py`, `detect_domain`, `.claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py`, `TestGeneratedCatalogContract`, `search`, `read_rows`, `BM25`, `.agents/skills/ui-ux-pro-max/scripts/design_system.py`, `detect_domain`, `.agents/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py`, `_style_is_dark_primary`, `.claude/skills/ui-ux-pro-max/scripts/tests/test_core.py`, `.agents/skills/ui-ux-pro-max/scripts/tests/test_core.py`, `.generate`?**
-  _High betweenness centrality (0.091) - this node is a cross-community bridge._
-- **Why does `search()` connect `search` to `search_stack`, `BM25`, `.claude/skills/ui-ux-pro-max/scripts/design_system.py`, `.claude/skills/ui-ux-pro-max/scripts/validate_data.py`, `.claude/skills/ui-ux-pro-max/scripts/tests/test_core.py`, `detect_domain`, `test_text_layout_resilience.py`, `_normalize`, `_row_identities`, `.claude/skills/ui-ux-pro-max/scripts/core.py`, `.generate`?**
-  _High betweenness centrality (0.049) - this node is a cross-community bridge._
+- **Why does `DesignSystemGenerator` connect `DesignSystemGenerator` to `TestDiagnosticsContracts`, `DesignSystemGenerator`, `search`, `BM25`, `.claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py`, `read_rows`, `detect_domain`, `_style_is_dark_primary`, `search`, `read_rows`, `BM25`, `.agents/skills/ui-ux-pro-max/scripts/design_system.py`, `detect_domain`, `.agents/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py`, `_style_is_dark_primary`, `.claude/skills/ui-ux-pro-max/scripts/tests/test_core.py`, `.agents/skills/ui-ux-pro-max/scripts/tests/test_core.py`, `_filter_anti_patterns_for_mode`, `TestGeneratedCatalogContract`?**
+  _High betweenness centrality (0.092) - this node is a cross-community bridge._
 - **Why does `Customer Dashboard Page` connect `customer.js` to `shared.js`, `va.js`, `doctor.js`?**
-  _High betweenness centrality (0.046) - this node is a cross-community bridge._
+  _High betweenness centrality (0.051) - this node is a cross-community bridge._
+- **Why does `search()` connect `search` to `DesignSystemGenerator`, `search_stack`, `BM25`, `.claude/skills/ui-ux-pro-max/scripts/design_system.py`, `.claude/skills/ui-ux-pro-max/scripts/validate_data.py`, `.claude/skills/ui-ux-pro-max/scripts/tests/test_core.py`, `detect_domain`, `test_text_layout_resilience.py`, `_suggest_identities`, `.claude/skills/ui-ux-pro-max/scripts/core.py`, `TestDiagnosticsContracts`?**
+  _High betweenness centrality (0.049) - this node is a cross-community bridge._
 - **Are the 32 inferred relationships involving `DesignSystemGenerator` (e.g. with `TestBm25CoreBehavior` and `TestDiagnosticsContracts`) actually correct?**
   _`DesignSystemGenerator` has 32 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `axios`, `{ pool }`, `{ spawn }` to the rest of the system?**
-  _346 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _340 weakly-connected nodes found - possible documentation gaps or missing edges._

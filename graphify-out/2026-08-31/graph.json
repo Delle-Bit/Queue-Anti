@@ -480,8 +480,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_core_style_search_destination",
-      "community": 56,
-      "community_name": ".agents/skills/ui-ux-pro-max/scripts/core.py",
+      "community": 66,
+      "community_name": "search",
       "norm_label": "_style_search_destination()"
     },
     {
@@ -528,8 +528,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_core_exact_stack_identifier",
-      "community": 66,
-      "community_name": "search",
+      "community": 56,
+      "community_name": ".agents/skills/ui-ux-pro-max/scripts/core.py",
       "norm_label": "_exact_stack_identifier()"
     },
     {
@@ -783,8 +783,8 @@
       "source_location": "L737",
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_core_rationale_737",
-      "community": 56,
-      "community_name": ".agents/skills/ui-ux-pro-max/scripts/core.py",
+      "community": 66,
+      "community_name": "search",
       "norm_label": "resolve a deprecated in-domain alias, or expose a cross-domain redirect."
     },
     {
@@ -827,8 +827,8 @@
       "source_location": "L926",
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_core_rationale_926",
-      "community": 66,
-      "community_name": "search",
+      "community": 56,
+      "community_name": ".agents/skills/ui-ux-pro-max/scripts/core.py",
       "norm_label": "resolve a standalone api identifier even when its bm25 idf is low."
     },
     {
@@ -872,8 +872,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_design_system_resolve_dial",
-      "community": 84,
-      "community_name": ".generate",
+      "community": 70,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "_resolve_dial()"
     },
     {
@@ -981,7 +981,7 @@
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_design_system_filter_anti_patterns_for_mode",
       "community": 84,
-      "community_name": ".generate",
+      "community_name": "_filter_anti_patterns_for_mode",
       "norm_label": "_filter_anti_patterns_for_mode()"
     },
     {
@@ -1077,8 +1077,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_design_system_designsystemgenerator_multi_domain_search",
-      "community": 84,
-      "community_name": ".generate",
+      "community": 70,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "._multi_domain_search()"
     },
     {
@@ -1125,8 +1125,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_design_system_designsystemgenerator_extract_results",
-      "community": 84,
-      "community_name": ".generate",
+      "community": 70,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "._extract_results()"
     },
     {
@@ -1137,8 +1137,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_design_system_designsystemgenerator_generate",
-      "community": 84,
-      "community_name": ".generate",
+      "community": 70,
+      "community_name": "DesignSystemGenerator",
       "norm_label": ".generate()"
     },
     {
@@ -1315,8 +1315,8 @@
       "source_location": "L91",
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_design_system_rationale_91",
-      "community": 84,
-      "community_name": ".generate",
+      "community": 70,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "bucket a 1-10 dial value into its tier config. returns none if value is none."
     },
     {
@@ -1415,7 +1415,7 @@
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_design_system_rationale_247",
       "community": 84,
-      "community_name": ".generate",
+      "community_name": "_filter_anti_patterns_for_mode",
       "norm_label": "drop \"avoid dark mode\" advice once dark mode is the resolved answer."
     },
     {
@@ -1447,8 +1447,8 @@
       "source_location": "L321",
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_design_system_rationale_321",
-      "community": 84,
-      "community_name": ".generate",
+      "community": 70,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "execute searches across multiple domains."
     },
     {
@@ -1491,8 +1491,8 @@
       "source_location": "L446",
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_design_system_rationale_446",
-      "community": 84,
-      "community_name": ".generate",
+      "community": 70,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "extract results list from search result dict."
     },
     {
@@ -1502,8 +1502,8 @@
       "source_location": "L451",
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_design_system_rationale_451",
-      "community": 84,
-      "community_name": ".generate",
+      "community": 70,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "generate complete design system recommendation. variance/motion/density are..."
     },
     {
@@ -2862,8 +2862,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testreasoningcontract_test_decision_rules_use_closed_array_grammar",
-      "community": 71,
-      "community_name": "parse_decision_rules",
+      "community": 67,
+      "community_name": "read_rows",
       "norm_label": ".test_decision_rules_use_closed_array_grammar()"
     },
     {
@@ -2970,8 +2970,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testreasoningcontract_test_duplicate_semantic_reasoning_labels_fail_validation",
-      "community": 47,
-      "community_name": ".agents/skills/ui-ux-pro-max/scripts/validate_data.py",
+      "community": 67,
+      "community_name": "read_rows",
       "norm_label": ".test_duplicate_semantic_reasoning_labels_fail_validation()"
     },
     {
@@ -3080,8 +3080,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testgeneratedcatalogcontract",
-      "community": 67,
-      "community_name": "read_rows",
+      "community": 85,
+      "community_name": "TestGeneratedCatalogContract",
       "norm_label": "testgeneratedcatalogcontract"
     },
     {
@@ -3092,8 +3092,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testgeneratedcatalogcontract_load_json",
-      "community": 67,
-      "community_name": "read_rows",
+      "community": 85,
+      "community_name": "TestGeneratedCatalogContract",
       "norm_label": ".load_json()"
     },
     {
@@ -3104,8 +3104,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testgeneratedcatalogcontract_test_canonical_catalogs_and_provenance_are_release_ready",
-      "community": 67,
-      "community_name": "read_rows",
+      "community": 85,
+      "community_name": "TestGeneratedCatalogContract",
       "norm_label": ".test_canonical_catalogs_and_provenance_are_release_ready()"
     },
     {
@@ -3116,8 +3116,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testgeneratedcatalogcontract_test_font_license_and_typography_drift_fail_closed",
-      "community": 67,
-      "community_name": "read_rows",
+      "community": 85,
+      "community_name": "TestGeneratedCatalogContract",
       "norm_label": ".test_font_license_and_typography_drift_fail_closed()"
     },
     {
@@ -3128,8 +3128,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testgeneratedcatalogcontract_test_font_source_revision_and_exclusion_policy_fail_closed",
-      "community": 67,
-      "community_name": "read_rows",
+      "community": 85,
+      "community_name": "TestGeneratedCatalogContract",
       "norm_label": ".test_font_source_revision_and_exclusion_policy_fail_closed()"
     },
     {
@@ -3140,8 +3140,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testgeneratedcatalogcontract_test_curated_icon_and_summary_drift_fail_closed",
-      "community": 67,
-      "community_name": "read_rows",
+      "community": 85,
+      "community_name": "TestGeneratedCatalogContract",
       "norm_label": ".test_curated_icon_and_summary_drift_fail_closed()"
     },
     {
@@ -3360,7 +3360,7 @@
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testantipatterngating",
       "community": 84,
-      "community_name": ".generate",
+      "community_name": "_filter_anti_patterns_for_mode",
       "norm_label": "testantipatterngating"
     },
     {
@@ -3372,7 +3372,7 @@
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testantipatterngating_test_dark_clause_dropped_others_kept",
       "community": 84,
-      "community_name": ".generate",
+      "community_name": "_filter_anti_patterns_for_mode",
       "norm_label": ".test_dark_clause_dropped_others_kept()"
     },
     {
@@ -3384,7 +3384,7 @@
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testantipatterngating_test_light_mode_is_a_no_op",
       "community": 84,
-      "community_name": ".generate",
+      "community_name": "_filter_anti_patterns_for_mode",
       "norm_label": ".test_light_mode_is_a_no_op()"
     },
     {
@@ -3396,7 +3396,7 @@
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testantipatterngating_test_unrelated_anti_patterns_survive_dark_mode",
       "community": 84,
-      "community_name": ".generate",
+      "community_name": "_filter_anti_patterns_for_mode",
       "norm_label": ".test_unrelated_anti_patterns_survive_dark_mode()"
     },
     {
@@ -3408,7 +3408,7 @@
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testantipatterngating_test_empty_input",
       "community": 84,
-      "community_name": ".generate",
+      "community_name": "_filter_anti_patterns_for_mode",
       "norm_label": ".test_empty_input()"
     },
     {
@@ -4405,8 +4405,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "agents_skills_ui_ux_pro_max_scripts_validate_data_check_reasoning_contract",
-      "community": 47,
-      "community_name": ".agents/skills/ui-ux-pro-max/scripts/validate_data.py",
+      "community": 67,
+      "community_name": "read_rows",
       "norm_label": "_check_reasoning_contract()"
     },
     {
@@ -4809,8 +4809,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_normalize",
-      "community": 55,
-      "community_name": "_normalize",
+      "community": 29,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
       "norm_label": "_normalize()"
     },
     {
@@ -4870,8 +4870,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_bm25_score",
-      "community": 29,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
+      "community": 39,
+      "community_name": "BM25",
       "norm_label": ".score()"
     },
     {
@@ -4882,8 +4882,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_bm25_vocabulary",
-      "community": 29,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
+      "community": 39,
+      "community_name": "BM25",
       "norm_label": ".vocabulary()"
     },
     {
@@ -4942,8 +4942,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_query_coverage",
-      "community": 29,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
+      "community": 39,
+      "community_name": "BM25",
       "norm_label": "_query_coverage()"
     },
     {
@@ -4978,8 +4978,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_passes_threshold",
-      "community": 29,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
+      "community": 39,
+      "community_name": "BM25",
       "norm_label": "_passes_threshold()"
     },
     {
@@ -4990,8 +4990,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_suggest_terms",
-      "community": 29,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
+      "community": 39,
+      "community_name": "BM25",
       "norm_label": "_suggest_terms()"
     },
     {
@@ -5002,8 +5002,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_suggest_identities",
-      "community": 39,
-      "community_name": "BM25",
+      "community": 57,
+      "community_name": "_suggest_identities",
       "norm_label": "_suggest_identities()"
     },
     {
@@ -5015,7 +5015,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_row_identities",
       "community": 57,
-      "community_name": "_row_identities",
+      "community_name": "_suggest_identities",
       "norm_label": "_row_identities()"
     },
     {
@@ -5087,7 +5087,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_style_identity",
       "community": 57,
-      "community_name": "_row_identities",
+      "community_name": "_suggest_identities",
       "norm_label": "_style_identity()"
     },
     {
@@ -5099,7 +5099,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_exact_row_identity",
       "community": 57,
-      "community_name": "_row_identities",
+      "community_name": "_suggest_identities",
       "norm_label": "_exact_row_identity()"
     },
     {
@@ -5122,8 +5122,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_project_row",
-      "community": 37,
-      "community_name": "search_stack",
+      "community": 29,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
       "norm_label": "_project_row()"
     },
     {
@@ -5134,8 +5134,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_valid_max_results",
-      "community": 37,
-      "community_name": "search_stack",
+      "community": 29,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
       "norm_label": "_valid_max_results()"
     },
     {
@@ -5146,8 +5146,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_exact_match_diagnostic",
-      "community": 55,
-      "community_name": "_normalize",
+      "community": 29,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
       "norm_label": "_exact_match_diagnostic()"
     },
     {
@@ -5182,8 +5182,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_stack_query_requests_legacy",
-      "community": 55,
-      "community_name": "_normalize",
+      "community": 29,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
       "norm_label": "_stack_query_requests_legacy()"
     },
     {
@@ -5194,8 +5194,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_stack_row_filter",
-      "community": 55,
-      "community_name": "_normalize",
+      "community": 29,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
       "norm_label": "_stack_row_filter()"
     },
     {
@@ -5218,8 +5218,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_legacy_successor_guidance",
-      "community": 55,
-      "community_name": "_normalize",
+      "community": 29,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
       "norm_label": "_legacy_successor_guidance()"
     },
     {
@@ -5241,8 +5241,8 @@
       "source_location": "L274",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_rationale_274",
-      "community": 55,
-      "community_name": "_normalize",
+      "community": 29,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
       "norm_label": "apply longest-first synonym substitution at token boundaries."
     },
     {
@@ -5285,8 +5285,8 @@
       "source_location": "L324",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_rationale_324",
-      "community": 29,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
+      "community": 39,
+      "community_name": "BM25",
       "norm_label": "score all documents against query"
     },
     {
@@ -5296,8 +5296,8 @@
       "source_location": "L346",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_rationale_346",
-      "community": 29,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
+      "community": 39,
+      "community_name": "BM25",
       "norm_label": "all indexed terms, for suggestion/typo-recovery purposes."
     },
     {
@@ -5362,8 +5362,8 @@
       "source_location": "L484",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_rationale_484",
-      "community": 29,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
+      "community": 39,
+      "community_name": "BM25",
       "norm_label": "nearest known vocabulary terms for a query that returned 0 hits, so the caller..."
     },
     {
@@ -5373,8 +5373,8 @@
       "source_location": "L505",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_rationale_505",
-      "community": 39,
-      "community_name": "BM25",
+      "community": 57,
+      "community_name": "_suggest_identities",
       "norm_label": "suggest complete public identities so a retry can bypass score thresholds."
     },
     {
@@ -5385,7 +5385,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_rationale_526",
       "community": 57,
-      "community_name": "_row_identities",
+      "community_name": "_suggest_identities",
       "norm_label": "return non-empty public identities from ordinary and alias fields."
     },
     {
@@ -5429,7 +5429,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_rationale_665",
       "community": 57,
-      "community_name": "_row_identities",
+      "community_name": "_suggest_identities",
       "norm_label": "resolve an explicit style identity without opening generic variant ranking."
     },
     {
@@ -5440,7 +5440,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_rationale_696",
       "community": 57,
-      "community_name": "_row_identities",
+      "community_name": "_suggest_identities",
       "norm_label": "return one row whose stable public identity exactly matches the query."
     },
     {
@@ -5483,8 +5483,8 @@
       "source_location": "L849",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_rationale_849",
-      "community": 55,
-      "community_name": "_normalize",
+      "community": 29,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
       "norm_label": "whether a stack query explicitly targets an older framework generation."
     },
     {
@@ -5494,8 +5494,8 @@
       "source_location": "L889",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_rationale_889",
-      "community": 55,
-      "community_name": "_normalize",
+      "community": 29,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
       "norm_label": "choose one coherent applicability generation for stack retrieval."
     },
     {
@@ -5516,8 +5516,8 @@
       "source_location": "L939",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_core_rationale_939",
-      "community": 55,
-      "community_name": "_normalize",
+      "community": 29,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/core.py",
       "norm_label": "prefer the explicit successor row for a brand-new app on legacy-only stacks."
     },
     {
@@ -5550,8 +5550,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_resolve_dial",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "_resolve_dial()"
     },
     {
@@ -5562,8 +5562,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_relative_luminance",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "_relative_luminance()"
     },
     {
@@ -5574,8 +5574,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_palette_is_dark",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "_palette_is_dark()"
     },
     {
@@ -5587,7 +5587,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_contrast_ratio",
       "community": 41,
-      "community_name": "_select_palette_for_mode",
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "_contrast_ratio()"
     },
     {
@@ -5599,7 +5599,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_style_is_dark_primary",
       "community": 52,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
+      "community_name": "_style_is_dark_primary",
       "norm_label": "_style_is_dark_primary()"
     },
     {
@@ -5611,7 +5611,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_query_wants_dark",
       "community": 52,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
+      "community_name": "_style_is_dark_primary",
       "norm_label": "_query_wants_dark()"
     },
     {
@@ -5623,7 +5623,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_resolve_color_mode",
       "community": 52,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
+      "community_name": "_style_is_dark_primary",
       "norm_label": "_resolve_color_mode()"
     },
     {
@@ -5635,7 +5635,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_derive_dark_palette",
       "community": 41,
-      "community_name": "_select_palette_for_mode",
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "_derive_dark_palette()"
     },
     {
@@ -5647,7 +5647,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_select_palette_for_mode",
       "community": 41,
-      "community_name": "_select_palette_for_mode",
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "_select_palette_for_mode()"
     },
     {
@@ -5658,8 +5658,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_filter_anti_patterns_for_mode",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "_filter_anti_patterns_for_mode()"
     },
     {
@@ -5743,8 +5743,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_designsystemgenerator_resolve_style",
-      "community": 65,
-      "community_name": "parse_decision_rules",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "._resolve_style()"
     },
     {
@@ -5755,8 +5755,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_designsystemgenerator_multi_domain_search",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "._multi_domain_search()"
     },
     {
@@ -5791,8 +5791,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_designsystemgenerator_select_best_match",
-      "community": 65,
-      "community_name": "parse_decision_rules",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "._select_best_match()"
     },
     {
@@ -5803,8 +5803,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_designsystemgenerator_extract_results",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "._extract_results()"
     },
     {
@@ -5815,8 +5815,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_designsystemgenerator_generate",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": ".generate()"
     },
     {
@@ -5993,8 +5993,8 @@
       "source_location": "L91",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_rationale_91",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "bucket a 1-10 dial value into its tier config. returns none if value is none."
     },
     {
@@ -6004,8 +6004,8 @@
       "source_location": "L130",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_rationale_130",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "wcag relative luminance of a #rrggbb string, or none if unparseable."
     },
     {
@@ -6015,8 +6015,8 @@
       "source_location": "L148",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_rationale_148",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "true when a colors.csv row's background is a dark surface."
     },
     {
@@ -6027,7 +6027,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_rationale_154",
       "community": 41,
-      "community_name": "_select_palette_for_mode",
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "wcag contrast ratio for two hex colors, or none if either is invalid."
     },
     {
@@ -6038,7 +6038,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_rationale_165",
       "community": 52,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
+      "community_name": "_style_is_dark_primary",
       "norm_label": "true when a styles.csv row describes itself as dark-first."
     },
     {
@@ -6049,7 +6049,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_rationale_181",
       "community": 52,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
+      "community_name": "_style_is_dark_primary",
       "norm_label": "true when the query explicitly asks for a dark theme."
     },
     {
@@ -6060,7 +6060,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_rationale_187",
       "community": 52,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
+      "community_name": "_style_is_dark_primary",
       "norm_label": "resolve the mode the rest of the output has to agree with."
     },
     {
@@ -6071,7 +6071,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_rationale_194",
       "community": 41,
-      "community_name": "_select_palette_for_mode",
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "keep product brand tokens while deriving accessible dark surfaces."
     },
     {
@@ -6082,7 +6082,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_rationale_222",
       "community": 41,
-      "community_name": "_select_palette_for_mode",
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "pick the highest-ranked palette matching the resolved mode. only the dark case..."
     },
     {
@@ -6092,8 +6092,8 @@
       "source_location": "L247",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_rationale_247",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "drop \"avoid dark mode\" advice once dark mode is the resolved answer."
     },
     {
@@ -6125,8 +6125,8 @@
       "source_location": "L321",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_rationale_321",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "execute searches across multiple domains."
     },
     {
@@ -6158,8 +6158,8 @@
       "source_location": "L409",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_rationale_409",
-      "community": 65,
-      "community_name": "parse_decision_rules",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "select best matching result based on priority keywords."
     },
     {
@@ -6169,8 +6169,8 @@
       "source_location": "L446",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_rationale_446",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "extract results list from search result dict."
     },
     {
@@ -6180,8 +6180,8 @@
       "source_location": "L451",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_design_system_rationale_451",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "generate complete design system recommendation. variance/motion/density are..."
     },
     {
@@ -6727,8 +6727,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_core_testbm25corebehavior",
-      "community": 39,
-      "community_name": "BM25",
+      "community": 81,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_core.py",
       "norm_label": "testbm25corebehavior"
     },
     {
@@ -6739,8 +6739,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_core_testbm25corebehavior_test_empty_documents_produce_no_scores_or_vocab",
-      "community": 39,
-      "community_name": "BM25",
+      "community": 81,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_core.py",
       "norm_label": ".test_empty_documents_produce_no_scores_or_vocab()"
     },
     {
@@ -6751,8 +6751,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_core_testbm25corebehavior_test_bm25_cache_rebuilds_after_file_mtime_changes",
-      "community": 39,
-      "community_name": "BM25",
+      "community": 81,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_core.py",
       "norm_label": ".test_bm25_cache_rebuilds_after_file_mtime_changes()"
     },
     {
@@ -6763,8 +6763,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_core_testbm25corebehavior_test_search_uses_one_verified_rows_and_index_snapshot",
-      "community": 39,
-      "community_name": "BM25",
+      "community": 81,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_core.py",
       "norm_label": ".test_search_uses_one_verified_rows_and_index_snapshot()"
     },
     {
@@ -7176,8 +7176,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_core_testdiagnosticscontracts",
-      "community": 81,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_core.py",
+      "community": 25,
+      "community_name": "TestDiagnosticsContracts",
       "norm_label": "testdiagnosticscontracts"
     },
     {
@@ -7188,8 +7188,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_core_testdiagnosticscontracts_test_diagnostics_opt_in_is_additive_for_domain_search",
-      "community": 81,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_core.py",
+      "community": 25,
+      "community_name": "TestDiagnosticsContracts",
       "norm_label": ".test_diagnostics_opt_in_is_additive_for_domain_search()"
     },
     {
@@ -7200,8 +7200,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_core_testdiagnosticscontracts_test_diagnostics_opt_in_is_additive_for_stack_search",
-      "community": 81,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_core.py",
+      "community": 25,
+      "community_name": "TestDiagnosticsContracts",
       "norm_label": ".test_diagnostics_opt_in_is_additive_for_stack_search()"
     },
     {
@@ -7419,7 +7419,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts",
       "community": 46,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py",
+      "community_name": "read_rows",
       "norm_label": ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py"
     },
     {
@@ -7430,8 +7430,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_read_rows",
-      "community": 36,
-      "community_name": "DesignSystemGenerator",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": "read_rows()"
     },
     {
@@ -7443,7 +7443,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_split_values",
       "community": 46,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py",
+      "community_name": "read_rows",
       "norm_label": "split_values()"
     },
     {
@@ -7455,7 +7455,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_style_identities",
       "community": 46,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py",
+      "community_name": "read_rows",
       "norm_label": "style_identities()"
     },
     {
@@ -7468,7 +7468,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_teststyleidentitycontract",
       "community": 46,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py",
+      "community_name": "read_rows",
       "norm_label": "teststyleidentitycontract"
     },
     {
@@ -7480,7 +7480,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_teststyleidentitycontract_setup",
       "community": 46,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py",
+      "community_name": "read_rows",
       "norm_label": ".setup()"
     },
     {
@@ -7492,7 +7492,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_teststyleidentitycontract_test_ids_aliases_status_and_parents_are_unambiguous",
       "community": 46,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py",
+      "community_name": "read_rows",
       "norm_label": ".test_ids_aliases_status_and_parents_are_unambiguous()"
     },
     {
@@ -7504,7 +7504,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_teststyleidentitycontract_test_every_product_and_reasoning_style_reference_resolves",
       "community": 46,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py",
+      "community_name": "read_rows",
       "norm_label": ".test_every_product_and_reasoning_style_reference_resolves()"
     },
     {
@@ -7516,8 +7516,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testreasoningcontract",
-      "community": 36,
-      "community_name": "DesignSystemGenerator",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": "testreasoningcontract"
     },
     {
@@ -7528,8 +7528,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testreasoningcontract_test_known_product_sets_match_exactly",
-      "community": 36,
-      "community_name": "DesignSystemGenerator",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".test_known_product_sets_match_exactly()"
     },
     {
@@ -7540,8 +7540,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testreasoningcontract_test_decision_rules_use_closed_array_grammar",
-      "community": 36,
-      "community_name": "DesignSystemGenerator",
+      "community": 65,
+      "community_name": "parse_decision_rules",
       "norm_label": ".test_decision_rules_use_closed_array_grammar()"
     },
     {
@@ -7576,8 +7576,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testreasoningcontract_test_generator_matches_reasoning_exactly_and_defaults_only_for_unknown",
-      "community": 36,
-      "community_name": "DesignSystemGenerator",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".test_generator_matches_reasoning_exactly_and_defaults_only_for_unknown()"
     },
     {
@@ -7588,8 +7588,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testreasoningcontract_test_reasoning_patterns_reference_landing_identities",
-      "community": 36,
-      "community_name": "DesignSystemGenerator",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".test_reasoning_patterns_reference_landing_identities()"
     },
     {
@@ -7600,8 +7600,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testreasoningcontract_test_every_known_product_generates_a_traceable_landing_pattern",
-      "community": 36,
-      "community_name": "DesignSystemGenerator",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".test_every_known_product_generates_a_traceable_landing_pattern()"
     },
     {
@@ -7612,8 +7612,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testreasoningcontract_test_representative_new_products_generate_traceable_sources",
-      "community": 36,
-      "community_name": "DesignSystemGenerator",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".test_representative_new_products_generate_traceable_sources()"
     },
     {
@@ -7624,8 +7624,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testreasoningcontract_test_constraints_reach_domain_queries",
-      "community": 36,
-      "community_name": "DesignSystemGenerator",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".test_constraints_reach_domain_queries()"
     },
     {
@@ -7636,8 +7636,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testreasoningcontract_test_canonical_style_priority_is_not_limited_to_bm25_top_three",
-      "community": 36,
-      "community_name": "DesignSystemGenerator",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".test_canonical_style_priority_is_not_limited_to_bm25_top_three()"
     },
     {
@@ -7648,8 +7648,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testreasoningcontract_test_duplicate_semantic_reasoning_labels_fail_validation",
-      "community": 36,
-      "community_name": "DesignSystemGenerator",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".test_duplicate_semantic_reasoning_labels_fail_validation()"
     },
     {
@@ -7660,8 +7660,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testreasoningcontract_test_every_exact_product_label_resolves_to_itself",
-      "community": 36,
-      "community_name": "DesignSystemGenerator",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".test_every_exact_product_label_resolves_to_itself()"
     },
     {
@@ -7672,8 +7672,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testreasoningcontract_test_style_aliases_have_one_exact_owner",
-      "community": 36,
-      "community_name": "DesignSystemGenerator",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".test_style_aliases_have_one_exact_owner()"
     },
     {
@@ -7686,7 +7686,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testlandingandstackcontract",
       "community": 46,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py",
+      "community_name": "read_rows",
       "norm_label": "testlandingandstackcontract"
     },
     {
@@ -7698,7 +7698,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testlandingandstackcontract_test_landing_sections_use_one_delimiter",
       "community": 46,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py",
+      "community_name": "read_rows",
       "norm_label": ".test_landing_sections_use_one_delimiter()"
     },
     {
@@ -7710,7 +7710,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testlandingandstackcontract_test_stack_schema_is_additive_and_uniform",
       "community": 46,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py",
+      "community_name": "read_rows",
       "norm_label": ".test_stack_schema_is_additive_and_uniform()"
     },
     {
@@ -7722,7 +7722,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testlandingandstackcontract_test_provenance_sidecar_has_stable_shape",
       "community": 46,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py",
+      "community_name": "read_rows",
       "norm_label": ".test_provenance_sidecar_has_stable_shape()"
     },
     {
@@ -7734,7 +7734,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testlandingandstackcontract_test_provenance_rejects_bad_shapes_enums_and_hosts_without_crashing",
       "community": 46,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py",
+      "community_name": "read_rows",
       "norm_label": ".test_provenance_rejects_bad_shapes_enums_and_hosts_without_crashing()"
     },
     {
@@ -7746,7 +7746,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testlandingandstackcontract_test_dataset_provenance_scope_binds_real_rows_and_fields",
       "community": 46,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py",
+      "community_name": "read_rows",
       "norm_label": ".test_dataset_provenance_scope_binds_real_rows_and_fields()"
     },
     {
@@ -7758,8 +7758,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testgeneratedcatalogcontract",
-      "community": 63,
-      "community_name": "TestGeneratedCatalogContract",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": "testgeneratedcatalogcontract"
     },
     {
@@ -7770,8 +7770,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testgeneratedcatalogcontract_load_json",
-      "community": 63,
-      "community_name": "TestGeneratedCatalogContract",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".load_json()"
     },
     {
@@ -7782,8 +7782,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testgeneratedcatalogcontract_test_canonical_catalogs_and_provenance_are_release_ready",
-      "community": 63,
-      "community_name": "TestGeneratedCatalogContract",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".test_canonical_catalogs_and_provenance_are_release_ready()"
     },
     {
@@ -7794,8 +7794,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testgeneratedcatalogcontract_test_font_license_and_typography_drift_fail_closed",
-      "community": 63,
-      "community_name": "TestGeneratedCatalogContract",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".test_font_license_and_typography_drift_fail_closed()"
     },
     {
@@ -7806,8 +7806,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testgeneratedcatalogcontract_test_font_source_revision_and_exclusion_policy_fail_closed",
-      "community": 63,
-      "community_name": "TestGeneratedCatalogContract",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".test_font_source_revision_and_exclusion_policy_fail_closed()"
     },
     {
@@ -7818,8 +7818,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_data_contracts_testgeneratedcatalogcontract_test_curated_icon_and_summary_drift_fail_closed",
-      "community": 63,
-      "community_name": "TestGeneratedCatalogContract",
+      "community": 46,
+      "community_name": "read_rows",
       "norm_label": ".test_curated_icon_and_summary_drift_fail_closed()"
     },
     {
@@ -7829,7 +7829,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode",
-      "community": 52,
+      "community": 41,
       "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py"
     },
@@ -7842,8 +7842,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testluminance",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "testluminance"
     },
     {
@@ -7854,8 +7854,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testluminance_test_parses_six_and_three_digit_hex",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": ".test_parses_six_and_three_digit_hex()"
     },
     {
@@ -7866,8 +7866,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testluminance_test_returns_none_for_unparseable",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": ".test_returns_none_for_unparseable()"
     },
     {
@@ -7878,8 +7878,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testluminance_test_classifies_backgrounds_from_the_shipped_data",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": ".test_classifies_backgrounds_from_the_shipped_data()"
     },
     {
@@ -7890,8 +7890,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testluminance_test_missing_background_is_not_dark",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": ".test_missing_background_is_not_dark()"
     },
     {
@@ -7904,7 +7904,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testmoderesolution",
       "community": 52,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
+      "community_name": "_style_is_dark_primary",
       "norm_label": "testmoderesolution"
     },
     {
@@ -7916,7 +7916,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testmoderesolution_test_dark_primary_style_detected",
       "community": 52,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
+      "community_name": "_style_is_dark_primary",
       "norm_label": ".test_dark_primary_style_detected()"
     },
     {
@@ -7928,7 +7928,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testmoderesolution_test_dual_mode_style_is_not_dark_primary",
       "community": 52,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
+      "community_name": "_style_is_dark_primary",
       "norm_label": ".test_dual_mode_style_is_not_dark_primary()"
     },
     {
@@ -7940,7 +7940,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testmoderesolution_test_query_keywords",
       "community": 52,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
+      "community_name": "_style_is_dark_primary",
       "norm_label": ".test_query_keywords()"
     },
     {
@@ -7952,7 +7952,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testmoderesolution_test_either_signal_resolves_dark",
       "community": 52,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
+      "community_name": "_style_is_dark_primary",
       "norm_label": ".test_either_signal_resolves_dark()"
     },
     {
@@ -7965,7 +7965,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testpaletteselection",
       "community": 41,
-      "community_name": "_select_palette_for_mode",
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "testpaletteselection"
     },
     {
@@ -7977,7 +7977,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testpaletteselection_test_dark_mode_skips_light_palettes",
       "community": 41,
-      "community_name": "_select_palette_for_mode",
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": ".test_dark_mode_skips_light_palettes()"
     },
     {
@@ -7989,7 +7989,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testpaletteselection_test_dark_mode_falls_back_to_top_hit_when_no_dark_ramp_exists",
       "community": 41,
-      "community_name": "_select_palette_for_mode",
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": ".test_dark_mode_falls_back_to_top_hit_when_no_dark_ramp_exists()"
     },
     {
@@ -8001,7 +8001,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testpaletteselection_test_light_mode_keeps_the_existing_top_hit_behaviour",
       "community": 41,
-      "community_name": "_select_palette_for_mode",
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": ".test_light_mode_keeps_the_existing_top_hit_behaviour()"
     },
     {
@@ -8013,7 +8013,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testpaletteselection_test_empty_results",
       "community": 41,
-      "community_name": "_select_palette_for_mode",
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": ".test_empty_results()"
     },
     {
@@ -8025,7 +8025,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testpaletteselection_test_category_identity_wins_over_unrelated_dark_palette",
       "community": 41,
-      "community_name": "_select_palette_for_mode",
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": ".test_category_identity_wins_over_unrelated_dark_palette()"
     },
     {
@@ -8037,8 +8037,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testantipatterngating",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": "testantipatterngating"
     },
     {
@@ -8049,8 +8049,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testantipatterngating_test_dark_clause_dropped_others_kept",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": ".test_dark_clause_dropped_others_kept()"
     },
     {
@@ -8061,8 +8061,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testantipatterngating_test_light_mode_is_a_no_op",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": ".test_light_mode_is_a_no_op()"
     },
     {
@@ -8073,8 +8073,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testantipatterngating_test_unrelated_anti_patterns_survive_dark_mode",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": ".test_unrelated_anti_patterns_survive_dark_mode()"
     },
     {
@@ -8085,8 +8085,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testantipatterngating_test_empty_input",
-      "community": 25,
-      "community_name": ".generate",
+      "community": 41,
+      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
       "norm_label": ".test_empty_input()"
     },
     {
@@ -8098,8 +8098,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testendtoendcoherence",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "testendtoendcoherence"
     },
     {
@@ -8110,8 +8110,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testendtoendcoherence_test_dark_query_gets_a_dark_background",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": ".test_dark_query_gets_a_dark_background()"
     },
     {
@@ -8122,8 +8122,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testendtoendcoherence_test_generator_exports_every_semantic_foreground_pair",
-      "community": 41,
-      "community_name": "_select_palette_for_mode",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": ".test_generator_exports_every_semantic_foreground_pair()"
     },
     {
@@ -8134,8 +8134,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testendtoendcoherence_test_dark_query_foreground_is_lighter_than_background",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": ".test_dark_query_foreground_is_lighter_than_background()"
     },
     {
@@ -8146,8 +8146,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testendtoendcoherence_test_dark_query_does_not_advise_against_dark_mode",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": ".test_dark_query_does_not_advise_against_dark_mode()"
     },
     {
@@ -8158,8 +8158,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_testendtoendcoherence_test_light_query_keeps_a_light_background",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": ".test_light_query_keeps_a_light_background()"
     },
     {
@@ -8169,8 +8169,8 @@
       "source_location": "L139",
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_design_system_mode_rationale_139",
-      "community": 33,
-      "community_name": "_palette_is_dark",
+      "community": 36,
+      "community_name": "DesignSystemGenerator",
       "norm_label": "the exact reproduction from issue #428."
     },
     {
@@ -8640,7 +8640,7 @@
       "_origin": "ast",
       "id": "claude_skills_ui_ux_pro_max_scripts_tests_test_style_taxonomy_teststyletaxonomy_test_claim_fields_use_controlled_non_guarantee_language",
       "community": 52,
-      "community_name": ".claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py",
+      "community_name": "_style_is_dark_primary",
       "norm_label": ".test_claim_fields_use_controlled_non_guarantee_language()"
     },
     {
@@ -9708,7 +9708,7 @@
       "_origin": "ast",
       "id": "config",
       "community": 20,
-      "community_name": "packages.js",
+      "community_name": "admin.js",
       "norm_label": "config.js"
     },
     {
@@ -9719,7 +9719,7 @@
       "_origin": "ast",
       "id": "config_staff_roles",
       "community": 20,
-      "community_name": "packages.js",
+      "community_name": "admin.js",
       "norm_label": "staff_roles"
     },
     {
@@ -9730,7 +9730,7 @@
       "_origin": "ast",
       "id": "config_admin_roles",
       "community": 20,
-      "community_name": "packages.js",
+      "community_name": "admin.js",
       "norm_label": "admin_roles"
     },
     {
@@ -9742,7 +9742,7 @@
       "_origin": "ast",
       "id": "config_requirestaff",
       "community": 20,
-      "community_name": "packages.js",
+      "community_name": "admin.js",
       "norm_label": "requirestaff()"
     },
     {
@@ -9754,7 +9754,7 @@
       "_origin": "ast",
       "id": "config_requireadmin",
       "community": 20,
-      "community_name": "packages.js",
+      "community_name": "admin.js",
       "norm_label": "requireadmin()"
     },
     {
@@ -9764,8 +9764,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "database",
-      "community": 8,
-      "community_name": "server.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "database.js"
     },
     {
@@ -9775,8 +9775,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "database_mysql",
-      "community": 8,
-      "community_name": "server.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "mysql"
     },
     {
@@ -9786,8 +9786,8 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "database_pool",
-      "community": 19,
-      "community_name": "assistant.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "pool"
     },
     {
@@ -9797,8 +9797,8 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "database_default_services",
-      "community": 8,
-      "community_name": "server.js",
+      "community": 12,
+      "community_name": "CLAUDE.md \u2014 Project Guidance",
       "norm_label": "default_services"
     },
     {
@@ -9808,8 +9808,8 @@
       "source_location": "L44",
       "_origin": "ast",
       "id": "database_staff_seeds",
-      "community": 8,
-      "community_name": "server.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "staff_seeds"
     },
     {
@@ -9819,8 +9819,8 @@
       "source_location": "L84",
       "_origin": "ast",
       "id": "database_lab_seeds",
-      "community": 8,
-      "community_name": "server.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "lab_seeds"
     },
     {
@@ -9830,8 +9830,8 @@
       "source_location": "L94",
       "_origin": "ast",
       "id": "database_doctor_seeds",
-      "community": 8,
-      "community_name": "server.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "doctor_seeds"
     },
     {
@@ -9841,8 +9841,8 @@
       "source_location": "L117",
       "_origin": "ast",
       "id": "database_service_steps",
-      "community": 8,
-      "community_name": "server.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "service_steps"
     },
     {
@@ -9853,8 +9853,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "database_addcolumnifmissing",
-      "community": 8,
-      "community_name": "server.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "addcolumnifmissing()"
     },
     {
@@ -9865,8 +9865,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "database_addindexifmissing",
-      "community": 8,
-      "community_name": "server.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "addindexifmissing()"
     },
     {
@@ -9877,8 +9877,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "database_initdb",
-      "community": 8,
-      "community_name": "server.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "initdb()"
     },
     {
@@ -10765,10 +10765,34 @@
       "norm_label": "purgearchive()"
     },
     {
+      "label": "loadCustomization()",
+      "file_type": "code",
+      "source_file": "public/admintechnical.js",
+      "source_location": "L258",
+      "_callable": true,
+      "_origin": "ast",
+      "id": "public_admintechnical_loadcustomization",
+      "community": 2,
+      "community_name": "admintechnical.js",
+      "norm_label": "loadcustomization()"
+    },
+    {
+      "label": "saveCustomization()",
+      "file_type": "code",
+      "source_file": "public/admintechnical.js",
+      "source_location": "L270",
+      "_callable": true,
+      "_origin": "ast",
+      "id": "public_admintechnical_savecustomization",
+      "community": 2,
+      "community_name": "admintechnical.js",
+      "norm_label": "savecustomization()"
+    },
+    {
       "label": "allLabs",
       "file_type": "code",
       "source_file": "public/admintechnical.js",
-      "source_location": "L262",
+      "source_location": "L284",
       "_origin": "ast",
       "id": "public_admintechnical_alllabs",
       "community": 2,
@@ -10779,7 +10803,7 @@
       "label": "allDoctors",
       "file_type": "code",
       "source_file": "public/admintechnical.js",
-      "source_location": "L263",
+      "source_location": "L285",
       "_origin": "ast",
       "id": "public_admintechnical_alldoctors",
       "community": 2,
@@ -10790,7 +10814,7 @@
       "label": "fetchAllLabs()",
       "file_type": "code",
       "source_file": "public/admintechnical.js",
-      "source_location": "L264",
+      "source_location": "L286",
       "_callable": true,
       "_origin": "ast",
       "id": "public_admintechnical_fetchalllabs",
@@ -10802,7 +10826,7 @@
       "label": "loadServiceMgmt()",
       "file_type": "code",
       "source_file": "public/admintechnical.js",
-      "source_location": "L275",
+      "source_location": "L297",
       "_callable": true,
       "_origin": "ast",
       "id": "public_admintechnical_loadservicemgmt",
@@ -10814,7 +10838,7 @@
       "label": "editService()",
       "file_type": "code",
       "source_file": "public/admintechnical.js",
-      "source_location": "L287",
+      "source_location": "L309",
       "_callable": true,
       "_origin": "ast",
       "id": "public_admintechnical_editservice",
@@ -10826,7 +10850,7 @@
       "label": "labSequence",
       "file_type": "code",
       "source_file": "public/admintechnical.js",
-      "source_location": "L298",
+      "source_location": "L320",
       "_origin": "ast",
       "id": "public_admintechnical_labsequence",
       "community": 2,
@@ -10837,7 +10861,7 @@
       "label": "renderLabSequence()",
       "file_type": "code",
       "source_file": "public/admintechnical.js",
-      "source_location": "L310",
+      "source_location": "L332",
       "_callable": true,
       "_origin": "ast",
       "id": "public_admintechnical_renderlabsequence",
@@ -10849,7 +10873,7 @@
       "label": "addLabToSequence()",
       "file_type": "code",
       "source_file": "public/admintechnical.js",
-      "source_location": "L321",
+      "source_location": "L343",
       "_callable": true,
       "_origin": "ast",
       "id": "public_admintechnical_addlabtosequence",
@@ -10861,7 +10885,7 @@
       "label": "removeLabStep()",
       "file_type": "code",
       "source_file": "public/admintechnical.js",
-      "source_location": "L331",
+      "source_location": "L353",
       "_callable": true,
       "_origin": "ast",
       "id": "public_admintechnical_removelabstep",
@@ -10873,7 +10897,7 @@
       "label": "saveService()",
       "file_type": "code",
       "source_file": "public/admintechnical.js",
-      "source_location": "L333",
+      "source_location": "L355",
       "_callable": true,
       "_origin": "ast",
       "id": "public_admintechnical_saveservice",
@@ -10885,7 +10909,7 @@
       "label": "prepareNewService()",
       "file_type": "code",
       "source_file": "public/admintechnical.js",
-      "source_location": "L361",
+      "source_location": "L383",
       "_callable": true,
       "_origin": "ast",
       "id": "public_admintechnical_preparenewservice",
@@ -10897,7 +10921,7 @@
       "label": "populateDoctorSelect()",
       "file_type": "code",
       "source_file": "public/admintechnical.js",
-      "source_location": "L372",
+      "source_location": "L394",
       "_callable": true,
       "_origin": "ast",
       "id": "public_admintechnical_populatedoctorselect",
@@ -13228,10 +13252,34 @@
       "norm_label": "createaccount()"
     },
     {
+      "label": "loadCustomization()",
+      "file_type": "code",
+      "source_file": "public/owner.js",
+      "source_location": "L184",
+      "_callable": true,
+      "_origin": "ast",
+      "id": "public_owner_loadcustomization",
+      "community": 4,
+      "community_name": "owner.js",
+      "norm_label": "loadcustomization()"
+    },
+    {
+      "label": "saveCustomization()",
+      "file_type": "code",
+      "source_file": "public/owner.js",
+      "source_location": "L196",
+      "_callable": true,
+      "_origin": "ast",
+      "id": "public_owner_savecustomization",
+      "community": 4,
+      "community_name": "owner.js",
+      "norm_label": "savecustomization()"
+    },
+    {
       "label": "allLabs",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L188",
+      "source_location": "L210",
       "_origin": "ast",
       "id": "public_owner_alllabs",
       "community": 4,
@@ -13242,7 +13290,7 @@
       "label": "allDoctors",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L189",
+      "source_location": "L211",
       "_origin": "ast",
       "id": "public_owner_alldoctors",
       "community": 4,
@@ -13253,7 +13301,7 @@
       "label": "fetchAllLabs()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L190",
+      "source_location": "L212",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_fetchalllabs",
@@ -13265,7 +13313,7 @@
       "label": "loadServiceMgmt()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L201",
+      "source_location": "L223",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_loadservicemgmt",
@@ -13277,7 +13325,7 @@
       "label": "editService()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L213",
+      "source_location": "L235",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_editservice",
@@ -13289,7 +13337,7 @@
       "label": "labSequence",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L224",
+      "source_location": "L246",
       "_origin": "ast",
       "id": "public_owner_labsequence",
       "community": 4,
@@ -13300,7 +13348,7 @@
       "label": "renderLabSequence()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L236",
+      "source_location": "L258",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_renderlabsequence",
@@ -13312,7 +13360,7 @@
       "label": "addLabToSequence()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L247",
+      "source_location": "L269",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_addlabtosequence",
@@ -13324,7 +13372,7 @@
       "label": "removeLabStep()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L257",
+      "source_location": "L279",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_removelabstep",
@@ -13336,7 +13384,7 @@
       "label": "saveService()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L259",
+      "source_location": "L281",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_saveservice",
@@ -13348,7 +13396,7 @@
       "label": "prepareNewService()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L287",
+      "source_location": "L309",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_preparenewservice",
@@ -13360,7 +13408,7 @@
       "label": "populateDoctorSelect()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L298",
+      "source_location": "L320",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_populatedoctorselect",
@@ -13372,7 +13420,7 @@
       "label": "loadOwnerDash()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L305",
+      "source_location": "L327",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_loadownerdash",
@@ -13384,7 +13432,7 @@
       "label": "loadAudits()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L327",
+      "source_location": "L349",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_loadaudits",
@@ -13396,7 +13444,7 @@
       "label": "renderAudits()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L335",
+      "source_location": "L357",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_renderaudits",
@@ -13408,7 +13456,7 @@
       "label": "filterAudits()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L345",
+      "source_location": "L367",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_filteraudits",
@@ -13420,7 +13468,7 @@
       "label": "loadArchive()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L355",
+      "source_location": "L377",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_loadarchive",
@@ -13432,7 +13480,7 @@
       "label": "restoreArchive()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L383",
+      "source_location": "L405",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_restorearchive",
@@ -13444,7 +13492,7 @@
       "label": "loadReports()",
       "file_type": "code",
       "source_file": "public/owner.js",
-      "source_location": "L391",
+      "source_location": "L413",
       "_callable": true,
       "_origin": "ast",
       "id": "public_owner_loadreports",
@@ -13560,280 +13608,10 @@
       "norm_label": "logout()"
     },
     {
-      "label": "SITE_DEFAULTS",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L55",
-      "_origin": "ast",
-      "id": "public_shared_site_defaults",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "site_defaults"
-    },
-    {
-      "label": "SITE_NAME_SELECTORS",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L65",
-      "_origin": "ast",
-      "id": "public_shared_site_name_selectors",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "site_name_selectors"
-    },
-    {
-      "label": "SITE_LOGO_SELECTORS",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L66",
-      "_origin": "ast",
-      "id": "public_shared_site_logo_selectors",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "site_logo_selectors"
-    },
-    {
-      "label": "siteSettings",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L68",
-      "_origin": "ast",
-      "id": "public_shared_sitesettings",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "sitesettings"
-    },
-    {
-      "label": "siteSettingsReady",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L73",
-      "_origin": "ast",
-      "id": "public_shared_sitesettingsready",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "sitesettingsready"
-    },
-    {
-      "label": "fetchSiteSettings()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L75",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_fetchsitesettings",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "fetchsitesettings()"
-    },
-    {
-      "label": "siteName()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L90",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_sitename",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "sitename()"
-    },
-    {
-      "label": "siteLogo()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L91",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_sitelogo",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "sitelogo()"
-    },
-    {
-      "label": "hexToRgb()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L94",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_hextorgb",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "hextorgb()"
-    },
-    {
-      "label": "relativeLuminance()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L103",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_relativeluminance",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "relativeluminance()"
-    },
-    {
-      "label": "mixHex()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L111",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_mixhex",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "mixhex()"
-    },
-    {
-      "label": "applyNavbarColor()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L123",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_applynavbarcolor",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "applynavbarcolor()"
-    },
-    {
-      "label": "applyTheme()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L137",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_applytheme",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "applytheme()"
-    },
-    {
-      "label": "cssUrlValue()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L142",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_cssurlvalue",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "cssurlvalue()"
-    },
-    {
-      "label": "applyBackgroundImage()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L146",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_applybackgroundimage",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "applybackgroundimage()"
-    },
-    {
-      "label": "applyBranding()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L164",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_applybranding",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "applybranding()"
-    },
-    {
-      "label": "applyLoadedSettings()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L194",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_applyloadedsettings",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "applyloadedsettings()"
-    },
-    {
-      "label": "applySiteSettings()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L205",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_applysitesettings",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "applysitesettings()"
-    },
-    {
-      "label": "refreshSiteSettings()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L212",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_refreshsitesettings",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "refreshsitesettings()"
-    },
-    {
-      "label": "CUSTOMIZE_FIELDS",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L222",
-      "_origin": "ast",
-      "id": "public_shared_customize_fields",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "customize_fields"
-    },
-    {
-      "label": "loadCustomization()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L230",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_loadcustomization",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "loadcustomization()"
-    },
-    {
-      "label": "saveCustomization()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L240",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_savecustomization",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "savecustomization()"
-    },
-    {
-      "label": "syncNavColorInputs()",
-      "file_type": "code",
-      "source_file": "public/shared.js",
-      "source_location": "L263",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "public_shared_syncnavcolorinputs",
-      "community": 9,
-      "community_name": "shared.js",
-      "norm_label": "syncnavcolorinputs()"
-    },
-    {
       "label": "renderSidebar()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L275",
+      "source_location": "L51",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_rendersidebar",
@@ -13845,7 +13623,7 @@
       "label": "navigateTo()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L329",
+      "source_location": "L105",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_navigateto",
@@ -13857,7 +13635,7 @@
       "label": "initDefaultSection()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L347",
+      "source_location": "L123",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_initdefaultsection",
@@ -13869,7 +13647,7 @@
       "label": "showToast()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L375",
+      "source_location": "L151",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_showtoast",
@@ -13881,7 +13659,7 @@
       "label": "showSectionLoader()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L396",
+      "source_location": "L172",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_showsectionloader",
@@ -13893,7 +13671,7 @@
       "label": "hideSectionLoader()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L415",
+      "source_location": "L191",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_hidesectionloader",
@@ -13905,7 +13683,7 @@
       "label": "openModal()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L422",
+      "source_location": "L198",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_openmodal",
@@ -13917,7 +13695,7 @@
       "label": "closeModal()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L427",
+      "source_location": "L203",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_closemodal",
@@ -13929,7 +13707,7 @@
       "label": "escapeHtml()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L440",
+      "source_location": "L216",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_escapehtml",
@@ -13941,7 +13719,7 @@
       "label": "formatTime()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L446",
+      "source_location": "L222",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_formattime",
@@ -13953,7 +13731,7 @@
       "label": "formatDateTime()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L451",
+      "source_location": "L227",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_formatdatetime",
@@ -13965,7 +13743,7 @@
       "label": "formatCurrency()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L459",
+      "source_location": "L235",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_formatcurrency",
@@ -13977,7 +13755,7 @@
       "label": "categoryBadge()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L465",
+      "source_location": "L241",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_categorybadge",
@@ -13989,7 +13767,7 @@
       "label": "initSocket()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L477",
+      "source_location": "L253",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_initsocket",
@@ -14001,7 +13779,7 @@
       "label": "ANNOUNCEMENT_STAFF_ROLES",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L492",
+      "source_location": "L266",
       "_origin": "ast",
       "id": "public_shared_announcement_staff_roles",
       "community": 9,
@@ -14012,7 +13790,7 @@
       "label": "ANNOUNCEMENT_STATION_BY_ROLE",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L493",
+      "source_location": "L267",
       "_origin": "ast",
       "id": "public_shared_announcement_station_by_role",
       "community": 9,
@@ -14023,7 +13801,7 @@
       "label": "dismissedAnnouncementIds",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L494",
+      "source_location": "L268",
       "_origin": "ast",
       "id": "public_shared_dismissedannouncementids",
       "community": 9,
@@ -14034,7 +13812,7 @@
       "label": "initAnnouncements()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L497",
+      "source_location": "L271",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_initannouncements",
@@ -14046,7 +13824,7 @@
       "label": "setupAnnouncementBanner()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L504",
+      "source_location": "L278",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_setupannouncementbanner",
@@ -14058,7 +13836,7 @@
       "label": "refreshAnnouncementBanner()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L508",
+      "source_location": "L282",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_refreshannouncementbanner",
@@ -14070,7 +13848,7 @@
       "label": "renderAnnouncementBanner()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L518",
+      "source_location": "L292",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_renderannouncementbanner",
@@ -14082,7 +13860,7 @@
       "label": "setupAnnouncementComposer()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L544",
+      "source_location": "L318",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_setupannouncementcomposer",
@@ -14094,7 +13872,7 @@
       "label": "openAnnouncementComposer()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L587",
+      "source_location": "L361",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_openannouncementcomposer",
@@ -14106,7 +13884,7 @@
       "label": "draftAnnouncement()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L593",
+      "source_location": "L367",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_draftannouncement",
@@ -14118,7 +13896,7 @@
       "label": "sendAnnouncement()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L611",
+      "source_location": "L385",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_sendannouncement",
@@ -14130,7 +13908,7 @@
       "label": "enhancePasswordToggles()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L634",
+      "source_location": "L408",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_enhancepasswordtoggles",
@@ -14142,7 +13920,7 @@
       "label": "enhanceOtpInput()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L666",
+      "source_location": "L440",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_enhanceotpinput",
@@ -14154,7 +13932,7 @@
       "label": "stripWhitespace()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L736",
+      "source_location": "L510",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_stripwhitespace",
@@ -14166,7 +13944,7 @@
       "label": "enforcePasswordPolicy()",
       "file_type": "code",
       "source_file": "public/shared.js",
-      "source_location": "L740",
+      "source_location": "L514",
       "_callable": true,
       "_origin": "ast",
       "id": "public_shared_enforcepasswordpolicy",
@@ -14619,7 +14397,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "routes_admin",
-      "community": 42,
+      "community": 20,
       "community_name": "admin.js",
       "norm_label": "admin.js"
     },
@@ -14630,7 +14408,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "routes_admin_express",
-      "community": 42,
+      "community": 20,
       "community_name": "admin.js",
       "norm_label": "express"
     },
@@ -14641,7 +14419,7 @@
       "source_location": "L2",
       "_origin": "ast",
       "id": "routes_admin_router",
-      "community": 42,
+      "community": 20,
       "community_name": "admin.js",
       "norm_label": "router"
     },
@@ -14652,7 +14430,7 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "routes_admin_pool",
-      "community": 42,
+      "community": 20,
       "community_name": "admin.js",
       "norm_label": "{ pool }"
     },
@@ -14663,7 +14441,7 @@
       "source_location": "L4",
       "_origin": "ast",
       "id": "routes_admin_bcrypt",
-      "community": 42,
+      "community": 20,
       "community_name": "admin.js",
       "norm_label": "bcrypt"
     },
@@ -14674,7 +14452,7 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "routes_admin_qrcode",
-      "community": 42,
+      "community": 20,
       "community_name": "admin.js",
       "norm_label": "qrcode"
     },
@@ -14685,7 +14463,7 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "routes_admin_crypto",
-      "community": 42,
+      "community": 20,
       "community_name": "admin.js",
       "norm_label": "crypto"
     },
@@ -14696,7 +14474,7 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "routes_admin_requirestaff_requireadmin",
-      "community": 42,
+      "community": 20,
       "community_name": "admin.js",
       "norm_label": "{ requirestaff, requireadmin }"
     },
@@ -14707,7 +14485,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "routes_admin_aiservices",
-      "community": 42,
+      "community": 20,
       "community_name": "admin.js",
       "norm_label": "aiservices"
     },
@@ -14718,7 +14496,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "routes_admin_elevated_roles",
-      "community": 42,
+      "community": 20,
       "community_name": "admin.js",
       "norm_label": "elevated_roles"
     },
@@ -14730,40 +14508,18 @@
       "_callable": true,
       "_origin": "ast",
       "id": "routes_admin_archiverecord",
-      "community": 42,
+      "community": 20,
       "community_name": "admin.js",
       "norm_label": "archiverecord()"
-    },
-    {
-      "label": "SETTINGS_FIELDS",
-      "file_type": "code",
-      "source_file": "routes/admin.js",
-      "source_location": "L395",
-      "_origin": "ast",
-      "id": "routes_admin_settings_fields",
-      "community": 42,
-      "community_name": "admin.js",
-      "norm_label": "settings_fields"
-    },
-    {
-      "label": "SETTINGS_THEMES",
-      "file_type": "code",
-      "source_file": "routes/admin.js",
-      "source_location": "L402",
-      "_origin": "ast",
-      "id": "routes_admin_settings_themes",
-      "community": 42,
-      "community_name": "admin.js",
-      "norm_label": "settings_themes"
     },
     {
       "label": "ANNOUNCEMENT_DEPARTMENT_NAMES",
       "file_type": "code",
       "source_file": "routes/admin.js",
-      "source_location": "L612",
+      "source_location": "L562",
       "_origin": "ast",
       "id": "routes_admin_announcement_department_names",
-      "community": 42,
+      "community": 20,
       "community_name": "admin.js",
       "norm_label": "announcement_department_names"
     },
@@ -15150,7 +14906,7 @@
       "_origin": "ast",
       "id": "routes_packages",
       "community": 20,
-      "community_name": "packages.js",
+      "community_name": "admin.js",
       "norm_label": "packages.js"
     },
     {
@@ -15161,7 +14917,7 @@
       "_origin": "ast",
       "id": "routes_packages_express",
       "community": 20,
-      "community_name": "packages.js",
+      "community_name": "admin.js",
       "norm_label": "express"
     },
     {
@@ -15172,7 +14928,7 @@
       "_origin": "ast",
       "id": "routes_packages_router",
       "community": 20,
-      "community_name": "packages.js",
+      "community_name": "admin.js",
       "norm_label": "router"
     },
     {
@@ -15183,7 +14939,7 @@
       "_origin": "ast",
       "id": "routes_packages_pool",
       "community": 20,
-      "community_name": "packages.js",
+      "community_name": "admin.js",
       "norm_label": "{ pool }"
     },
     {
@@ -15194,7 +14950,7 @@
       "_origin": "ast",
       "id": "routes_packages_jwt",
       "community": 20,
-      "community_name": "packages.js",
+      "community_name": "admin.js",
       "norm_label": "jwt"
     },
     {
@@ -15205,7 +14961,7 @@
       "_origin": "ast",
       "id": "routes_packages_jwt_secret_requirestaff",
       "community": 20,
-      "community_name": "packages.js",
+      "community_name": "admin.js",
       "norm_label": "{ jwt_secret, requirestaff }"
     },
     {
@@ -15217,7 +14973,7 @@
       "_origin": "ast",
       "id": "routes_packages_authrequired",
       "community": 20,
-      "community_name": "packages.js",
+      "community_name": "admin.js",
       "norm_label": "authrequired()"
     },
     {
@@ -15228,7 +14984,7 @@
       "_origin": "ast",
       "id": "routes_packages_aiservices",
       "community": 20,
-      "community_name": "packages.js",
+      "community_name": "admin.js",
       "norm_label": "aiservices"
     },
     {
@@ -15388,8 +15144,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "routes_reports",
-      "community": 19,
-      "community_name": "assistant.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "reports.js"
     },
     {
@@ -15399,8 +15155,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "routes_reports_express",
-      "community": 19,
-      "community_name": "assistant.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "express"
     },
     {
@@ -15410,8 +15166,8 @@
       "source_location": "L2",
       "_origin": "ast",
       "id": "routes_reports_router",
-      "community": 19,
-      "community_name": "assistant.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "router"
     },
     {
@@ -15421,8 +15177,8 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "routes_reports_pool",
-      "community": 19,
-      "community_name": "assistant.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "{ pool }"
     },
     {
@@ -15432,8 +15188,8 @@
       "source_location": "L4",
       "_origin": "ast",
       "id": "routes_reports_aiservices",
-      "community": 19,
-      "community_name": "assistant.js",
+      "community": 22,
+      "community_name": "database.js",
       "norm_label": "aiservices"
     },
     {
@@ -17216,8 +16972,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "agents",
-      "community": 85,
-      "community_name": "AI Agent Instructions & Skills",
+      "community": 12,
+      "community_name": "CLAUDE.md \u2014 Project Guidance",
       "norm_label": "agents.md"
     },
     {
@@ -17227,8 +16983,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "agents_ai_agent_instructions_skills",
-      "community": 85,
-      "community_name": "AI Agent Instructions & Skills",
+      "community": 12,
+      "community_name": "CLAUDE.md \u2014 Project Guidance",
       "norm_label": "ai agent instructions & skills"
     },
     {
@@ -17238,8 +16994,8 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "agents_skills_resolution_priority",
-      "community": 85,
-      "community_name": "AI Agent Instructions & Skills",
+      "community": 12,
+      "community_name": "CLAUDE.md \u2014 Project Guidance",
       "norm_label": "skills resolution priority"
     },
     {
@@ -17260,8 +17016,8 @@
       "source_location": "L35",
       "_origin": "ast",
       "id": "agents_ui_ux_pro_max",
-      "community": 85,
-      "community_name": "AI Agent Instructions & Skills",
+      "community": 12,
+      "community_name": "CLAUDE.md \u2014 Project Guidance",
       "norm_label": "ui-ux-pro-max"
     },
     {
@@ -17271,8 +17027,8 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "agents_web_design_guidelines",
-      "community": 85,
-      "community_name": "AI Agent Instructions & Skills",
+      "community": 12,
+      "community_name": "CLAUDE.md \u2014 Project Guidance",
       "norm_label": "web-design-guidelines"
     },
     {
@@ -18043,7 +17799,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L49",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "what you must do when invoked",
       "id": "claude_skills_graphify_skill_what_you_must_do_when_invoked"
@@ -18054,7 +17810,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L61",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "step 0 - github repos and multi-path merge (only if a url or several paths)",
       "id": "claude_skills_graphify_skill_step_0_github_repos_and_multi_path_merge_only_if_a_url_or_several_paths"
@@ -18065,7 +17821,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L65",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "step 1 - ensure graphify is installed",
       "id": "claude_skills_graphify_skill_step_1_ensure_graphify_is_installed"
@@ -18076,7 +17832,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L129",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "step 2 - detect files",
       "id": "claude_skills_graphify_skill_step_2_detect_files"
@@ -18087,7 +17843,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L166",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "step 2.5 - video and audio (only if video files detected)",
       "id": "claude_skills_graphify_skill_step_2_5_video_and_audio_only_if_video_files_detected"
@@ -18098,7 +17854,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L170",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "step 3 - extract entities and relationships",
       "id": "claude_skills_graphify_skill_step_3_extract_entities_and_relationships"
@@ -18109,7 +17865,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L189",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "part a - structural extraction for code files",
       "id": "claude_skills_graphify_skill_part_a_structural_extraction_for_code_files"
@@ -18120,7 +17876,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L215",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "part b - semantic extraction (parallel subagents)",
       "id": "claude_skills_graphify_skill_part_b_semantic_extraction_parallel_subagents"
@@ -18131,7 +17887,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L378",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "part c - merge ast + semantic into final extraction",
       "id": "claude_skills_graphify_skill_part_c_merge_ast_semantic_into_final_extraction"
@@ -18142,7 +17898,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L412",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "step 4 - build graph, cluster, analyze, generate outputs",
       "id": "claude_skills_graphify_skill_step_4_build_graph_cluster_analyze_generate_outputs"
@@ -18153,7 +17909,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L475",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "step 4.5 - graph health check (read-only integrity gate)",
       "id": "claude_skills_graphify_skill_step_4_5_graph_health_check_read_only_integrity_gate"
@@ -18164,7 +17920,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L501",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "step 5 - label communities",
       "id": "claude_skills_graphify_skill_step_5_label_communities"
@@ -18175,7 +17931,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L550",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "step 6 - generate obsidian vault (opt-in) + html",
       "id": "claude_skills_graphify_skill_step_6_generate_obsidian_vault_opt_in_html"
@@ -18186,7 +17942,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L570",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "steps 6b-8 - wiki, neo4j, falkordb, svg, graphml, mcp, benchmark (only on their flags)",
       "id": "claude_skills_graphify_skill_steps_6b_8_wiki_neo4j_falkordb_svg_graphml_mcp_benchmark_only_on_their_flags"
@@ -18197,7 +17953,7 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L576",
       "_origin": "ast",
-      "community": 22,
+      "community": 18,
       "community_name": "What You Must Do When Invoked",
       "norm_label": "step 9 - save manifest, update cost tracker, clean up, and report",
       "id": "claude_skills_graphify_skill_step_9_save_manifest_update_cost_tracker_clean_up_and_report"
@@ -38382,7 +38138,7 @@
       "relation": "indirect_call",
       "confidence": "INFERRED",
       "source_file": "database.js",
-      "source_location": "L662",
+      "source_location": "L651",
       "weight": 1.0,
       "_origin": "ast",
       "context": "collection",
@@ -38748,7 +38504,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "database.js",
-      "source_location": "L601",
+      "source_location": "L590",
       "weight": 1.0,
       "_origin": "ast",
       "source": "database_initdb",
@@ -38771,7 +38527,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "database.js",
-      "source_location": "L628",
+      "source_location": "L617",
       "weight": 1.0,
       "_origin": "ast",
       "source": "database_initdb",
@@ -39523,7 +39279,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L321",
+      "source_location": "L343",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical",
@@ -39534,7 +39290,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L263",
+      "source_location": "L285",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical",
@@ -39545,7 +39301,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L262",
+      "source_location": "L284",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical",
@@ -39600,7 +39356,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L287",
+      "source_location": "L309",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical",
@@ -39622,7 +39378,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L264",
+      "source_location": "L286",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical",
@@ -39667,7 +39423,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L298",
+      "source_location": "L320",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical",
@@ -39726,6 +39482,18 @@
       "relation": "indirect_call",
       "confidence": "INFERRED",
       "source_file": "public/admintechnical.js",
+      "source_location": "L25",
+      "weight": 1.0,
+      "_origin": "ast",
+      "context": "collection",
+      "source": "public_admintechnical",
+      "target": "public_admintechnical_loadcustomization",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "indirect_call",
+      "confidence": "INFERRED",
+      "source_file": "public/admintechnical.js",
       "source_location": "L20",
       "weight": 1.0,
       "_origin": "ast",
@@ -39761,7 +39529,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L372",
+      "source_location": "L394",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical",
@@ -39794,7 +39562,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L361",
+      "source_location": "L383",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical",
@@ -39816,7 +39584,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L331",
+      "source_location": "L353",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical",
@@ -39827,7 +39595,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L310",
+      "source_location": "L332",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical",
@@ -39849,6 +39617,17 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
+      "source_location": "L270",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "public_admintechnical",
+      "target": "public_admintechnical_savecustomization",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "public/admintechnical.js",
       "source_location": "L114",
       "weight": 1.0,
       "_origin": "ast",
@@ -39860,7 +39639,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L333",
+      "source_location": "L355",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical",
@@ -39877,18 +39656,6 @@
       "source": "public_admintechnical",
       "target": "public_admintechnical_updateuser",
       "confidence_score": 1.0
-    },
-    {
-      "relation": "indirect_call",
-      "context": "collection",
-      "confidence": "INFERRED",
-      "confidence_score": 0.8,
-      "source_file": "public/admintechnical.js",
-      "source_location": "L25",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_admintechnical",
-      "target": "public_shared_loadcustomization"
     },
     {
       "relation": "calls",
@@ -40033,11 +39800,22 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "public/admintechnical.html",
+      "source_location": null,
+      "weight": 1.0,
+      "_origin": "semantic",
+      "source": "public_admintechnical_page_customize",
+      "target": "public_admintechnical_savecustomization"
+    },
+    {
       "relation": "calls",
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L271",
+      "source_location": "L293",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical_fetchalllabs",
@@ -40049,7 +39827,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L276",
+      "source_location": "L298",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical_loadservicemgmt",
@@ -40061,7 +39839,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L357",
+      "source_location": "L379",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical_saveservice",
@@ -40073,7 +39851,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L294",
+      "source_location": "L316",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical_editservice",
@@ -40085,7 +39863,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L368",
+      "source_location": "L390",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical_preparenewservice",
@@ -40097,7 +39875,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/admintechnical.js",
-      "source_location": "L331",
+      "source_location": "L353",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_admintechnical_removelabstep",
@@ -44005,7 +43783,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L247",
+      "source_location": "L269",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner",
@@ -44027,7 +43805,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L189",
+      "source_location": "L211",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner",
@@ -44038,7 +43816,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L188",
+      "source_location": "L210",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner",
@@ -44093,7 +43871,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L213",
+      "source_location": "L235",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner",
@@ -44115,7 +43893,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L190",
+      "source_location": "L212",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner",
@@ -44126,7 +43904,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L345",
+      "source_location": "L367",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner",
@@ -44160,7 +43938,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L224",
+      "source_location": "L246",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner",
@@ -44201,6 +43979,18 @@
       "context": "collection",
       "source": "public_owner",
       "target": "public_owner_loadaudits",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "indirect_call",
+      "confidence": "INFERRED",
+      "source_file": "public/owner.js",
+      "source_location": "L27",
+      "weight": 1.0,
+      "_origin": "ast",
+      "context": "collection",
+      "source": "public_owner",
+      "target": "public_owner_loadcustomization",
       "confidence_score": 0.5
     },
     {
@@ -44255,7 +44045,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L298",
+      "source_location": "L320",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner",
@@ -44288,7 +44078,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L287",
+      "source_location": "L309",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner",
@@ -44299,7 +44089,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L257",
+      "source_location": "L279",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner",
@@ -44310,7 +44100,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L335",
+      "source_location": "L357",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner",
@@ -44321,7 +44111,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L236",
+      "source_location": "L258",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner",
@@ -44332,11 +44122,22 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L383",
+      "source_location": "L405",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner",
       "target": "public_owner_restorearchive",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "public/owner.js",
+      "source_location": "L196",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "public_owner",
+      "target": "public_owner_savecustomization",
       "confidence_score": 1.0
     },
     {
@@ -44354,7 +44155,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L259",
+      "source_location": "L281",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner",
@@ -44371,18 +44172,6 @@
       "source": "public_owner",
       "target": "public_owner_updateuser",
       "confidence_score": 1.0
-    },
-    {
-      "relation": "indirect_call",
-      "context": "collection",
-      "confidence": "INFERRED",
-      "confidence_score": 0.8,
-      "source_file": "public/owner.js",
-      "source_location": "L27",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_owner",
-      "target": "public_shared_loadcustomization"
     },
     {
       "relation": "calls",
@@ -44485,7 +44274,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L197",
+      "source_location": "L219",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner_fetchalllabs",
@@ -44497,7 +44286,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L202",
+      "source_location": "L224",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner_loadservicemgmt",
@@ -44509,7 +44298,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L283",
+      "source_location": "L305",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner_saveservice",
@@ -44521,7 +44310,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L220",
+      "source_location": "L242",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner_editservice",
@@ -44533,7 +44322,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L294",
+      "source_location": "L316",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner_preparenewservice",
@@ -44545,7 +44334,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L257",
+      "source_location": "L279",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner_removelabstep",
@@ -44557,7 +44346,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L331",
+      "source_location": "L353",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner_loadaudits",
@@ -44569,7 +44358,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L351",
+      "source_location": "L373",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner_filteraudits",
@@ -44592,7 +44381,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/owner.js",
-      "source_location": "L386",
+      "source_location": "L408",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_owner_restorearchive",
@@ -44614,7 +44403,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L492",
+      "source_location": "L266",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44625,77 +44414,11 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L493",
+      "source_location": "L267",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
       "target": "public_shared_announcement_station_by_role",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L146",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_applybackgroundimage",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L164",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_applybranding",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L194",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_applyloadedsettings",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L123",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_applynavbarcolor",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L205",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_applysitesettings",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L137",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_applytheme",
       "confidence_score": 1.0
     },
     {
@@ -44713,7 +44436,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L465",
+      "source_location": "L241",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44724,7 +44447,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L427",
+      "source_location": "L203",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44735,29 +44458,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L142",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_cssurlvalue",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L222",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_customize_fields",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L494",
+      "source_location": "L268",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44768,7 +44469,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L593",
+      "source_location": "L367",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44779,7 +44480,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L740",
+      "source_location": "L514",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44790,7 +44491,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L666",
+      "source_location": "L440",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44801,7 +44502,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L634",
+      "source_location": "L408",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44812,7 +44513,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L440",
+      "source_location": "L216",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44823,18 +44524,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L75",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_fetchsitesettings",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L459",
+      "source_location": "L235",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44845,7 +44535,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L451",
+      "source_location": "L227",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44856,7 +44546,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L446",
+      "source_location": "L222",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44922,18 +44612,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L94",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_hextorgb",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L415",
+      "source_location": "L191",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44944,7 +44623,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L497",
+      "source_location": "L271",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44955,7 +44634,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L347",
+      "source_location": "L123",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -44966,22 +44645,11 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L477",
+      "source_location": "L253",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
       "target": "public_shared_initsocket",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L230",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_loadcustomization",
       "confidence_score": 1.0
     },
     {
@@ -44999,18 +44667,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L111",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_mixhex",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L329",
+      "source_location": "L105",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -45021,7 +44678,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L587",
+      "source_location": "L361",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -45032,7 +44689,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L422",
+      "source_location": "L198",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -45043,7 +44700,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L508",
+      "source_location": "L282",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -45054,29 +44711,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L212",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_refreshsitesettings",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L103",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_relativeluminance",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L518",
+      "source_location": "L292",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -45087,7 +44722,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L275",
+      "source_location": "L51",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -45109,18 +44744,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L240",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_savecustomization",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L611",
+      "source_location": "L385",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -45131,7 +44755,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L504",
+      "source_location": "L278",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -45142,7 +44766,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L544",
+      "source_location": "L318",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -45153,7 +44777,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L396",
+      "source_location": "L172",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -45164,7 +44788,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L375",
+      "source_location": "L151",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
@@ -45175,99 +44799,11 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L55",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_site_defaults",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L66",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_site_logo_selectors",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L65",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_site_name_selectors",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L91",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_sitelogo",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L90",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_sitename",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L68",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_sitesettings",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L73",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_sitesettingsready",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L736",
+      "source_location": "L510",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared",
       "target": "public_shared_stripwhitespace",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L263",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared",
-      "target": "public_shared_syncnavcolorinputs",
       "confidence_score": 1.0
     },
     {
@@ -45323,7 +44859,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L594",
+      "source_location": "L368",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_draftannouncement",
@@ -45335,7 +44871,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L498",
+      "source_location": "L272",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_initannouncements",
@@ -45347,7 +44883,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L484",
+      "source_location": "L260",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_initsocket",
@@ -45371,7 +44907,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L277",
+      "source_location": "L53",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_rendersidebar",
@@ -45395,7 +44931,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L276",
+      "source_location": "L52",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_rendersidebar",
@@ -45418,7 +44954,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L599",
+      "source_location": "L373",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_draftannouncement",
@@ -45442,7 +44978,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L510",
+      "source_location": "L284",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_refreshannouncementbanner",
@@ -45454,19 +44990,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L251",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_savecustomization",
-      "target": "public_shared_authheaders",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L619",
+      "source_location": "L393",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_sendannouncement",
@@ -45496,287 +45020,11 @@
       "target": "public_shared_logout"
     },
     {
-      "relation": "references",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "public/shared.js",
-      "source_location": "L182",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_applybranding",
-      "target": "public_shared_site_name_selectors"
-    },
-    {
-      "relation": "references",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "public/shared.js",
-      "source_location": "L175",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_applybranding",
-      "target": "public_shared_site_logo_selectors"
-    },
-    {
       "relation": "calls",
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L213",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_refreshsitesettings",
-      "target": "public_shared_fetchsitesettings",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L165",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_applybranding",
-      "target": "public_shared_sitename",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L306",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_rendersidebar",
-      "target": "public_shared_sitename",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L166",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_applybranding",
-      "target": "public_shared_sitelogo",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L304",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_rendersidebar",
-      "target": "public_shared_sitelogo",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L124",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_applynavbarcolor",
-      "target": "public_shared_hextorgb",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L112",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_mixhex",
-      "target": "public_shared_hextorgb",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L126",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_applynavbarcolor",
-      "target": "public_shared_relativeluminance",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L129",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_applynavbarcolor",
-      "target": "public_shared_mixhex",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L198",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_applyloadedsettings",
-      "target": "public_shared_applynavbarcolor",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L197",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_applyloadedsettings",
-      "target": "public_shared_applytheme",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L157",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_applybackgroundimage",
-      "target": "public_shared_cssurlvalue",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L199",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_applyloadedsettings",
-      "target": "public_shared_applybackgroundimage",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L201",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_applyloadedsettings",
-      "target": "public_shared_applybranding",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L207",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_applysitesettings",
-      "target": "public_shared_applyloadedsettings",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L214",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_refreshsitesettings",
-      "target": "public_shared_applyloadedsettings",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L487",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_initsocket",
-      "target": "public_shared_refreshsitesettings",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L231",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_loadcustomization",
-      "target": "public_shared_refreshsitesettings",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L256",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_savecustomization",
-      "target": "public_shared_refreshsitesettings",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L254",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_savecustomization",
-      "target": "public_shared_showtoast",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L304",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "public_shared_rendersidebar",
-      "target": "public_shared_escapehtml",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "public/shared.js",
-      "source_location": "L351",
+      "source_location": "L127",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_initdefaultsection",
@@ -45788,7 +45036,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L603",
+      "source_location": "L377",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_draftannouncement",
@@ -45800,7 +45048,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L614",
+      "source_location": "L388",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_sendannouncement",
@@ -45823,7 +45071,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L590",
+      "source_location": "L364",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_openannouncementcomposer",
@@ -45846,7 +45094,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L623",
+      "source_location": "L397",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_sendannouncement",
@@ -45858,7 +45106,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L582",
+      "source_location": "L356",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_setupannouncementcomposer",
@@ -45870,7 +45118,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L533",
+      "source_location": "L307",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_renderannouncementbanner",
@@ -45882,7 +45130,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L484",
+      "source_location": "L260",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_initsocket",
@@ -45895,7 +45143,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "public/shared.js",
-      "source_location": "L501",
+      "source_location": "L275",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_initannouncements",
@@ -45906,7 +45154,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L500",
+      "source_location": "L274",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_initannouncements",
@@ -45918,7 +45166,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L501",
+      "source_location": "L275",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_initannouncements",
@@ -45930,7 +45178,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L505",
+      "source_location": "L279",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_setupannouncementbanner",
@@ -45942,7 +45190,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L514",
+      "source_location": "L288",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_refreshannouncementbanner",
@@ -45954,7 +45202,7 @@
       "context": "argument",
       "confidence": "INFERRED",
       "source_file": "public/shared.js",
-      "source_location": "L583",
+      "source_location": "L357",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_setupannouncementcomposer",
@@ -45966,7 +45214,7 @@
       "context": "argument",
       "confidence": "INFERRED",
       "source_file": "public/shared.js",
-      "source_location": "L553",
+      "source_location": "L327",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_setupannouncementcomposer",
@@ -45978,7 +45226,7 @@
       "context": "argument",
       "confidence": "INFERRED",
       "source_file": "public/shared.js",
-      "source_location": "L584",
+      "source_location": "L358",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_setupannouncementcomposer",
@@ -45990,7 +45238,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "public/shared.js",
-      "source_location": "L792",
+      "source_location": "L566",
       "weight": 1.0,
       "_origin": "ast",
       "source": "public_shared_enforcepasswordpolicy",
@@ -47054,7 +46302,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "routes/admin.js",
-      "source_location": "L612",
+      "source_location": "L562",
       "weight": 1.0,
       "_origin": "ast",
       "source": "routes_admin",
@@ -47158,28 +46406,6 @@
       "_origin": "ast",
       "source": "routes_admin",
       "target": "routes_admin_router",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "routes/admin.js",
-      "source_location": "L395",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "routes_admin",
-      "target": "routes_admin_settings_fields",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "routes/admin.js",
-      "source_location": "L402",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "routes_admin",
-      "target": "routes_admin_settings_themes",
       "confidence_score": 1.0
     },
     {
