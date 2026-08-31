@@ -12,6 +12,16 @@ Rules:
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
 
+## Skills Resolution & Usage
+
+When solving tasks, use skills according to this priority:
+1. **Workspace Skills (Priority 1)**: Use project-local copies in `.claude/skills/` or `.agents/skills/`:
+   - **`graphify`** (`.claude/skills/graphify` / `.agents/skills/graphify`): Codebase knowledge graph
+   - **`ui-ux-pro-max`** (`.claude/skills/ui-ux-pro-max` / `.agents/skills/ui-ux-pro-max`): UI/UX design intelligence (styles, product palettes, font pairings, UX guidelines, animations, charts)
+   - **`web-design-guidelines`** (`.claude/skills/web-design-guidelines` / `.agents/skills/web-design-guidelines`): Vercel Web Interface Guidelines audit and accessibility rules
+2. **Global Skills (Priority 2 Fallback)**: If a skill is not found in the workspace, use the global version:
+   - `brainstorming`, `writing-plans`, `executing-plans`, `test-driven-development`, `systematic-debugging`, `subagent-driven-development`, `dispatching-parallel-agents`, `requesting-code-review`, `receiving-code-review`, `verification-before-completion`, `using-git-worktrees` (`~/.gemini/config/plugins/superpowers/skills/`)
+
 ## Project
 
 Medical clinic queue management system: customers join queues or book appointments, staff call tickets across stations (front desk → laboratory(s) → doctor), with live status updates, priority queuing (Senior/PWD/Pregnant), analytics, and AI-assisted features.
