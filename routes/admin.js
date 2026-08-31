@@ -294,7 +294,11 @@ function appointmentSlotError(dateStr, timeStr) {
 }
 
 router.post('/appointments', async (req, res) => {
-    const { package_id, appointment_date, appointment_time, payment_method, payment_ref, notes } = req.body;
+    // payment_method/payment_ref are deliberately not read from the body any
+    // more: appointments are settled on site at the front desk, so the server
+    // decides the method and the amount rather than trusting a client that used
+    // to post a mock online payment.
+    const { package_id, appointment_date, appointment_time, notes } = req.body;
     try {
         const slotError = appointmentSlotError(appointment_date, appointment_time);
         if (slotError) return res.status(400).json({ error: slotError });
@@ -304,7 +308,7 @@ router.post('/appointments', async (req, res) => {
             `SELECT COUNT(*) as cnt FROM package_laboratories pl JOIN laboratories l ON pl.laboratory_id = l.id
              WHERE pl.package_id = ? AND pl.archived = false AND l.archived = false`, [package_id]
         );
-        const [pkgRows] = await pool.query('SELECT doctor_id FROM service_packages WHERE id = ? AND archived = false', [package_id]);
+        const [pkgRows] = await pool.query('SELECT doctor_id, price FROM service_packages WHERE id = ? AND archived = false', [package_id]);
         if (pkgRows.length === 0) return res.status(404).json({ error: 'Package not found' });
         if (labCount[0].cnt === 0 && !pkgRows[0].doctor_id) return res.status(400).json({ error: 'This service is currently unavailable.' });
         const [slotCount] = await pool.query(
@@ -317,13 +321,32 @@ router.post('/appointments', async (req, res) => {
             [appointment_date, appointment_time]
         );
         if (slotTaken.length > 0) return res.status(400).json({ error: 'This appointment slot is already booked.' });
-        await pool.query(
-            `INSERT INTO appointments (customer_id, package_id, appointment_date, appointment_time, payment_status, payment_method, payment_ref, notes)
-             VALUES (?, ?, ?, ?, 'paid', ?, ?, ?)`,
-            [req.user.id, package_id, appointment_date, appointment_time, payment_method || 'mock', payment_ref || 'MOCK-' + Date.now(), notes || '']
+
+        // Priority surcharge on the package price, stored on the row so a later
+        // price change cannot alter what this patient was quoted. Left 'pending':
+        // the front desk collects it when they clear the cashier step.
+        const surchargePct = appointmentAutomation.APPOINTMENT_SURCHARGE_PCT;
+        const amountDue = appointmentAutomation.appointmentPrice(pkgRows[0].price, surchargePct);
+
+        const [ins] = await pool.query(
+            `INSERT INTO appointments (customer_id, package_id, appointment_date, appointment_time,
+                                       payment_status, payment_method, payment_ref, notes,
+                                       amount_due, surcharge_pct)
+             VALUES (?, ?, ?, ?, 'pending', 'onsite', '', ?, ?, ?)`,
+            [req.user.id, package_id, appointment_date, appointment_time, notes || '', amountDue, surchargePct]
         );
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+        res.json({
+            success: true,
+            id: ins.insertId,
+            base_price: Number(pkgRows[0].price),
+            surcharge_pct: surchargePct,
+            amount_due: amountDue,
+            payment_status: 'pending'
+        });
+    } catch (err) {
+        console.error('Book appointment error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
 router.post('/appointments/:id/qr', requireStaff, async (req, res) => {

@@ -271,6 +271,27 @@ async function saveCustomization() {
     }
 }
 
+// Restores the shipped defaults - SITE_DEFAULTS above, which mirrors the column
+// defaults in database.js. Goes through the same PUT as a normal save, so it
+// gets the same validation, audit_logs entry and settingsUpdate broadcast rather
+// than a second code path that could drift from it.
+async function resetCustomization() {
+    if (!confirm('Reset site name, logo, theme, navbar colour and background image to their defaults?\n\nThis affects every user, not just you.')) return;
+    try {
+        const res = await fetch('/api/admin/settings', {
+            method: 'PUT', headers: authHeaders(), body: JSON.stringify({ ...SITE_DEFAULTS })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { showToast(data.error || 'Failed to reset settings', 'error'); return; }
+        showToast('Appearance reset to defaults', 'success');
+        // Re-fills the form from the server rather than from SITE_DEFAULTS, so the
+        // inputs show what was actually stored.
+        await loadCustomization();
+    } catch (err) {
+        showToast('Failed to reset settings', 'error');
+    }
+}
+
 // Keeps the colour swatch and the hex text box showing the same value.
 function syncNavColorInputs(source) {
     const picker = document.getElementById('cust-nav-color');

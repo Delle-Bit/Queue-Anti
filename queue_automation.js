@@ -32,6 +32,13 @@ function composeServiceSteps(labs, doctor) {
     return steps;
 }
 
+// Head start given to a patient who booked an appointment, applied through
+// priority_boost. Waiting time scores 1 point per minute, so this is worth
+// "arrived 30 minutes earlier" - enough to put a booking ahead of walk-ins,
+// while staying below the Senior/PWD/Pregnant weights below so the legally
+// mandated priority categories still come first.
+const APPOINTMENT_PRIORITY_BOOST = 30;
+
 async function calculateScore(patient) {
     let base = 10;
     let category_weight = 0;
@@ -94,5 +101,5 @@ async function peekTicketNumber(stationType, stationId, type) {
 
 module.exports = {
     calculateScore, getNextPatient, getNextFromList, nextTicketNumber, peekTicketNumber,
-    FRONT_DESK_STEP, composeServiceSteps
+    FRONT_DESK_STEP, composeServiceSteps, APPOINTMENT_PRIORITY_BOOST
 };

@@ -348,7 +348,7 @@ async function loadAppointments() {
                 <td>${a.appointment_date}</td>
                 <td>${a.appointment_time}</td>
                 <td><span class="badge ${statusBadge[a.status] || 'badge-neutral'}">${statusLabel[a.status] || a.status}</span></td>
-                <td>${formatCurrency(a.price)}</td>
+                <td>${formatCurrency(a.amount_due ?? a.price)}${a.payment_status === 'pending' ? '<br><small class="text-muted">due on site</small>' : ''}</td>
                 <td>
                     ${a.status === 'scheduled' ? `<button class="btn btn-sm btn-primary" onclick="openCheckInScanner(${a.id})"><i class="fa-solid fa-qrcode"></i> Check-In</button>` : '--'}
                 </td>
@@ -359,20 +359,28 @@ async function loadAppointments() {
         const pkgRes = await fetch('/api/packages');
         const pkgs = await pkgRes.json();
         const sel = document.getElementById('appt-package');
-        sel.innerHTML = pkgs.map(p => `<option value="${p.id}" data-price="${p.price}">${p.name} — ${formatCurrency(p.price)}</option>`).join('');
+        // The booking total and the surcharge percentage both come from the API,
+        // so the fee is defined in one place (appointment_automation.js) instead
+        // of being duplicated here.
+        sel.innerHTML = pkgs.map(p => `<option value="${p.id}"
+            data-price="${p.price}"
+            data-appt-price="${p.appointment_price ?? p.price}"
+            data-surcharge-pct="${p.appointment_surcharge_pct ?? 0}">${p.name} — ${formatCurrency(p.appointment_price ?? p.price)}</option>`).join('');
         sel.onchange = () => {
             const opt = sel.options[sel.selectedIndex];
-            document.getElementById('appt-amount').textContent = formatCurrency(opt.dataset.price);
+            if (!opt) return;
+            const base = Number(opt.dataset.price) || 0;
+            const total = Number(opt.dataset.apptPrice) || base;
+            const pct = Number(opt.dataset.surchargePct) || 0;
+            document.getElementById('appt-base-price').textContent = formatCurrency(base);
+            document.getElementById('appt-surcharge-pct').textContent = pct;
+            document.getElementById('appt-surcharge').textContent = formatCurrency(total - base);
+            document.getElementById('appt-amount').textContent = formatCurrency(total);
         };
         if (sel.options.length > 0) sel.onchange();
 
         renderAppointmentCalendar();
     } catch (err) { console.error(err); }
-}
-
-function selectPayMethod(method) {
-    document.getElementById('appt-pay-method').value = method;
-    showToast(`Payment method: ${method.toUpperCase()}`, 'info', 1500);
 }
 
 async function bookAppointment() {
@@ -381,7 +389,6 @@ async function bookAppointment() {
     const date = document.getElementById('appt-date').value;
     const time = selectedTimeSlot;
     const notes = document.getElementById('appt-notes').value;
-    const method = document.getElementById('appt-pay-method').value;
     if (!pkg || !date || !time) return showToast('Fill all fields', 'error');
     // Re-checked at submit: the modal can sit open long enough for the selected
     // slot to fall into the past while the customer is on the payment step.
@@ -394,11 +401,14 @@ async function bookAppointment() {
     try {
         const res = await fetch('/api/appointments', {
             method: 'POST', headers: authHeaders(),
-            body: JSON.stringify({ package_id: pkg, appointment_date: date, appointment_time: time, payment_method: method, notes })
+            body: JSON.stringify({ package_id: pkg, appointment_date: date, appointment_time: time, notes })
         });
         if (res.ok) {
+            const data = await res.json().catch(() => ({}));
             closeModal('appt-modal');
-            showToast('Appointment booked!', 'success');
+            showToast(data.amount_due != null
+                ? `Appointment booked. Pay ${formatCurrency(data.amount_due)} at the front desk.`
+                : 'Appointment booked!', 'success', 5000);
             loadAppointments();
         } else {
             const data = await res.json();

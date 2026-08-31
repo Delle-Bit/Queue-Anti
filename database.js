@@ -647,6 +647,15 @@ async function initDB() {
         // when a scheduled slot passes its grace period without a check-in.
         try { await pool.query(`ALTER TABLE appointments MODIFY COLUMN status ENUM('scheduled','checked-in','completed','cancelled','no-show') DEFAULT 'scheduled'`); } catch(e) {}
         await addColumnIfMissing('appointments', 'no_show_at', 'DATETIME DEFAULT NULL');
+        // Appointments are paid on site at the front desk and carry a priority
+        // surcharge. amount_due is stored rather than recomputed from the package
+        // so a later price change never alters what a patient was already quoted.
+        await addColumnIfMissing('appointments', 'amount_due', 'DECIMAL(10,2) DEFAULT NULL');
+        await addColumnIfMissing('appointments', 'surcharge_pct', 'INT DEFAULT 0');
+        // Links a live queue journey back to the appointment that started it, and
+        // carries the appointment's priority to every station in the sequence.
+        await addColumnIfMissing('queue_sequences', 'appointment_id', 'INT DEFAULT NULL');
+        await addColumnIfMissing('queue_sequences', 'priority_boost', 'INT DEFAULT 0');
         // The sweep filters on status + date/time; the staff and customer lists
         // then filter on archived.
         await addIndexIfMissing('appointments', 'idx_appt_status_date', '(status, appointment_date)');

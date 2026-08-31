@@ -8,7 +8,7 @@ const jwt = require('jsonwebtoken');
 const http = require('http');
 const socketIo = require('socket.io');
 const { JWT_SECRET, requireAdmin } = require('./config');
-const { nextTicketNumber } = require('./queue_automation');
+const { nextTicketNumber, APPOINTMENT_PRIORITY_BOOST } = require('./queue_automation');
 const { startMissedAppointmentSweep } = require('./appointment_automation');
 
 // Shown when someone tries to check in against a slot the sweep already closed.
@@ -105,22 +105,33 @@ async function startQueueFromAppointment(appointment, io) {
     else if (category === 'PWD') type = 'D';
     else if (category === 'Pregnant') type = 'P';
 
+    // An appointment holder reserved this slot, so they enter the queue with a
+    // head start over walk-ins. It is stored on the sequence, not just on the
+    // first queue row, so /complete-step can re-apply it at every station -
+    // otherwise the priority would evaporate the moment the front desk was done.
+    const priorityBoost = APPOINTMENT_PRIORITY_BOOST;
+
     const [seqResult] = await pool.query(
-        'INSERT INTO queue_sequences (customer_id, package_id, current_step, total_steps, has_doctor_step, doctor_id) VALUES (?, ?, 0, ?, ?, ?)',
-        [appointment.customer_id, appointment.package_id, totalSteps, hasDoctorStep ? 1 : 0, hasDoctorStep ? pkgDoctor[0].doctor_id : null]
+        `INSERT INTO queue_sequences (customer_id, package_id, current_step, total_steps, has_doctor_step, doctor_id, appointment_id, priority_boost)
+         VALUES (?, ?, 0, ?, ?, ?, ?, ?)`,
+        [appointment.customer_id, appointment.package_id, totalSteps, hasDoctorStep ? 1 : 0,
+         hasDoctorStep ? pkgDoctor[0].doctor_id : null, appointment.id, priorityBoost]
     );
     const seqId = seqResult.insertId;
     const ticketNum = await nextTicketNumber('frontdesk', null, type);
     const queueId = `appt_${appointment.id}_${seqId}`;
+    // The amount actually owed (package price plus the appointment surcharge) is
+    // what the front desk collects, so it is what the revenue logs should carry.
+    const amountDue = appointment.amount_due != null ? appointment.amount_due : appointment.price;
     await pool.query(
-        `INSERT INTO queue (id, station_type, station_id, number, type, status, customer_id, sequence_id)
-         VALUES (?, 'frontdesk', NULL, ?, ?, 'waiting', ?, ?)`,
-        [queueId, ticketNum, type, appointment.customer_id, seqId]
+        `INSERT INTO queue (id, station_type, station_id, number, type, status, customer_id, sequence_id, priority_boost)
+         VALUES (?, 'frontdesk', NULL, ?, ?, 'waiting', ?, ?, ?)`,
+        [queueId, ticketNum, type, appointment.customer_id, seqId, priorityBoost]
     );
     await pool.query(
         `INSERT INTO queue_logs (station_type, station_id, ticket_number, type, customer_id, sequence_id, package_name, price, join_time)
          VALUES ('frontdesk', NULL, ?, ?, ?, ?, ?, ?, NOW())`,
-        [ticketNum, type, appointment.customer_id, seqId, appointment.package_name, appointment.price]
+        [ticketNum, type, appointment.customer_id, seqId, appointment.package_name, amountDue]
     );
     if (io) io.emit('queueUpdate', { appointment_id: appointment.id, queue_id: queueId });
     return { ticket: ticketNum, sequence_id: seqId };

@@ -213,6 +213,22 @@ router.post('/complete-step', requireStaff, async (req, res) => {
         const seq = seqs[0];
         const nextStep = seq.current_step + 1;
 
+        // The front desk is the cashier, and an appointment is settled on site -
+        // so clearing the front desk step is the moment its payment is collected.
+        if (q.station_type === 'frontdesk' && seq.appointment_id) {
+            await pool.query(
+                `UPDATE appointments SET payment_status='paid', payment_method='onsite',
+                        payment_ref=CONCAT('ONSITE-', ?)
+                 WHERE id=? AND payment_status='pending'`,
+                [seq.appointment_id, seq.appointment_id]
+            );
+        }
+
+        // Re-applied from the sequence, not copied from the row just completed:
+        // unpark sets priority_boost=100 on a single row as a one-off, and
+        // carrying that forward would hand a parked patient permanent priority.
+        const seqBoost = seq.priority_boost || 0;
+
         if (nextStep >= seq.total_steps) {
             // All steps done
             await pool.query(`UPDATE queue_sequences SET current_step = ?, status = 'completed', completed_at = NOW() WHERE id = ?`, [nextStep, seq.id]);
@@ -241,12 +257,17 @@ router.post('/complete-step', requireStaff, async (req, res) => {
                 if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
                 return res.json({ success: true, finished: true });
             }
-            const newTicket = await queueAutomation.nextTicketNumber('doctor', doctorId, q.type);
+            // The ticket number is minted once, at the front desk, and follows the
+            // patient for the whole visit. Minting a fresh per-station number gave
+            // someone Q-006 at payment and then Q-001 at the laboratory, which
+            // reads as a different patient's ticket. It stays unique clinic-wide
+            // because every visit starts at the front desk counter.
+            const newTicket = q.number;
             const newQueueId = `cust_${q.customer_id}_${seq.id}_s${nextStep}`;
             await pool.query(
-                `INSERT INTO queue (id, station_type, station_id, number, type, status, customer_id, sequence_id)
-                 VALUES (?, 'doctor', ?, ?, ?, 'waiting', ?, ?)`,
-                [newQueueId, doctorId, newTicket, q.type, q.customer_id, seq.id]
+                `INSERT INTO queue (id, station_type, station_id, number, type, status, customer_id, sequence_id, priority_boost)
+                 VALUES (?, 'doctor', ?, ?, ?, 'waiting', ?, ?, ?)`,
+                [newQueueId, doctorId, newTicket, q.type, q.customer_id, seq.id, seqBoost]
             );
             await pool.query(
                 `INSERT INTO queue_logs (station_type, station_id, ticket_number, type, customer_id, sequence_id, package_name, price, join_time)
@@ -271,14 +292,15 @@ router.post('/complete-step', requireStaff, async (req, res) => {
         const lab = labs[0];
         let type = q.type;
 
-        // Generate new ticket for lab (atomic counter)
-        const newTicket = await queueAutomation.nextTicketNumber('laboratory', lab.laboratory_id, type);
+        // Same ticket the patient was given at the front desk - see the doctor
+        // branch above.
+        const newTicket = q.number;
         const newQueueId = `cust_${q.customer_id}_${seq.id}_s${nextStep}`;
 
         await pool.query(
-            `INSERT INTO queue (id, station_type, station_id, number, type, status, customer_id, sequence_id)
-             VALUES (?, 'laboratory', ?, ?, ?, 'waiting', ?, ?)`,
-            [newQueueId, lab.laboratory_id, newTicket, type, q.customer_id, seq.id]
+            `INSERT INTO queue (id, station_type, station_id, number, type, status, customer_id, sequence_id, priority_boost)
+             VALUES (?, 'laboratory', ?, ?, ?, 'waiting', ?, ?, ?)`,
+            [newQueueId, lab.laboratory_id, newTicket, type, q.customer_id, seq.id, seqBoost]
         );
         await pool.query(
             `INSERT INTO queue_logs (station_type, station_id, ticket_number, type, customer_id, sequence_id, package_name, price, join_time)

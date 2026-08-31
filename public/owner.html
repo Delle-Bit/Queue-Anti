@@ -199,7 +199,10 @@
                         <input type="text" id="cust-bg-url" class="form-input" maxlength="255" placeholder="/images/bg.jpg">
                         <small class="text-muted">Applied behind the dashboard pages. Leave blank for the plain background.</small>
                     </div>
-                    <button class="btn btn-success" onclick="saveCustomization()"><i class="fa-solid fa-save"></i> Save Styles</button>
+                    <div class="flex-center gap-sm" style="justify-content:flex-start;flex-wrap:wrap;">
+                        <button class="btn btn-success" onclick="saveCustomization()"><i class="fa-solid fa-save"></i> Save Styles</button>
+                        <button class="btn btn-outline" onclick="resetCustomization()"><i class="fa-solid fa-rotate-left"></i> Reset to Defaults</button>
+                    </div>
                 </div>
                 <div class="card">
                     <h3 class="mb-md">Page Previews</h3>

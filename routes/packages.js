@@ -4,6 +4,7 @@ const { pool } = require('../database');
 const jwt = require('jsonwebtoken');
 const { JWT_SECRET, requireStaff } = require('../config');
 const { composeServiceSteps } = require('../queue_automation');
+const { APPOINTMENT_SURCHARGE_PCT, appointmentPrice } = require('../appointment_automation');
 
 function authRequired(req, res, next) {
     const token = (req.headers['authorization'] || '').split(' ')[1];
@@ -34,6 +35,10 @@ router.get('/', async (req, res) => {
             // the catalogue shows the same first stop the queue actually creates.
             pkg.steps = composeServiceSteps(labs, pkg.doctor_id ? { id: pkg.doctor_id, name: pkg.doctor_name } : null);
             pkg.is_available = labs.length > 0 || !!pkg.doctor_id;
+            // Booking price, so the appointment form can show the breakdown
+            // without hardcoding the surcharge on the client.
+            pkg.appointment_surcharge_pct = APPOINTMENT_SURCHARGE_PCT;
+            pkg.appointment_price = appointmentPrice(pkg.price);
         }
         res.json(packages);
     } catch (err) { res.status(500).json({ error: 'Failed to fetch packages' }); }

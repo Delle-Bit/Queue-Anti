@@ -275,19 +275,21 @@
                         <input type="text" class="form-input" id="appt-notes" placeholder="Any special notes">
                     </div>
                     <div id="appt-payment-section" class="payment-card mt-md">
-                        <div class="payment-label">Amount Due</div>
-                        <div class="payment-amount" id="appt-amount">₱0</div>
-                        <div class="mt-md" style="display:flex;gap:8px;flex-wrap:wrap;">
-                            <button class="btn btn-outline" style="color:#fff;border-color:rgba(255,255,255,0.3)"
-                                onclick="selectPayMethod('gcash')"><i class="fa-solid fa-mobile"></i> GCash</button>
-                            <button class="btn btn-outline" style="color:#fff;border-color:rgba(255,255,255,0.3)"
-                                onclick="selectPayMethod('maya')"><i class="fa-solid fa-credit-card"></i> Maya</button>
-                            <button class="btn btn-outline" style="color:#fff;border-color:rgba(255,255,255,0.3)"
-                                onclick="selectPayMethod('card')"><i class="fa-solid fa-credit-card"></i> Card</button>
+                        <div class="appt-fee-line">
+                            <span>Service price</span>
+                            <span id="appt-base-price">₱0</span>
                         </div>
-                        <input type="hidden" id="appt-pay-method" value="gcash">
-                        <div class="mt-sm" style="font-size:0.75em;color:rgba(255,255,255,0.5);">Mock payment — no real
-                            charges</div>
+                        <div class="appt-fee-line">
+                            <span>Priority booking fee (<span id="appt-surcharge-pct">10</span>%)</span>
+                            <span id="appt-surcharge">₱0</span>
+                        </div>
+                        <div class="payment-label mt-md">Total Due On Site</div>
+                        <div class="payment-amount" id="appt-amount">₱0</div>
+                        <div class="appt-pay-note">
+                            <i class="fa-solid fa-cash-register"></i>
+                            <span>Pay at the <strong>Front Desk</strong> on the day of your visit. Booking a slot
+                                places you ahead of walk-ins, which is what the priority fee covers.</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -297,7 +299,7 @@
                     onclick="apptPrevStep()">Back</button>
                 <button class="btn btn-primary" id="appt-next-btn" onclick="apptNextStep()">Next</button>
                 <button class="btn btn-success" id="appt-confirm-btn" style="display:none;"
-                    onclick="bookAppointment()"><i class="fa-solid fa-check"></i> Confirm & Pay</button>
+                    onclick="bookAppointment()"><i class="fa-solid fa-check"></i> Confirm Booking</button>
             </div>
         </div>
     </div>

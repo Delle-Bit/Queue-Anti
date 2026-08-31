@@ -1,5 +1,20 @@
 const { pool } = require('./database.js');
 
+// ── APPOINTMENT PRICING ─────────────────────────────────────────────────────
+// A booking reserves a slot and enters the queue ahead of walk-ins, so it
+// carries a surcharge on the package price. It is collected on site at the
+// front desk (the cashier station), not online - so an appointment is created
+// with payment_status 'pending' and is marked paid when the front desk clears
+// its step.
+const APPOINTMENT_SURCHARGE_PCT = 10;
+
+// Rounded to centavos. Number() rather than toFixed's string so callers can do
+// arithmetic with it; DECIMAL(10,2) stores it exactly.
+function appointmentPrice(basePrice, surchargePct = APPOINTMENT_SURCHARGE_PCT) {
+    const base = Number(basePrice) || 0;
+    return Math.round(base * (1 + surchargePct / 100) * 100) / 100;
+}
+
 // ── MISSED APPOINTMENT SWEEP ────────────────────────────────────────────────
 // A booked slot that nobody checked in for used to sit in the staff and admin
 // appointment lists forever, indistinguishable from an upcoming one. This marks
@@ -114,6 +129,8 @@ function startMissedAppointmentSweep(intervalMinutes = 15) {
 }
 
 module.exports = {
+    APPOINTMENT_SURCHARGE_PCT,
+    appointmentPrice,
     NO_SHOW_GRACE_MINUTES,
     findMissedAppointments,
     sweepMissedAppointments,

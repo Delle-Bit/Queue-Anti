@@ -200,9 +200,14 @@ async function saveService() {
 async function loadFdAppointments() {
     const res = await fetch('/api/appointments', { headers: authHeaders() });
     const appts = await res.json();
+    // Appointments are settled on site, so this desk is the cashier for them:
+    // amount_due already includes the priority booking surcharge, and payment is
+    // marked paid automatically when this station clears the patient's front desk
+    // step. Falls back to the package price for rows booked before the surcharge.
     document.getElementById('fd-appt-list').innerHTML = appts.map(a => `<tr>
         <td>${a.full_name||a.username}</td><td>${a.package_name}</td><td>${a.appointment_date}</td>
         <td>${a.appointment_time}</td><td><span class="badge ${a.status==='scheduled'?'badge-warning':'badge-success'}">${a.status}</span></td>
+        <td><strong>${formatCurrency(a.amount_due ?? a.price)}</strong>${Number(a.surcharge_pct) > 0 ? `<br><small class="text-muted">incl. ${a.surcharge_pct}% priority</small>` : ''}</td>
         <td><span class="badge ${a.payment_status==='paid'?'badge-success':'badge-warning'}">${a.payment_status}</span></td>
         <td><button class="btn btn-sm btn-secondary" onclick="generateAppointmentQr(${a.id})"><i class="fa-solid fa-qrcode"></i> QR</button></td>
     </tr>`).join('');
