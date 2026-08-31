@@ -10,13 +10,21 @@ This guide will help you run the application on your local machine using a local
 1. Open your control panel (e.g., XAMPP Control Panel) or Services manager and ensure the **MySQL module is running**.
 2. **No manual tables are required.** The app auto-creates the `clinic_v2` database, all ~20 tables, seed accounts, seed labs/doctors, and default service packages the first time it starts (`initDB()` in `database.js`). Schema changes on later runs are auto-migrated too — nothing to run by hand.
 
-*Note: connection settings (host/user/password) come from `.env` — see step 3.*
+*Note: connection settings come from `.env` (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`) — see step 3. With no `.env` they default to a stock local install: `localhost:3306`, user `root`, empty password, database `clinic_v2`.*
 
 ## 3. Running the Application Locally
-1. **Configure environment**: create a `.env` file in the project root with at least:
+1. **Configure environment**: copy `.env.example` to `.env` and fill it in — it
+   documents every variable. At minimum:
    ```
    PORT=3000
-   JWT_SECRET=<any random string>
+   JWT_SECRET=<any long random string>
+
+   # Database — omit these to use a stock local MySQL (localhost:3306, root, no password)
+   DB_HOST=localhost
+   DB_PORT=3306
+   DB_USER=root
+   DB_PASSWORD=
+   DB_NAME=clinic_v2
    GEMINI_API_KEY=          # optional - enables Gemini for AI features
    API_ALLAROUND=           # optional - Hugging Face fallback
    NVIDIA_API_KEY=          # optional - enables the NVIDIA Nemotron VA/AI fallback

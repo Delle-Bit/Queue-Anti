@@ -1,12 +1,21 @@
 const mysql = require('mysql2/promise');
 
+// Connection settings come from the environment so the app can be pointed at a
+// real database server on deployment. The defaults are the local XAMPP/MySQL
+// install a developer gets out of the box, so an existing .env-less checkout
+// keeps working unchanged.
+const DB_CONFIG = {
+    host: process.env.DB_HOST || 'localhost',
+    port: Number(process.env.DB_PORT) || 3306,
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'clinic_v2'
+};
+
 const pool = mysql.createPool({
-    host: 'localhost',
-    user: 'root',
-    password: '',
-    database: 'clinic_v2',
+    ...DB_CONFIG,
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: Number(process.env.DB_CONNECTION_LIMIT) || 10,
     queueLimit: 0
 });
 
@@ -177,14 +186,21 @@ async function addIndexIfMissing(table, indexName, definition) {
 
 async function initDB() {
     try {
+        // Connects without a database selected so the schema can be created on a
+        // fresh server. A managed/hosted MySQL where the user cannot CREATE
+        // DATABASE will fail here, which is why the error is reported rather
+        // than swallowed - create the database by hand and re-run.
         const connection = await mysql.createConnection({
-            host: 'localhost', user: 'root', password: ''
+            host: DB_CONFIG.host, port: DB_CONFIG.port,
+            user: DB_CONFIG.user, password: DB_CONFIG.password
         });
 
-        await connection.query('CREATE DATABASE IF NOT EXISTS clinic_v2;');
+        // Backtick-quoted: a database name from the environment may contain
+        // characters that need quoting, and it never comes from user input.
+        await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_CONFIG.database}\`;`);
         await connection.end();
 
-        console.log('[DB] Database clinic_v2 created.');
+        console.log(`[DB] Database ${DB_CONFIG.database} ready on ${DB_CONFIG.host}:${DB_CONFIG.port}.`);
 
         // Users
         await pool.query(`
