@@ -196,6 +196,20 @@ function updateActiveNav() {
 
 window.addEventListener('scroll', updateActiveNav, { passive: true });
 
+// ── Body scroll lock ─────────────────────────────────────────────
+// The mobile menu and the auth panel overlap: tapping Sign In inside the menu
+// opens the panel and closes the menu, in that order. With a single boolean the
+// menu's close would clear the lock the panel had just taken and the page would
+// scroll behind the modal, so locks are tracked per owner and the body only
+// unlocks once nothing holds it.
+const scrollLockOwners = new Set();
+
+function setScrollLock(owner, locked) {
+    if (locked) scrollLockOwners.add(owner);
+    else scrollLockOwners.delete(owner);
+    document.body.style.overflow = scrollLockOwners.size ? 'hidden' : '';
+}
+
 // ── Mobile Hamburger ─────────────────────────────────────────────
 const hamburgerBtn = document.getElementById('hamburger-btn');
 const navLinksEl = document.getElementById('nav-links');
@@ -206,7 +220,7 @@ function toggleMobileMenu() {
     hamburgerBtn.setAttribute('aria-expanded', String(isOpen));
     navLinksEl.classList.toggle('mobile-open', isOpen);
     mobileOverlay.classList.toggle('active', isOpen);
-    document.body.style.overflow = isOpen ? 'hidden' : '';
+    setScrollLock('mobile-menu', isOpen);
 }
 
 function closeMobileMenu() {
@@ -214,7 +228,7 @@ function closeMobileMenu() {
     hamburgerBtn.setAttribute('aria-expanded', 'false');
     navLinksEl.classList.remove('mobile-open');
     mobileOverlay.classList.remove('active');
-    document.body.style.overflow = '';
+    setScrollLock('mobile-menu', false);
 }
 
 hamburgerBtn.addEventListener('click', toggleMobileMenu);
@@ -222,6 +236,13 @@ mobileOverlay.addEventListener('click', closeMobileMenu);
 
 navLinksEl.querySelectorAll('.nav-link').forEach(link => {
     link.addEventListener('click', closeMobileMenu);
+});
+
+// The .mobile-open styling only exists below 768px, so a menu left open while
+// the device rotates into landscape would strand a dimmed overlay and a locked
+// page over the desktop nav.
+window.addEventListener('resize', () => {
+    if (window.innerWidth > 768 && navLinksEl.classList.contains('mobile-open')) closeMobileMenu();
 });
 
 // ── Smooth Scroll for nav links ──────────────────────────────────
@@ -322,7 +343,7 @@ const authOverlay = document.getElementById('auth-overlay');
 
 function openAuthPanel(tab = 'login') {
     authOverlay.classList.add('active');
-    document.body.style.overflow = 'hidden';
+    setScrollLock('auth-panel', true);
     switchAuthTab(tab);
     // Focus trap
     setTimeout(() => {
@@ -334,7 +355,7 @@ function openAuthPanel(tab = 'login') {
 function closeAuthPanel() {
     abandonPendingRegistration();
     authOverlay.classList.remove('active');
-    document.body.style.overflow = '';
+    setScrollLock('auth-panel', false);
 }
 
 // Voids an in-progress registration token server-side the moment the modal is
@@ -359,6 +380,7 @@ authOverlay.addEventListener('click', function (e) {
 document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
         if (authOverlay.classList.contains('active')) closeAuthPanel();
+        else if (navLinksEl.classList.contains('mobile-open')) closeMobileMenu();
     }
 });
 

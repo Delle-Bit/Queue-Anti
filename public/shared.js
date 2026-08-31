@@ -62,8 +62,20 @@ const SITE_DEFAULTS = {
 
 // Elements that carry the clinic name or logo. Kept here rather than as data-
 // attributes across seven pages, so there is one place to add a new brand spot.
-const SITE_NAME_SELECTORS = ['.sidebar-brand-name', '.nav-clinic-name', '.footer-name', '.auth-panel-logo span'];
-const SITE_LOGO_SELECTORS = ['.sidebar-logo', '.nav-logo', '.loader-logo', '.about-logo', '.footer-logo', '.auth-panel-logo-img'];
+const SITE_NAME_SELECTORS = ['.sidebar-brand-name', '.topbar-name', '.nav-clinic-name', '.footer-name', '.auth-panel-logo span'];
+const SITE_LOGO_SELECTORS = ['.sidebar-logo', '.topbar-logo', '.nav-logo', '.loader-logo', '.about-logo', '.footer-logo', '.auth-panel-logo-img'];
+
+// Shared by the sidebar header and the mobile topbar, so an account never reads
+// as one thing in the drawer and another in the header.
+const ROLE_LABELS = {
+    admintechnical: 'Admin Technical',
+    admin: 'Administrator',
+    customer: 'Customer',
+    frontdesk: 'Front Desk',
+    laboratory: 'Laboratory',
+    owner: 'Owner',
+    doctor: 'Doctor'
+};
 
 let siteSettings = { ...SITE_DEFAULTS };
 let siteTitleTemplate = null;   // document.title as authored, before any swap
@@ -277,15 +289,7 @@ function renderSidebar(navItems, activeId) {
     const role = getRole() || 'user';
     const initials = username.substring(0, 2).toUpperCase();
 
-    const roleLabels = {
-        admintechnical: 'Admin Technical',
-        admin: 'Administrator',
-        customer: 'Customer',
-        frontdesk: 'Front Desk',
-        laboratory: 'Laboratory',
-        owner: 'Owner',
-        doctor: 'Doctor'
-    };
+    const roleLabels = ROLE_LABELS;
 
     let navHtml = '';
     navItems.forEach(item => {
@@ -356,19 +360,91 @@ function initDefaultSection() {
     }
 }
 
+// ── MOBILE TOPBAR ───────────────────────────────────────────────
+// Below 768px the sidebar is a drawer, which left the hamburger as a lone
+// floating square overlapping the page heading and no clinic branding anywhere
+// on screen. This puts the hamburger, logo, clinic name and account category in
+// one bar so nothing overlaps and the two text lines can ellipsis instead of
+// wrapping. The hamburger element itself is relocated rather than recreated, so
+// its listeners and id stay intact across all six role pages.
+function accountCategoryLabel() {
+    const role = getRole() || 'user';
+    const label = ROLE_LABELS[role] || role;
+    const category = getCategory();
+    // Priority category only exists for customers, and 'Regular' adds nothing.
+    if (role === 'customer' && category && category !== 'Regular') return `${label} • ${category}`;
+    return label;
+}
+
+function buildMobileTopbar(hamburger) {
+    if (document.querySelector('.topbar')) return;
+
+    const bar = document.createElement('header');
+    bar.className = 'topbar';
+    document.body.prepend(bar);
+    bar.appendChild(hamburger);
+
+    const logo = document.createElement('img');
+    logo.className = 'topbar-logo';
+    logo.src = siteLogo();
+    logo.alt = '';
+    logo.width = 30;
+    logo.height = 30;
+    bar.appendChild(logo);
+
+    const text = document.createElement('div');
+    text.className = 'topbar-text';
+    text.innerHTML = `
+        <span class="topbar-name">${escapeHtml(siteName())}</span>
+        <span class="topbar-meta">${escapeHtml(accountCategoryLabel())}</span>
+    `;
+    bar.appendChild(text);
+}
+
 // ── HAMBURGER (MOBILE) ──────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     const hamburger = document.querySelector('.hamburger');
     const sidebar = document.getElementById('sidebar');
-    if (hamburger && sidebar) {
-        hamburger.addEventListener('click', () => sidebar.classList.toggle('open'));
-        // Close on link click (mobile)
-        sidebar.addEventListener('click', (e) => {
-            if (e.target.closest('.sidebar-link') && window.innerWidth <= 768) {
-                sidebar.classList.remove('open');
-            }
-        });
+    if (!hamburger || !sidebar) return;
+
+    // The markup is an icon-only button in all six role pages; label it here
+    // rather than editing each one.
+    hamburger.setAttribute('aria-label', 'Toggle navigation menu');
+    hamburger.setAttribute('aria-controls', 'sidebar');
+    hamburger.setAttribute('aria-expanded', 'false');
+    hamburger.querySelector('i')?.setAttribute('aria-hidden', 'true');
+
+    buildMobileTopbar(hamburger);
+
+    // Tap-outside-to-close target. Also lifts the drawer clear of the floating
+    // VA widget and announcement FAB, which used to sit over its Sign Out row.
+    const scrim = document.createElement('div');
+    scrim.className = 'sidebar-scrim';
+    document.body.appendChild(scrim);
+
+    function setDrawer(open) {
+        sidebar.classList.toggle('open', open);
+        document.body.classList.toggle('sidebar-open', open);
+        hamburger.setAttribute('aria-expanded', String(open));
     }
+
+    hamburger.addEventListener('click', () => setDrawer(!sidebar.classList.contains('open')));
+    scrim.addEventListener('click', () => setDrawer(false));
+
+    // Close on link click (mobile)
+    sidebar.addEventListener('click', (e) => {
+        if (e.target.closest('.sidebar-link') && window.innerWidth <= 768) setDrawer(false);
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && sidebar.classList.contains('open')) setDrawer(false);
+    });
+
+    // Above 768px the sidebar is always visible and the scrim/scroll lock have
+    // no meaning, so a drawer left open through a rotation must be reset.
+    window.addEventListener('resize', () => {
+        if (window.innerWidth > 768 && sidebar.classList.contains('open')) setDrawer(false);
+    });
 });
 
 // ── TOAST NOTIFICATIONS ─────────────────────────────────────────
@@ -515,18 +591,40 @@ async function refreshAnnouncementBanner() {
     } catch (e) { /* non-critical, fail silently */ }
 }
 
+// The banner is position:fixed, so everything else that is fixed to the top of
+// the viewport (the sidebar, the mobile hamburger) has to be told how tall it
+// is. Its height changes with viewport width as the message rewraps, so it is
+// measured continuously rather than once at render.
+let announcementSizeObserver = null;
+
+function publishAnnouncementHeight(bar) {
+    const height = bar ? bar.offsetHeight : 0;
+    document.body.style.paddingTop = height ? height + 'px' : '';
+    document.documentElement.style.setProperty('--announcement-h', height + 'px');
+}
+
 function renderAnnouncementBanner(announcement) {
     let bar = document.getElementById('announcement-banner');
     if (!announcement) {
         if (bar) bar.remove();
-        document.body.style.paddingTop = '';
+        if (announcementSizeObserver) {
+            announcementSizeObserver.disconnect();
+            announcementSizeObserver = null;
+        }
+        publishAnnouncementHeight(null);
         return;
     }
     if (!bar) {
         bar = document.createElement('div');
         bar.id = 'announcement-banner';
         bar.className = 'announcement-banner';
+        bar.setAttribute('role', 'status');
+        bar.setAttribute('aria-live', 'polite');
         document.body.prepend(bar);
+        if (typeof ResizeObserver === 'function') {
+            announcementSizeObserver = new ResizeObserver(() => publishAnnouncementHeight(bar));
+            announcementSizeObserver.observe(bar);
+        }
     }
     bar.innerHTML = `
         <i class="fa-solid fa-bullhorn"></i>
@@ -538,7 +636,7 @@ function renderAnnouncementBanner(announcement) {
         try { sessionStorage.setItem('dismissedAnnouncements', JSON.stringify([...dismissedAnnouncementIds])); } catch (e) {}
         refreshAnnouncementBanner();
     });
-    document.body.style.paddingTop = bar.offsetHeight + 'px';
+    publishAnnouncementHeight(bar);
 }
 
 function setupAnnouncementComposer() {

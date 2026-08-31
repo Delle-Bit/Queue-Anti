@@ -91,14 +91,19 @@ body {
 /* ================================================================
    SIDEBAR
    ================================================================ */
+/* --announcement-h is set from shared.js while the announcement banner is up.
+   The banner is fixed to the top of the viewport, so without this offset it
+   covered the sidebar's own logo/name header (and, on mobile, the hamburger
+   that opens this sidebar in the first place). */
 .sidebar {
-    position: fixed; top: 0; left: 0; bottom: 0;
+    position: fixed; top: var(--announcement-h, 0px); left: 0; bottom: 0;
     width: var(--sidebar-width);
     background: var(--bg-sidebar);
     display: flex; flex-direction: column;
     z-index: 100;
     transition: transform 0.3s ease;
     overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .sidebar-header {
@@ -269,7 +274,7 @@ body {
 .main-content {
     margin-left: var(--sidebar-width);
     padding: 28px 32px;
-    min-height: 100vh;
+    min-height: 100dvh;
     transition: margin-left 0.3s ease;
 }
 
@@ -529,8 +534,8 @@ tbody tr:last-child td { border-bottom: none; }
     background: var(--bg-card);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
-    width: 90%; max-width: 520px; max-height: 85vh;
-    overflow-y: auto; position: relative;
+    width: 90%; max-width: 520px; max-height: 85dvh;
+    overflow-y: auto; overscroll-behavior: contain; position: relative;
     animation: modalIn 0.25s ease;
 }
 
@@ -998,24 +1003,106 @@ tbody tr:last-child td { border-bottom: none; }
     color: var(--text-primary);
 }
 
-/* Mobile hamburger */
+/* Mobile hamburger. shared.js relocates this into .topbar, where the rules in
+   the RESPONSIVE block below make it a normal flex item; the fixed positioning
+   here is the fallback for a page that has no topbar. The announcement offset
+   matters in that fallback - the banner is fixed at a higher z-index and would
+   otherwise swallow every tap on the button. */
 .hamburger {
-    display: none; position: fixed; top: 16px; left: 16px;
+    display: none; position: fixed;
+    top: calc(16px + var(--announcement-h, 0px)); left: 16px;
     z-index: 200; background: var(--bg-card); border: 1px solid var(--border);
     border-radius: var(--radius-sm); padding: 8px 12px;
+    min-width: 44px; min-height: 44px;
+    align-items: center; justify-content: center;
     cursor: pointer; font-size: 1.2em; color: var(--text-primary);
+}
+
+/* Mobile topbar: hamburger, logo, clinic name, account category. Built by
+   shared.js and shown only below 768px, where the sidebar is a drawer and would
+   otherwise leave the page with no branding and a floating hamburger sitting on
+   top of the page heading. z-index sits below the drawer and its scrim, so an
+   open drawer covers it the way a modal drawer should. */
+.topbar { display: none; }
+
+.topbar-logo { width: 30px; height: 30px; flex-shrink: 0; }
+
+/* min-width: 0 lets the two lines shrink and ellipsis instead of forcing the
+   bar wider than the viewport - without it a long clinic name wraps the row. */
+.topbar-text {
+    display: flex; flex-direction: column; justify-content: center;
+    min-width: 0; line-height: 1.25;
+}
+.topbar-name, .topbar-meta {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.topbar-name { font-weight: 700; font-size: 0.95em; color: var(--text-primary); }
+.topbar-meta { font-size: 0.75em; color: var(--text-secondary); }
+
+/* Scrim behind the mobile drawer. Sits above the floating chrome (VA widget and
+   announcement FAB, both z-index 150) so they stop covering the drawer's own
+   Sign Out button, and gives the drawer a tap-outside-to-close target. */
+.sidebar-scrim {
+    display: none; position: fixed; inset: 0; z-index: 190;
+    background: rgba(0,0,0,0.45);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
 }
 
 /* ================================================================
    RESPONSIVE
    ================================================================ */
 @media (max-width: 768px) {
-    .sidebar { transform: translateX(-100%); }
+    .sidebar {
+        transform: translateX(-100%);
+        z-index: 200;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
     .sidebar.open { transform: translateX(0); }
-    .hamburger { display: block; }
-    .main-content { margin-left: 0; padding: 20px 16px; padding-top: 60px; }
+
+    .topbar {
+        display: flex; align-items: center; gap: 10px;
+        position: fixed; top: var(--announcement-h, 0px); left: 0; right: 0;
+        height: 56px; z-index: 180;
+        padding: 0 12px;
+        background: var(--bg-card);
+        border-bottom: 1px solid var(--border);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    /* The hamburger is a fixed-position floating button on its own; inside the
+       bar it has to become a normal flex item. */
+    .topbar .hamburger {
+        display: inline-flex; position: static;
+        top: auto; left: auto; z-index: auto;
+        flex-shrink: 0;
+    }
+    /* 56px bar + 16px breathing room. */
+    .main-content { margin-left: 0; padding: 20px 16px; padding-top: 72px; }
     .stats-grid { grid-template-columns: 1fr 1fr; }
     .grid-2, .grid-3 { grid-template-columns: 1fr; }
+
+    /* Drawer open: show the scrim and lock the page behind it. The drawer itself
+       covers the topbar's left edge, so the hamburger needs no extra handling. */
+    body.sidebar-open { overflow: hidden; }
+    body.sidebar-open .sidebar-scrim { display: block; }
+
+    /* iOS Safari zooms the whole page when a focused input's text is under
+       16px, which leaves the layout scrolled sideways with no way back. */
+    .form-input, .form-select {
+        font-size: 16px;
+        min-height: 44px;
+    }
+    .pw-toggle-input { padding-right: 48px !important; }
+    .pw-toggle-btn { width: 44px; height: 44px; }
+    .modal-close { width: 40px; height: 40px; }
+    .sidebar-link, .sidebar-logout { min-height: 44px; }
+    /* .btn-sm is 26px tall, which includes the icon-only capture/upload buttons
+       in the ID step - a flow almost every registration does on a phone. */
+    .btn-sm { min-height: 44px; min-width: 44px; justify-content: center; }
+
+    /* Two full-label buttons rarely fit one row at this width. */
+    .modal-footer { flex-wrap: wrap; }
+    .modal-footer .btn { flex: 1 1 auto; justify-content: center; }
 }
 
 @media (max-width: 480px) {
@@ -1107,6 +1194,13 @@ tbody tr:last-child td { border-bottom: none; }
     transition: var(--transition);
 }
 .announcement-banner-close:hover { background: rgba(255,255,255,0.3); }
+
+/* Declared here rather than in the RESPONSIVE block above, which this section
+   would otherwise override. Dismissing the banner is the only way to get it out
+   of the way, so it gets a full-size touch target. */
+@media (max-width: 768px) {
+    .announcement-banner-close { width: 44px; height: 44px; }
+}
 
 .announcement-fab {
     position: fixed; bottom: 24px; right: 24px; z-index: 150;
