@@ -6,6 +6,7 @@ const QRCode = require('qrcode');
 const crypto = require('crypto');
 const { requireStaff, requireAdmin } = require('../config');
 const aiServices = require('../ai_services');
+const appointmentAutomation = require('../appointment_automation');
 
 const ELEVATED_ROLES = ['admin', 'admintechnical', 'owner'];
 
@@ -208,9 +209,23 @@ router.delete('/doctors/:id', requireAdmin, async (req, res) => {
 
 
 // --- APPOINTMENTS ---
+// Both lists sweep first so a slot that has just gone past its grace period is
+// never rendered as if it were still upcoming. The sweep is also on a timer in
+// server.js, so this is only about the freshness of the list being served.
 router.get('/appointments', requireStaff, async (req, res) => {
     try {
-        let query = `SELECT a.*, sp.name as package_name, sp.price, u.username, u.full_name
+        await appointmentAutomation.sweepQuietly();
+        // archived = false excludes no-shows: once swept, a missed appointment
+        // leaves the staff and admin working lists entirely. It stays visible to
+        // the owner under Archives, where it can be restored.
+        // appointment_date/time are formatted in SQL. A DATE column comes back as
+        // a JS Date and res.json serialises it to UTC, which shifted the day by
+        // one for every timezone east of UTC - a 5 Sep booking rendered as
+        // "2026-09-04T16:00:00.000Z" in all four appointment tables.
+        let query = `SELECT a.*,
+                            DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+                            TIME_FORMAT(a.appointment_time, '%H:%i') AS appointment_time,
+                            sp.name as package_name, sp.price, u.username, u.full_name
                      FROM appointments a
                      JOIN service_packages sp ON a.package_id = sp.id
                      JOIN users u ON a.customer_id = u.id
@@ -223,10 +238,19 @@ router.get('/appointments', requireStaff, async (req, res) => {
 
 router.get('/appointments/my', async (req, res) => {
     try {
+        await appointmentAutomation.sweepQuietly();
+        // The customer keeps seeing their own no-shows, marked "Did Not Arrive".
+        // Archiving them out of here too would make a missed appointment appear
+        // to have silently vanished from their own history.
         const [rows] = await pool.query(
-            `SELECT a.*, sp.name as package_name, sp.price FROM appointments a
+            `SELECT a.*,
+                    DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+                    TIME_FORMAT(a.appointment_time, '%H:%i') AS appointment_time,
+                    sp.name as package_name, sp.price
+             FROM appointments a
              JOIN service_packages sp ON a.package_id = sp.id
-             WHERE a.customer_id = ? AND a.archived = false ORDER BY a.appointment_date DESC`, [req.user.id]
+             WHERE a.customer_id = ? AND (a.archived = false OR a.status = 'no-show')
+             ORDER BY a.appointment_date DESC, a.appointment_time DESC`, [req.user.id]
         );
         res.json(rows);
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
@@ -333,8 +357,11 @@ router.get('/analytics/frontdesk', requireStaff, async (req, res) => {
         const [avg] = await pool.query(`SELECT AVG(TIMESTAMPDIFF(MINUTE,serve_time,complete_time)) as v FROM queue_logs WHERE station_type='frontdesk' AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE()`);
         const [perHour] = await pool.query(`SELECT COUNT(*)/GREATEST(1,TIMESTAMPDIFF(HOUR,MIN(serve_time),MAX(complete_time))) as v FROM queue_logs WHERE station_type='frontdesk' AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE()`);
         const [total] = await pool.query(`SELECT COUNT(*) as v FROM queue_logs WHERE station_type='frontdesk' AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE()`);
-        const [fastest] = await pool.query(`SELECT ticket_number, package_name, TIMESTAMPDIFF(MINUTE,serve_time,complete_time) as mins FROM queue_logs WHERE station_type='frontdesk' AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE() ORDER BY mins ASC LIMIT 1`);
-        const [slowest] = await pool.query(`SELECT ticket_number, package_name, TIMESTAMPDIFF(MINUTE,serve_time,complete_time) as mins FROM queue_logs WHERE station_type='frontdesk' AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE() ORDER BY mins DESC LIMIT 1`);
+        // serve_time is required alongside complete_time: a ticket completed without ever being
+        // called has no measurable duration, and TIMESTAMPDIFF returns NULL for it — which sorts
+        // first ascending and would steal the "fastest" slot from a real ticket.
+        const [fastest] = await pool.query(`SELECT ticket_number, package_name, TIMESTAMPDIFF(MINUTE,serve_time,complete_time) as mins FROM queue_logs WHERE station_type='frontdesk' AND serve_time IS NOT NULL AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE() ORDER BY mins ASC LIMIT 1`);
+        const [slowest] = await pool.query(`SELECT ticket_number, package_name, TIMESTAMPDIFF(MINUTE,serve_time,complete_time) as mins FROM queue_logs WHERE station_type='frontdesk' AND serve_time IS NOT NULL AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE() ORDER BY mins DESC LIMIT 1`);
         const [dist] = await pool.query(`SELECT type, COUNT(*) as cnt FROM queue_logs WHERE station_type='frontdesk' AND DATE(join_time)=CURDATE() GROUP BY type`);
         const [logs] = await pool.query(`SELECT * FROM queue_logs WHERE station_type='frontdesk' ORDER BY join_time DESC LIMIT 50`);
         res.json({

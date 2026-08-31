@@ -643,6 +643,13 @@ async function initDB() {
         try { await pool.query(`ALTER TABLE queue MODIFY COLUMN station_type ENUM('frontdesk','laboratory','doctor') NOT NULL DEFAULT 'frontdesk'`); } catch(e) {}
         try { await pool.query(`ALTER TABLE queue_logs MODIFY COLUMN station_type ENUM('frontdesk','laboratory','doctor') DEFAULT 'frontdesk'`); } catch(e) {}
         try { await pool.query(`ALTER TABLE queue MODIFY COLUMN status ENUM('waiting','serving','parked','completed','cancelled') NOT NULL DEFAULT 'waiting'`); } catch(e) {}
+        // 'no-show' is set by the missed-appointment sweep in appointment_automation.js
+        // when a scheduled slot passes its grace period without a check-in.
+        try { await pool.query(`ALTER TABLE appointments MODIFY COLUMN status ENUM('scheduled','checked-in','completed','cancelled','no-show') DEFAULT 'scheduled'`); } catch(e) {}
+        await addColumnIfMissing('appointments', 'no_show_at', 'DATETIME DEFAULT NULL');
+        // The sweep filters on status + date/time; the staff and customer lists
+        // then filter on archived.
+        await addIndexIfMissing('appointments', 'idx_appt_status_date', '(status, appointment_date)');
 
         // better-auth owns its own tables (user/session/account/verification) for the
         // customer login-OTP flow; this keeps them self-installing on boot like the rest

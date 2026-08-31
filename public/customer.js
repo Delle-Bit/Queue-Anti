@@ -338,11 +338,16 @@ async function loadAppointments() {
         if (appts.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted" style="padding:32px;">No appointments yet</td></tr>';
         } else {
+            // 'no-show' is set by the missed-appointment sweep. It stays in the
+            // customer's own history (the staff lists drop it) so a slot they
+            // missed doesn't appear to have silently vanished.
+            const statusBadge = { 'scheduled': 'badge-warning', 'checked-in': 'badge-success', 'completed': 'badge-success', 'no-show': 'badge-danger', 'cancelled': 'badge-neutral' };
+            const statusLabel = { 'no-show': 'Did Not Arrive' };
             tbody.innerHTML = appts.map(a => `<tr>
                 <td><strong>${a.package_name}</strong></td>
                 <td>${a.appointment_date}</td>
                 <td>${a.appointment_time}</td>
-                <td><span class="badge ${a.status==='scheduled'?'badge-warning':a.status==='paid'||a.status==='checked-in'?'badge-success':'badge-neutral'}">${a.status}</span></td>
+                <td><span class="badge ${statusBadge[a.status] || 'badge-neutral'}">${statusLabel[a.status] || a.status}</span></td>
                 <td>${formatCurrency(a.price)}</td>
                 <td>
                     ${a.status === 'scheduled' ? `<button class="btn btn-sm btn-primary" onclick="openCheckInScanner(${a.id})"><i class="fa-solid fa-qrcode"></i> Check-In</button>` : '--'}

@@ -9,6 +9,10 @@ const http = require('http');
 const socketIo = require('socket.io');
 const { JWT_SECRET, requireAdmin } = require('./config');
 const { nextTicketNumber } = require('./queue_automation');
+const { startMissedAppointmentSweep } = require('./appointment_automation');
+
+// Shown when someone tries to check in against a slot the sweep already closed.
+const MISSED_APPOINTMENT_MESSAGE = 'This appointment was marked as "Did Not Arrive" because its scheduled time passed without a check-in. Please approach the front desk to be assisted.';
 
 dotenv.config();
 
@@ -145,15 +149,25 @@ app.post('/api/appointments/check-in', authenticateToken, async (req, res) => {
     const { token } = req.body;
     if (!token) return res.status(400).json({ success: false, error: 'Token is required' });
     try {
+        // Looked up without the archived filter so a swept no-show can be told
+        // apart from a genuinely bad code - otherwise a patient who missed their
+        // slot is told their QR is invalid, which sends them looking for the
+        // wrong problem.
         const [rows] = await pool.query(
             `SELECT a.*, sp.name as package_name, sp.price
              FROM appointments a JOIN service_packages sp ON a.package_id = sp.id
-             WHERE a.qr_token = ? AND a.archived = false`,
+             WHERE a.qr_token = ?`,
             [token]
         );
         if (rows.length === 0) return res.status(404).json({ success: false, error: 'Invalid or expired check-in code.' });
         const appointment = rows[0];
 
+        if (appointment.status === 'no-show') {
+            return res.status(400).json({ success: false, error: MISSED_APPOINTMENT_MESSAGE });
+        }
+        if (appointment.archived) {
+            return res.status(404).json({ success: false, error: 'Invalid or expired check-in code.' });
+        }
         if (appointment.status === 'checked-in' || appointment.status === 'completed') {
              return res.status(400).json({ success: false, error: 'Already checked in or completed.' });
         }
@@ -183,11 +197,13 @@ app.get('/checkin/:token', async (req, res) => {
         const [rows] = await pool.query(
             `SELECT a.*, sp.name as package_name, sp.price
              FROM appointments a JOIN service_packages sp ON a.package_id = sp.id
-             WHERE a.qr_token = ? AND a.archived = false`,
+             WHERE a.qr_token = ?`,
             [req.params.token]
         );
         if (rows.length === 0) return res.status(404).send('Invalid or expired check-in code.');
         const appointment = rows[0];
+        if (appointment.status === 'no-show') return res.status(400).send(MISSED_APPOINTMENT_MESSAGE);
+        if (appointment.archived) return res.status(404).send('Invalid or expired check-in code.');
         if (appointment.status !== 'checked-in') {
             await pool.query(
                 `UPDATE appointments SET status='checked-in', checked_in_at=COALESCE(checked_in_at, NOW()) WHERE id=?`,
@@ -372,6 +388,13 @@ async function startServer() {
     await seedServiceSteps();
 
     console.log('[Server] Seed data created.');
+
+    // Sweeps slots that came and went without a check-in, marking them
+    // "Did Not Arrive" and archiving them out of the staff/admin lists. Runs
+    // once now to catch anything missed while the server was down, then on a
+    // timer. The list endpoints sweep too, so this only covers idle periods.
+    startMissedAppointmentSweep();
+
     server.listen(port, () => console.log(`Server running at http://localhost:${port}`));
 }
 
