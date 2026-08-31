@@ -31,6 +31,11 @@
     display: flex; align-items: center; gap: 10px; padding: 10px 14px;
     background: var(--bg-input); border-radius: var(--radius-sm);
 }
+/* The front desk step: mandatory cashier stop every service starts with. */
+.pkg-lab-item-required {
+    background: var(--danger-light);
+    border-left: 3px solid var(--primary);
+}
 .pkg-lab-num { width: 28px; height: 28px; border-radius: 50%; background: var(--primary); color: #fff;
     display: flex; align-items: center; justify-content: center; font-size: 0.75em; font-weight: 700; flex-shrink: 0; }
 .pkg-lab-info { flex: 1; }
@@ -55,7 +60,7 @@
     font-size: 0.85em;
 }
 
-.time-slot:hover:not(.disabled):not(.full):not(.closed) {
+.time-slot:hover:not(.disabled):not(.full):not(.closed):not(.past) {
     border-color: var(--primary);
     color: var(--primary);
 }
@@ -66,10 +71,26 @@
     border-color: var(--primary);
 }
 
-.time-slot.disabled, .time-slot.full, .time-slot.closed {
+.time-slot.disabled, .time-slot.full, .time-slot.closed, .time-slot.past {
     opacity: 0.5;
     cursor: not-allowed;
     background: var(--bg-body);
+}
+
+/* A slot on today that has already started. Distinct from .full (booked by
+   someone) so the customer can tell why it is unavailable. */
+.time-slot.past {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-decoration: line-through;
+    color: var(--text-muted);
+}
+.time-slot.past::after {
+    content: 'Passed';
+    font-size: 0.72em;
+    font-weight: 700;
+    text-decoration: none;
 }
 
 .time-slot.full {
@@ -367,6 +388,17 @@
 
 .calendar-day.muted {
     opacity: 0.38;
+}
+
+/* A date that has already passed. Not bookable, so it reads as inert rather
+   than as a button - and :hover/:selected must not light it up. */
+.calendar-day.past,
+.calendar-day.past:hover {
+    opacity: 0.3;
+    cursor: not-allowed;
+    background: none;
+    color: var(--text-muted);
+    text-decoration: line-through;
 }
 
 .calendar-day.has-booking::after {

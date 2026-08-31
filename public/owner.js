@@ -204,7 +204,7 @@ async function loadServiceMgmt() {
     const pkgs = await res.json();
     document.getElementById('svc-list').innerHTML = pkgs.map(p => `<tr>
         <td><strong>${p.name}</strong></td><td>${formatCurrency(p.price)}</td><td>${p.est_time_minutes}m</td>
-        <td>${(p.laboratories||[]).map(l=>l.lab_name).join(' → ') || 'None'}${p.doctor_name ? ` → Dr. ${p.doctor_name}` : ''}</td>
+        <td>${['Front Desk', ...(p.laboratories||[]).map(l=>l.lab_name)].join(' → ')}${p.doctor_name ? ` → ${/^dr\.?\s/i.test(p.doctor_name) ? p.doctor_name : 'Dr. ' + p.doctor_name}` : ''}</td>
         <td>${p.is_available === false ? '<span class="badge badge-danger">Currently Unavailable</span>' : `<span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'Active':'Inactive'}</span>`}</td>
         <td><button class="btn btn-sm btn-secondary" onclick='editService(${JSON.stringify(p).replace(/'/g,"&apos;")})'><i class="fa-solid fa-pen"></i></button></td>
     </tr>`).join('');
@@ -233,12 +233,23 @@ window.dropLab = function(e, targetI) {
     renderLabSequence(labSequence);
 }
 
+// Identical to renderLabSequence in admintechnical.js - both pages host the same
+// service editor. Front Desk is rendered as a locked step 1: it is the cashier,
+// so it is prepended to every service by the queue engine (composeServiceSteps in
+// queue_automation.js) and is not stored in the editable station list. The
+// draggable stations are therefore numbered from 2.
 function renderLabSequence(labs) {
     labSequence = labs || [];
     const container = document.getElementById('svc-lab-list');
-    container.innerHTML = labSequence.map((l, i) => `
+    const frontDeskRow = `
+        <div class="flex-between" style="padding:8px;background:var(--danger-light);border-left:3px solid var(--primary);border-radius:8px;margin-bottom:6px;">
+            <span><i class="fa-solid fa-lock text-muted mr-sm"></i> <strong>1.</strong> Front Desk
+                <small class="text-muted">(cashier &mdash; always first)</small></span>
+        </div>
+    `;
+    container.innerHTML = frontDeskRow + labSequence.map((l, i) => `
         <div class="flex-between" draggable="true" ondragstart="dragLab(event, ${i})" ondragover="allowDropLab(event)" ondrop="dropLab(event, ${i})" style="padding:8px;background:var(--bg-input);border-radius:8px;margin-bottom:6px;cursor:grab;">
-            <span><i class="fa-solid fa-grip-vertical text-muted mr-sm"></i> <strong>${i+1}.</strong> ${l.lab_name || allLabs.find(x=>x.id==l.laboratory_id)?.name || 'Lab #'+l.laboratory_id}</span>
+            <span><i class="fa-solid fa-grip-vertical text-muted mr-sm"></i> <strong>${i+2}.</strong> ${l.lab_name || allLabs.find(x=>x.id==l.laboratory_id)?.name || 'Lab #'+l.laboratory_id}</span>
             <button class="btn btn-sm btn-danger btn-icon" onclick="removeLabStep(${i})"><i class="fa-solid fa-trash"></i></button>
         </div>
     `).join('');

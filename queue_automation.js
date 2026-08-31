@@ -1,5 +1,37 @@
 const { pool } = require('./database.js');
 
+// ── SERVICE STEP COMPOSITION ────────────────────────────────────────────────
+// The front desk is the cashier: every service starts there, and a patient is
+// verified and pays before any laboratory or doctor step exists for them. It is
+// therefore never stored in package_laboratories - it is prepended here, which
+// makes this the single definition of "step 0" for the queue engine, the service
+// catalogue and the admin editor alike.
+const FRONT_DESK_STEP = Object.freeze({
+    name: 'Front Desk',
+    type: 'frontdesk',
+    station_id: null,
+    est_time_minutes: 5
+});
+
+// labs: package_laboratories rows joined to laboratories, in sequence_order.
+// doctor: { id, name } or null.
+function composeServiceSteps(labs, doctor) {
+    const steps = [{ ...FRONT_DESK_STEP }];
+    (labs || []).forEach(lab => steps.push({
+        name: lab.lab_name || lab.name,
+        type: 'laboratory',
+        station_id: lab.laboratory_id,
+        est_time_minutes: lab.est_time_minutes || 10
+    }));
+    if (doctor && doctor.id) steps.push({
+        name: doctor.name || 'Doctor',
+        type: 'doctor',
+        station_id: doctor.id,
+        est_time_minutes: 15
+    });
+    return steps;
+}
+
 async function calculateScore(patient) {
     let base = 10;
     let category_weight = 0;
@@ -60,4 +92,7 @@ async function peekTicketNumber(stationType, stationId, type) {
     return `${type}-${String(next).padStart(3, '0')}`;
 }
 
-module.exports = { calculateScore, getNextPatient, getNextFromList, nextTicketNumber, peekTicketNumber };
+module.exports = {
+    calculateScore, getNextPatient, getNextFromList, nextTicketNumber, peekTicketNumber,
+    FRONT_DESK_STEP, composeServiceSteps
+};

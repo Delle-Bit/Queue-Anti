@@ -227,7 +227,7 @@ async function loadServices() {
                 </div>
                 ${p.is_available === false
                     ? '<div class="mt-sm"><span class="badge badge-danger">Currently Unavailable</span></div>'
-                    : `<div class="mt-sm text-sm text-muted">${p.laboratories?.length || 0} lab step(s)</div>`}
+                    : `<div class="mt-sm text-sm text-muted">${p.steps?.length || 0} step(s) &middot; starts at Front Desk</div>`}
             </div>
         `).join('');
     } catch (err) { console.error(err); }
@@ -246,13 +246,23 @@ async function showPackageDetail(id) {
         document.getElementById('pkg-modal-price').textContent = formatCurrency(pkg.price);
         document.getElementById('pkg-modal-eta').textContent = pkg.estimated_total_time + ' minutes';
 
-        const labsHtml = (pkg.laboratories || []).map((l, i) => `
-            <div class="pkg-lab-item">
-                <div class="pkg-lab-num">${i+1}</div>
-                <div class="pkg-lab-info"><strong>${l.lab_name}</strong><small>${l.service_type || ''} • ~${l.est_time_minutes}min</small></div>
-            </div>
-        `).join('');
-        document.getElementById('pkg-modal-labs').innerHTML = labsHtml || '<p class="text-muted text-sm">No laboratory steps</p>';
+        // pkg.steps is the real station sequence and always begins at the front
+        // desk (the cashier), which is the first stop the queue actually creates.
+        // Falls back to the laboratories list for an older API response.
+        const steps = pkg.steps && pkg.steps.length
+            ? pkg.steps
+            : [{ name: 'Front Desk', type: 'frontdesk', est_time_minutes: 5 },
+               ...(pkg.laboratories || []).map(l => ({ name: l.lab_name, type: 'laboratory', service_type: l.service_type, est_time_minutes: l.est_time_minutes }))];
+        const stepSubtitle = { frontdesk: 'Verification & payment', laboratory: 'Laboratory', doctor: 'Consultation' };
+        const labsHtml = steps.map((s, i) => {
+            const detail = s.type === 'laboratory' ? (s.service_type || stepSubtitle.laboratory) : stepSubtitle[s.type] || '';
+            return `
+            <div class="pkg-lab-item${s.type === 'frontdesk' ? ' pkg-lab-item-required' : ''}">
+                <div class="pkg-lab-num">${i + 1}</div>
+                <div class="pkg-lab-info"><strong>${s.name}</strong><small>${detail} • ~${s.est_time_minutes}min${s.type === 'frontdesk' ? ' • required first' : ''}</small></div>
+            </div>`;
+        }).join('');
+        document.getElementById('pkg-modal-labs').innerHTML = labsHtml;
         openModal('pkg-modal');
     } catch (err) { showToast('Failed to load package details', 'error'); }
 }
@@ -368,6 +378,11 @@ async function bookAppointment() {
     const notes = document.getElementById('appt-notes').value;
     const method = document.getElementById('appt-pay-method').value;
     if (!pkg || !date || !time) return showToast('Fill all fields', 'error');
+    // Re-checked at submit: the modal can sit open long enough for the selected
+    // slot to fall into the past while the customer is on the payment step.
+    if (isPastSlot(date, time)) {
+        return showToast('That time has already passed. Please pick a new date and time.', 'error');
+    }
 
     const btn = document.getElementById('appt-confirm-btn');
     btn.disabled = true;
@@ -443,23 +458,62 @@ async function fetchTimeSlots() {
         const booked = await res.json();
 
         let slotsHtml = '';
+        let selectable = 0;
         APPT_SLOTS.forEach(timeStr => {
             const isBooked = booked.includes(timeStr);
-            const className = isBooked ? 'time-slot full' : 'time-slot';
-            const clickAttr = isBooked ? '' : `onclick="selectTimeSlot('${timeStr}')"`;
-            slotsHtml += `<div class="${className}" id="ts-${timeStr}" ${clickAttr}>${timeStr}</div>`;
+            // On a future date every slot is still ahead; only today can have
+            // slots that have already started.
+            const isPast = !isBooked && isPastSlot(dateInput, timeStr);
+            const classes = ['time-slot'];
+            if (isBooked) classes.push('full');
+            if (isPast) classes.push('past');
+            const clickAttr = (isBooked || isPast) ? '' : `onclick="selectTimeSlot('${timeStr}')"`;
+            if (!isBooked && !isPast) selectable++;
+            slotsHtml += `<div class="${classes.join(' ')}" id="ts-${timeStr}" ${clickAttr}>${timeStr}</div>`;
         });
-        grid.innerHTML = slotsHtml;
+        grid.innerHTML = slotsHtml + (selectable === 0
+            ? '<p class="text-muted text-sm mt-sm" style="grid-column:1/-1;">No slots left for this date. Please pick a later date.</p>'
+            : '');
         selectedTimeSlot = null;
     } catch (err) { grid.innerHTML = '<div class="text-danger">Failed to load slots</div>'; }
 }
 
 function selectTimeSlot(timeStr) {
+    const iso = document.getElementById('appt-date').value;
+    if (iso && isPastSlot(iso, timeStr)) {
+        return showToast('That time has already passed. Please choose a later slot.', 'warning');
+    }
     document.querySelectorAll('.time-slot').forEach(el => el.classList.remove('selected'));
     document.getElementById(`ts-${timeStr}`).classList.add('selected');
     selectedTimeSlot = timeStr;
     document.getElementById('selected-appt-time').textContent = `at ${timeStr}`;
     closeModal('slot-modal');
+}
+
+// ── APPOINTMENT DATE/TIME RULES ────────────────────────────────
+// Only future slots are bookable. Past dates are disabled in the calendar, and
+// on today only slots strictly later than the current time are selectable - a
+// slot equal to the current time has already started. Mirrored server-side in
+// routes/admin.js; this half is only the affordance, not the enforcement.
+function startOfToday() {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+// Parsed field-by-field rather than with new Date(iso): a bare 'YYYY-MM-DD'
+// string is parsed as UTC, which shifts the day either side of midnight.
+function parseLocalDate(iso, timeStr) {
+    const [y, m, d] = String(iso).split('-').map(Number);
+    const [hh, mm] = String(timeStr || '00:00').split(':').map(Number);
+    return new Date(y, m - 1, d, hh || 0, mm || 0, 0, 0);
+}
+
+function isPastDate(iso) {
+    return parseLocalDate(iso) < startOfToday();
+}
+
+function isPastSlot(iso, timeStr) {
+    return parseLocalDate(iso, timeStr) <= new Date();
 }
 
 function formatLocalDate(date) {
@@ -494,17 +548,37 @@ async function renderAppointmentCalendar() {
         const muted = d.getMonth() !== month ? 'muted' : '';
         const selected = document.getElementById('appt-date').value === iso ? 'selected' : '';
         const hasBooking = bookedDates.has(iso) ? 'has-booking' : '';
-        days += `<button type="button" class="calendar-day ${muted} ${selected} ${hasBooking}" onclick="selectAppointmentDate('${iso}')">${d.getDate()}</button>`;
+        const past = isPastDate(iso);
+        // disabled (not just a class) so the button is also unreachable by
+        // keyboard and can't be activated by a stray click handler.
+        const attrs = past
+            ? 'disabled aria-disabled="true" title="This date has already passed"'
+            : `onclick="selectAppointmentDate('${iso}')"`;
+        days += `<button type="button" class="calendar-day ${muted} ${selected} ${hasBooking} ${past ? 'past' : ''}" ${attrs}>${d.getDate()}</button>`;
     }
     cal.innerHTML = heads + days;
+
+    // Nothing before the current month is bookable, so don't let the user page
+    // back into it and find a grid of dead cells.
+    const prevBtn = document.getElementById('calendar-prev-btn');
+    if (prevBtn) {
+        const now = new Date();
+        const atCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+        prevBtn.disabled = atCurrentMonth;
+        prevBtn.title = atCurrentMonth ? 'Past months cannot be booked' : 'Previous month';
+    }
 }
 
 function changeCalendarMonth(delta) {
-    calendarDate.setMonth(calendarDate.getMonth() + delta);
+    const target = new Date(calendarDate.getFullYear(), calendarDate.getMonth() + delta, 1);
+    const now = new Date();
+    if (target < new Date(now.getFullYear(), now.getMonth(), 1)) return;
+    calendarDate = target;
     renderAppointmentCalendar();
 }
 
 function selectAppointmentDate(iso) {
+    if (isPastDate(iso)) return showToast('Please choose today or a future date.', 'warning');
     document.getElementById('appt-date').value = iso;
     document.getElementById('selected-appt-date').textContent = iso;
     selectedTimeSlot = null;

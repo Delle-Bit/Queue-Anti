@@ -232,9 +232,48 @@ router.get('/appointments/my', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+// Appointments may only be booked into the future. The calendar disables past
+// dates and elapsed slots, but the endpoint takes the date and time straight
+// from the request body, so a client-side-only rule is bypassable. Comparison
+// uses the server's local clock, the same one CURDATE()/NOW() read elsewhere.
+const APPOINTMENT_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const APPOINTMENT_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+function appointmentSlotError(dateStr, timeStr) {
+    const date = String(dateStr || '');
+    // TIME columns come back as HH:MM:SS, so accept a seconds suffix.
+    const time = String(timeStr || '').slice(0, 5);
+    if (!APPOINTMENT_DATE_PATTERN.test(date)) return 'Please choose a valid appointment date.';
+    if (!APPOINTMENT_TIME_PATTERN.test(time)) return 'Please choose a valid appointment time.';
+
+    const [y, m, d] = date.split('-').map(Number);
+    const [hh, mm] = time.split(':').map(Number);
+    const slot = new Date(y, m - 1, d, hh, mm, 0, 0);
+    // Date rolls impossible calendar dates over (2026-02-31 -> March 3), so
+    // check the parts survived the round trip.
+    if (slot.getFullYear() !== y || slot.getMonth() !== m - 1 || slot.getDate() !== d) {
+        return 'Please choose a valid appointment date.';
+    }
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const slotDay = new Date(y, m - 1, d);
+    if (slotDay.getTime() < today.getTime()) {
+        return 'Appointments cannot be booked for a past date.';
+    }
+    // On today the slot must be strictly later than now - a slot at exactly the
+    // current time has already started.
+    if (slotDay.getTime() === today.getTime() && slot.getTime() <= now.getTime()) {
+        return 'That time slot has already passed. Please choose a later time today or another date.';
+    }
+    return null;
+}
+
 router.post('/appointments', async (req, res) => {
     const { package_id, appointment_date, appointment_time, payment_method, payment_ref, notes } = req.body;
     try {
+        const slotError = appointmentSlotError(appointment_date, appointment_time);
+        if (slotError) return res.status(400).json({ error: slotError });
         const [medical] = await pool.query('SELECT id FROM medical_records WHERE customer_id=? AND archived=false', [req.user.id]);
         if (medical.length === 0) return res.status(409).json({ error: 'Please complete your medical form before booking.', medical_form_required: true });
         const [labCount] = await pool.query(

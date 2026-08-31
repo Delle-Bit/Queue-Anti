@@ -11,6 +11,31 @@ function getQueueType(category) {
     return 'Q';
 }
 
+// A staff account may only act on its own station type. This is what actually
+// enforces "everyone passes through the front desk first": the queue row for a
+// later station is only created once the previous step is completed, so the only
+// way to skip the cashier would be for a laboratory or doctor account to
+// complete the frontdesk row itself - both endpoints take a queue_id/station
+// from the request body and previously accepted any of them from any staff role.
+// Admin/admintechnical/owner are omitted deliberately: they hold the override.
+const ROLE_STATION_TYPE = {
+    frontdesk: 'frontdesk',
+    laboratory: 'laboratory',
+    doctor: 'doctor'
+};
+
+function stationTypeAllowed(user, stationType) {
+    const own = ROLE_STATION_TYPE[user && user.role];
+    if (!own) return true;
+    return own === stationType;
+}
+
+function stationDeniedMessage(stationType) {
+    return stationType === 'frontdesk'
+        ? 'Only front desk staff can process the front desk (cashier) step.'
+        : `Your account cannot act on the ${stationType} queue.`;
+}
+
 async function getStationAverageMinutes(stationType, stationId, fallback) {
     let query = `SELECT AVG(TIMESTAMPDIFF(MINUTE, serve_time, complete_time)) as avg_mins
                  FROM queue_logs
@@ -52,22 +77,11 @@ async function getPackageSteps(packageId) {
          WHERE sp.id = ? AND sp.doctor_id IS NOT NULL`,
         [packageId]
     );
-    const steps = [{ name: 'Front Desk', type: 'frontdesk', station_id: null, est_time_minutes: 5 }];
-    labs.forEach(lab => steps.push({
-        name: lab.lab_name,
-        type: 'laboratory',
-        station_id: lab.laboratory_id,
-        est_time_minutes: lab.est_time_minutes || 10
-    }));
-    if (pkgDoctor.length > 0) {
-        steps.push({
-            name: pkgDoctor[0].doctor_name || 'Doctor',
-            type: 'doctor',
-            station_id: pkgDoctor[0].doctor_id,
-            est_time_minutes: 15
-        });
-    }
-    return steps;
+    // Front Desk is prepended by composeServiceSteps - see queue_automation.js.
+    return queueAutomation.composeServiceSteps(
+        labs,
+        pkgDoctor.length > 0 ? { id: pkgDoctor[0].doctor_id, name: pkgDoctor[0].doctor_name } : null
+    );
 }
 
 async function buildPackagePreview(packageId, category) {
@@ -180,6 +194,9 @@ router.post('/complete-step', requireStaff, async (req, res) => {
         const [qRows] = await pool.query('SELECT * FROM queue WHERE id = ? AND archived = false', [queue_id]);
         if (qRows.length === 0) return res.status(404).json({ error: 'Queue entry not found' });
         const q = qRows[0];
+        if (!stationTypeAllowed(req.user, q.station_type)) {
+            return res.status(403).json({ error: stationDeniedMessage(q.station_type) });
+        }
 
         // Mark current queue entry as completed
         await pool.query(`UPDATE queue SET status = 'completed' WHERE id = ?`, [queue_id]);
@@ -303,6 +320,9 @@ async function callNextAtStation(stationType, stationId) {
 router.post('/next', requireStaff, async (req, res) => {
     const { station_type, station_id } = req.body;
     try {
+        if (!stationTypeAllowed(req.user, station_type)) {
+            return res.status(403).json({ error: stationDeniedMessage(station_type) });
+        }
         const next = await callNextAtStation(station_type, station_id);
         if (!next) return res.json({ success: false, message: 'Queue is empty' });
         if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
@@ -317,6 +337,9 @@ router.post('/park', requireStaff, async (req, res) => {
         const [qRows] = await pool.query(`SELECT * FROM queue WHERE id = ? AND archived = false`, [queue_id]);
         if (qRows.length === 0) return res.status(404).json({ error: 'Queue entry not found' });
         const q = qRows[0];
+        if (!stationTypeAllowed(req.user, q.station_type)) {
+            return res.status(403).json({ error: stationDeniedMessage(q.station_type) });
+        }
         if (q.status !== 'serving') return res.status(400).json({ error: 'Only the actively serving patient can be parked' });
 
         await pool.query(
@@ -340,6 +363,9 @@ router.post('/unpark', requireStaff, async (req, res) => {
         const [qRows] = await pool.query(`SELECT * FROM queue WHERE id = ? AND archived = false`, [queue_id]);
         if (qRows.length === 0) return res.status(404).json({ error: 'Queue entry not found' });
         const q = qRows[0];
+        if (!stationTypeAllowed(req.user, q.station_type)) {
+            return res.status(403).json({ error: stationDeniedMessage(q.station_type) });
+        }
         if (q.status !== 'parked') return res.status(400).json({ error: 'Patient is not parked' });
 
         await pool.query(

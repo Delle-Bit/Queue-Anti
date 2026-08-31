@@ -3,6 +3,7 @@ const router = express.Router();
 const { pool } = require('../database');
 const jwt = require('jsonwebtoken');
 const { JWT_SECRET, requireStaff } = require('../config');
+const { composeServiceSteps } = require('../queue_automation');
 
 function authRequired(req, res, next) {
     const token = (req.headers['authorization'] || '').split(' ')[1];
@@ -29,6 +30,9 @@ router.get('/', async (req, res) => {
                  WHERE pl.package_id = ? AND pl.archived = false AND l.archived = false ORDER BY pl.sequence_order`, [pkg.id]
             );
             pkg.laboratories = labs;
+            // Full station sequence including the mandatory Front Desk step, so
+            // the catalogue shows the same first stop the queue actually creates.
+            pkg.steps = composeServiceSteps(labs, pkg.doctor_id ? { id: pkg.doctor_id, name: pkg.doctor_name } : null);
             pkg.is_available = labs.length > 0 || !!pkg.doctor_id;
         }
         res.json(packages);
@@ -53,6 +57,7 @@ router.get('/:id/details', async (req, res) => {
              WHERE pl.package_id = ? AND pl.archived = false AND l.archived = false ORDER BY pl.sequence_order`, [pkg.id]
         );
         pkg.laboratories = labs;
+        pkg.steps = composeServiceSteps(labs, pkg.doctor_id ? { id: pkg.doctor_id, name: pkg.doctor_name } : null);
         pkg.is_available = labs.length > 0 || !!pkg.doctor_id;
 
         // Calculate real-time ETA
@@ -77,10 +82,34 @@ router.get('/:id/details', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed to fetch package details' }); }
 });
 
+// Front Desk is step 0 of every package and is never stored as a station row, so
+// a station list that tries to include one would either duplicate the cashier or
+// push it out of first place. Reject it rather than silently reordering.
+const FRONT_DESK_NAME_PATTERN = /^\s*front\s*-?\s*desk\s*$/i;
+
+async function rejectFrontDeskStations(laboratories) {
+    const ids = (laboratories || []).map(l => parseInt(l.laboratory_id, 10)).filter(Number.isInteger);
+    if (ids.length === 0) return null;
+    const [rows] = await pool.query(
+        `SELECT id, name FROM laboratories WHERE id IN (${ids.map(() => '?').join(',')})`,
+        ids
+    );
+    const found = new Map(rows.map(r => [r.id, r.name]));
+    for (const id of ids) {
+        if (!found.has(id)) return `Station #${id} does not exist.`;
+        if (FRONT_DESK_NAME_PATTERN.test(found.get(id))) {
+            return 'Front Desk is always the first step of every service and cannot be added as a station.';
+        }
+    }
+    return null;
+}
+
 // POST create package (frontdesk/admin)
 router.post('/', authRequired, requireStaff, async (req, res) => {
     const { name, description, price, est_time_minutes, laboratories, doctor_id } = req.body;
     try {
+        const stationError = await rejectFrontDeskStations(laboratories);
+        if (stationError) return res.status(400).json({ error: stationError });
         const [result] = await pool.query(
             'INSERT INTO service_packages (name, description, price, est_time_minutes, doctor_id) VALUES (?, ?, ?, ?, ?)',
             [name, description || '', price, est_time_minutes || 15, doctor_id || null]
@@ -104,6 +133,8 @@ router.post('/', authRequired, requireStaff, async (req, res) => {
 router.put('/:id', authRequired, requireStaff, async (req, res) => {
     const { name, description, price, est_time_minutes, laboratories, is_active, doctor_id } = req.body;
     try {
+        const stationError = await rejectFrontDeskStations(laboratories);
+        if (stationError) return res.status(400).json({ error: stationError });
         await pool.query(
             'UPDATE service_packages SET name=?, description=?, price=?, est_time_minutes=?, doctor_id=?, is_active=? WHERE id=?',
             [name, description, price, est_time_minutes, doctor_id || null, is_active !== false, req.params.id]

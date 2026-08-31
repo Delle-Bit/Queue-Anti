@@ -195,7 +195,7 @@
                     <div class="payment-amount" id="pkg-modal-price">₱0</div>
                     <div class="payment-label">Est. Processing Time: <strong id="pkg-modal-eta">--</strong></div>
                 </div>
-                <h4 class="mt-md mb-md" style="font-size:0.9em;">Included Laboratories:</h4>
+                <h4 class="mt-md mb-md" style="font-size:0.9em;">Service Steps:</h4>
                 <div id="pkg-modal-labs"></div>
             </div>
             <div class="modal-footer">
@@ -258,9 +258,9 @@
                     </div>
                     <div class="appointment-calendar-wrap">
                         <div class="calendar-toolbar">
-                            <button class="btn btn-sm btn-secondary btn-icon" onclick="changeCalendarMonth(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+                            <button class="btn btn-sm btn-secondary btn-icon" id="calendar-prev-btn" onclick="changeCalendarMonth(-1)" aria-label="Previous month"><i class="fa-solid fa-chevron-left"></i></button>
                             <strong id="calendar-title"></strong>
-                            <button class="btn btn-sm btn-secondary btn-icon" onclick="changeCalendarMonth(1)"><i class="fa-solid fa-chevron-right"></i></button>
+                            <button class="btn btn-sm btn-secondary btn-icon" onclick="changeCalendarMonth(1)" aria-label="Next month"><i class="fa-solid fa-chevron-right"></i></button>
                         </div>
                         <div class="appointment-calendar" id="appointment-calendar"></div>
                         <input type="hidden" id="appt-date">
