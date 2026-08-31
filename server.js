@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const dotenv = require('dotenv');
-const { pool, initDB, DEFAULT_SERVICES } = require('./database.js');
+const { pool, initDB, DEFAULT_SERVICES, STAFF_SEEDS, LAB_SEEDS, DOCTOR_SEEDS, SERVICE_STEPS } = require('./database.js');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const http = require('http');
@@ -127,6 +127,20 @@ function makeCustomerUid(insertId) {
     return `MC-${year}-${String(insertId).padStart(6, '0')}`;
 }
 
+// A seeded account whose name was never filled in shows up as the username with
+// the underscores swapped for spaces ("admin tech"). Only those - and blanks -
+// get the seed name, so a name someone actually typed into the admin UI is not
+// overwritten on the next reboot.
+function isPlaceholderName(username, fullName) {
+    const squash = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const name = squash(fullName);
+    return !name || name === squash(username);
+}
+
+function composeFullName(seed) {
+    return [seed.first_name, seed.middle_name, seed.surname].filter(Boolean).join(' ');
+}
+
 app.post('/api/appointments/check-in', authenticateToken, async (req, res) => {
     const { token } = req.body;
     if (!token) return res.status(400).json({ success: false, error: 'Token is required' });
@@ -195,6 +209,60 @@ app.get('/checkin/:token', async (req, res) => {
     }
 });
 
+// Give every service its station sequence (see SERVICE_STEPS in database.js).
+// A package is only wired if it has no active stations and no doctor yet, so a
+// sequence someone edited in the admin UI is never reverted on the next reboot.
+// Without this, `package_laboratories` is empty and every service reports
+// "This service is currently unavailable."
+async function seedServiceSteps() {
+    const [stationRows] = await pool.query('SELECT id, name FROM laboratories WHERE archived = false');
+    const stationIdByName = new Map(stationRows.map(r => [r.name, r.id]));
+    const [doctorRows] = await pool.query('SELECT id, specialty FROM doctors WHERE archived = false');
+    const doctorIdBySpecialty = new Map(doctorRows.map(r => [r.specialty, r.id]));
+
+    for (const [pkgName, plan] of Object.entries(SERVICE_STEPS)) {
+        const [pkgRows] = await pool.query(
+            'SELECT id, doctor_id FROM service_packages WHERE name=? AND archived=false LIMIT 1', [pkgName]
+        );
+        if (pkgRows.length === 0) continue;
+        const pkg = pkgRows[0];
+
+        const [stepCount] = await pool.query(
+            'SELECT COUNT(*) AS cnt FROM package_laboratories WHERE package_id=? AND archived=false', [pkg.id]
+        );
+        if (stepCount[0].cnt > 0 || pkg.doctor_id) continue;   // already configured
+
+        // sequence_order must stay contiguous from 1 - routes/queue.js looks the
+        // next station up by `sequence_order = current_step`.
+        let order = 1;
+        const wired = [];
+        for (const step of plan.stations) {
+            const stationId = stationIdByName.get(step.at);
+            if (!stationId) {
+                console.warn(`[Seed] No station named "${step.at}" - skipped for "${pkgName}"`);
+                continue;
+            }
+            await pool.query(
+                'INSERT INTO package_laboratories (package_id, laboratory_id, sequence_order, est_time_minutes) VALUES (?, ?, ?, ?)',
+                [pkg.id, stationId, order++, step.minutes]
+            );
+            wired.push(step.at);
+        }
+
+        let consult = '';
+        if (plan.doctor) {
+            const doctorId = doctorIdBySpecialty.get(plan.doctor);
+            if (doctorId) {
+                await pool.query('UPDATE service_packages SET doctor_id=? WHERE id=?', [doctorId, pkg.id]);
+                consult = ` -> ${plan.doctor} consultation`;
+            } else {
+                console.warn(`[Seed] No ${plan.doctor} doctor on file - "${pkgName}" left without a consultation step`);
+            }
+        }
+        console.log(`[Seed] "${pkgName}": Front Desk -> ${wired.join(' -> ')}${consult}`);
+    }
+}
+
 // Seed accounts & start
 async function startServer() {
     await initDB();
@@ -204,37 +272,37 @@ async function startServer() {
     authRoutes.reapExpiredRegistrations();
     setInterval(authRoutes.reapExpiredRegistrations, 30 * 60 * 1000);
 
-    // Seed accounts
-    const seeds = [
-        { username: 'admin_tech', password: 'admin123', role: 'admintechnical' },
-        { username: 'admin_regular', password: 'admin123', role: 'admin' },
-        { username: 'frontdesk1', password: 'pass123', role: 'frontdesk' },
-        { username: 'lab_xray', password: 'pass123', role: 'laboratory' },
-        { username: 'lab_blood', password: 'pass123', role: 'laboratory' },
-        { username: 'owner1', password: 'owner123', role: 'owner' },
-        { username: 'doctor1', password: 'pass123', role: 'doctor' },
-        { username: 'customer_regular', password: 'pass123', role: 'customer', category: 'Regular' },
-        { username: 'customer_senior', password: 'pass123', role: 'customer', category: 'Senior' },
-        { username: 'customer_pwd', password: 'pass123', role: 'customer', category: 'PWD' },
-        { username: 'customer_pregnant', password: 'pass123', role: 'customer', category: 'Pregnant' }
-    ];
+    // Seed one account per clinic position - see STAFF_SEEDS in database.js for
+    // the roster and the job title behind each account.
+    for (const s of STAFF_SEEDS) {
+        const fullName = composeFullName(s);
+        const [rows] = await pool.query('SELECT id, full_name, customer_uid FROM users WHERE username=?', [s.username]);
 
-    for (const s of seeds) {
-        const [exists] = await pool.query('SELECT COUNT(*) as cnt FROM users WHERE username=?', [s.username]);
-        if (exists[0].cnt === 0) {
+        if (rows.length === 0) {
             const hash = await bcrypt.hash(s.password, 10);
             const [result] = await pool.query(
-                'INSERT INTO users (username, password_hash, role, customer_category, full_name) VALUES (?, ?, ?, ?, ?)',
-                [s.username, hash, s.role, s.category || null, s.username.replace('_', ' ')]
+                `INSERT INTO users (username, password_hash, role, customer_category, full_name, first_name, middle_name, surname)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [s.username, hash, s.role, s.category || null, fullName, s.first_name || '', s.middle_name || '', s.surname || '']
             );
             if (s.role === 'customer') {
                 await pool.query('UPDATE users SET customer_uid=? WHERE id=?', [makeCustomerUid(result.insertId), result.insertId]);
             }
-        } else if (s.role === 'customer') {
-            const [rows] = await pool.query('SELECT id, customer_uid FROM users WHERE username=?', [s.username]);
-            if (rows[0] && !rows[0].customer_uid) {
-                await pool.query('UPDATE users SET customer_uid=? WHERE id=?', [makeCustomerUid(rows[0].id), rows[0].id]);
-            }
+            console.log(`[Seed] Created ${s.role} account "${s.username}" - ${fullName} (${s.position || s.category})`);
+            continue;
+        }
+
+        const existing = rows[0];
+        if (isPlaceholderName(s.username, existing.full_name)) {
+            await pool.query(
+                'UPDATE users SET full_name=?, first_name=?, middle_name=?, surname=? WHERE id=?',
+                [fullName, s.first_name || '', s.middle_name || '', s.surname || '', existing.id]
+            );
+        } else if (existing.full_name !== fullName) {
+            console.log(`[Seed] Kept existing name "${existing.full_name}" on "${s.username}" (seed name is "${fullName}")`);
+        }
+        if (s.role === 'customer' && !existing.customer_uid) {
+            await pool.query('UPDATE users SET customer_uid=? WHERE id=?', [makeCustomerUid(existing.id), existing.id]);
         }
     }
     const [missingCustomerIds] = await pool.query(`SELECT id FROM users WHERE role='customer' AND (customer_uid IS NULL OR customer_uid='')`);
@@ -242,26 +310,35 @@ async function startServer() {
         await pool.query('UPDATE users SET customer_uid=? WHERE id=?', [makeCustomerUid(row.id), row.id]);
     }
 
-    // Seed sample laboratories
-    const labSeeds = [
-        { name: 'X-Ray Room', type: 'X-Ray', staff: 'lab_xray' },
-        { name: 'Blood Test Lab', type: 'Blood Test', staff: 'lab_blood' }
-    ];
-    for (const l of labSeeds) {
-        const [exists] = await pool.query('SELECT COUNT(*) as cnt FROM laboratories WHERE name=?', [l.name]);
-        if (exists[0].cnt === 0) {
-            const [user] = await pool.query('SELECT id FROM users WHERE username=?', [l.staff]);
+    // Seed the stations a ticket can be routed to. Existing rows keep their own
+    // service_type and hours; only an unassigned station gets its staff filled in.
+    for (const l of LAB_SEEDS) {
+        const [staff] = await pool.query('SELECT id FROM users WHERE username=?', [l.staff]);
+        const staffId = staff[0]?.id || null;
+        const [rows] = await pool.query('SELECT id, assigned_staff_id FROM laboratories WHERE name=?', [l.name]);
+        if (rows.length === 0) {
             await pool.query('INSERT INTO laboratories (name, service_type, assigned_staff_id) VALUES (?, ?, ?)',
-                [l.name, l.type, user.length > 0 ? user[0].id : null]);
+                [l.name, l.service_type, staffId]);
+            console.log(`[Seed] Created station "${l.name}" (${l.service_type})`);
+        } else if (!rows[0].assigned_staff_id && staffId) {
+            await pool.query('UPDATE laboratories SET assigned_staff_id=? WHERE id=?', [staffId, rows[0].id]);
         }
     }
 
-    // Seed sample doctor
-    const [docExists] = await pool.query('SELECT COUNT(*) as cnt FROM doctors WHERE name=?', ['General Physician']);
-    if (docExists[0].cnt === 0) {
-        const [docUser] = await pool.query('SELECT id FROM users WHERE username=?', ['doctor1']);
-        await pool.query('INSERT INTO doctors (name, specialty, assigned_staff_id) VALUES (?, ?, ?)',
-            ['General Physician', 'General Medicine', docUser.length > 0 ? docUser[0].id : null]);
+    // Seed the physicians. `replaces` lets a row that was named after the job
+    // ("General Physician") be renamed to the physician who actually holds it.
+    for (const d of DOCTOR_SEEDS) {
+        const [staff] = await pool.query('SELECT id FROM users WHERE username=?', [d.staff]);
+        const staffId = staff[0]?.id || null;
+        const [rows] = await pool.query('SELECT id, name FROM doctors WHERE name=? OR name=?', [d.name, d.replaces || d.name]);
+        if (rows.length === 0) {
+            await pool.query('INSERT INTO doctors (name, specialty, assigned_staff_id) VALUES (?, ?, ?)',
+                [d.name, d.specialty, staffId]);
+            console.log(`[Seed] Created doctor "${d.name}" (${d.specialty})`);
+        } else if (rows[0].name !== d.name) {
+            await pool.query('UPDATE doctors SET name=?, specialty=? WHERE id=?', [d.name, d.specialty, rows[0].id]);
+            console.log(`[Seed] Renamed doctor "${rows[0].name}" to "${d.name}"`);
+        }
     }
 
     // Ensure doctor_id column exists on service_packages
@@ -292,6 +369,8 @@ async function startServer() {
             [svc.price, svc.description, svc.name]
         );
     }
+    await seedServiceSteps();
+
     console.log('[Server] Seed data created.');
     server.listen(port, () => console.log(`Server running at http://localhost:${port}`));
 }

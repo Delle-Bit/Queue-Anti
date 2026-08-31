@@ -170,15 +170,34 @@
                 <div class="card">
                     <div class="card-header"><div class="card-title"><i class="fa-solid fa-paint-roller"></i> Global Styles</div></div>
                     <div class="form-group">
-                        <label class="form-label">Navbar Color (Hex)</label>
-                        <div style="display:flex;gap:8px;">
-                            <input type="color" id="cust-nav-color" class="form-input" style="width:50px;padding:2px;">
-                            <input type="text" id="cust-nav-color-text" class="form-input" onchange="document.getElementById('cust-nav-color').value = this.value">
-                        </div>
+                        <label class="form-label" for="cust-site-name">Site Name</label>
+                        <input type="text" id="cust-site-name" class="form-input" maxlength="255" placeholder="Medical Clinic">
+                        <small class="text-muted">Shown in the sidebar, page titles, and on the exported medical-record PDF.</small>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Background Image URL</label>
-                        <input type="text" id="cust-bg-url" class="form-input" placeholder="/images/bg.jpg">
+                        <label class="form-label" for="cust-logo-path">Logo Path or URL</label>
+                        <input type="text" id="cust-logo-path" class="form-input" maxlength="255" placeholder="/images/examplelogo.svg">
+                        <small class="text-muted">Used for the sidebar logo, the browser tab icon, and the PDF letterhead. Leave blank for the default logo.</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="cust-theme">Theme</label>
+                        <select class="form-select" id="cust-theme">
+                            <option value="light">Light</option>
+                            <option value="dark">Dark</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="cust-nav-color-text">Navbar Color (Hex)</label>
+                        <div style="display:flex;gap:8px;">
+                            <input type="color" id="cust-nav-color" class="form-input" style="width:50px;padding:2px;" oninput="syncNavColorInputs('picker')" aria-label="Navbar color picker">
+                            <input type="text" id="cust-nav-color-text" class="form-input" maxlength="7" placeholder="#24303A" onchange="syncNavColorInputs('text')">
+                        </div>
+                        <small class="text-muted">Sidebar background. Text and hover shades adjust automatically for light or dark colors.</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="cust-bg-url">Background Image URL</label>
+                        <input type="text" id="cust-bg-url" class="form-input" maxlength="255" placeholder="/images/bg.jpg">
+                        <small class="text-muted">Applied behind the dashboard pages. Leave blank for the plain background.</small>
                     </div>
                     <button class="btn btn-success" onclick="saveCustomization()"><i class="fa-solid fa-save"></i> Save Styles</button>
                 </div>

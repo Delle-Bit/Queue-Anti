@@ -283,21 +283,20 @@ router.post('/register/step2', rateLimit(5, 10 * 60 * 1000), async (req, res) =>
     try {
         if (!token) return res.status(400).json({ error: 'Registration token required' });
         if (!password || !confirm_password) return res.status(400).json({ error: 'Password and confirmation required' });
-        // Client trims leading/trailing whitespace, but this is the actual security
-        // boundary — the client can be bypassed. Trim here too (NIST SP 800-63B allows
-        // internal spaces for passphrases; only the accidental edges get stripped),
-        // and compare/measure the trimmed value so an incidental edge space typed
-        // in only one of the two boxes doesn't produce a confusing mismatch.
-        const trimmedPassword = password.replace(/^\s+|\s+$/g, '');
-        const trimmedConfirm = confirm_password.replace(/^\s+|\s+$/g, '');
-        if (trimmedPassword !== trimmedConfirm) return res.status(400).json({ error: 'Passwords do not match' });
-        if (trimmedPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-        if (trimmedPassword.length > 16) return res.status(400).json({ error: 'Password cannot exceed 16 characters' });
+        // Client blocks spaces at the keystroke level, but this is the actual
+        // security boundary — the client can be bypassed. Reject rather than
+        // silently strip, so a caller that sends a space-containing password
+        // (e.g. a direct API call) gets a clear error instead of having it
+        // hashed as a different string than what they sent.
+        if (password !== confirm_password) return res.status(400).json({ error: 'Passwords do not match' });
+        if (/\s/.test(password)) return res.status(400).json({ error: 'Password cannot contain spaces' });
+        if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+        if (password.length > 16) return res.status(400).json({ error: 'Password cannot exceed 16 characters' });
 
         const [rows] = await pool.query('SELECT * FROM pending_registrations WHERE token = ? AND expires_at > NOW()', [token]);
         if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired registration token' });
 
-        const hash = await bcrypt.hash(trimmedPassword, 10);
+        const hash = await bcrypt.hash(password, 10);
         await pool.query('UPDATE pending_registrations SET password_hash = ? WHERE token = ?', [hash, token]);
 
         res.json({ success: true, message: 'Password set. Proceed to verification.' });
@@ -331,9 +330,10 @@ router.post('/register/send-verification', rateLimit(3, 10 * 60 * 1000), async (
 
 // Step 4: Verify OTP and create account
 router.post('/register/verify-otp', rateLimit(10, 10 * 60 * 1000), async (req, res) => {
-    const { token, otp } = req.body || {};
+    const { token, otp, terms_accepted } = req.body || {};
     try {
         if (!token || !otp) return res.status(400).json({ error: 'Token and OTP required' });
+        if (!terms_accepted) return res.status(400).json({ error: 'You must accept the Terms and Conditions to create an account' });
 
         const [rows] = await pool.query('SELECT * FROM pending_registrations WHERE token = ? AND expires_at > NOW() AND password_hash IS NOT NULL AND otp_code IS NOT NULL AND otp_expires_at > NOW()', [token]);
         if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired registration token or OTP' });
@@ -350,8 +350,8 @@ router.post('/register/verify-otp', rateLimit(10, 10 * 60 * 1000), async (req, r
 
         // Create the actual user account
         const [result] = await pool.query(
-            `INSERT INTO users (username, password_hash, role, customer_category, email, full_name, birthday, gender, verification_method, is_underage, guardian_name, guardian_contact, guardian_relationship)
-             VALUES (?, ?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO users (username, password_hash, role, customer_category, email, full_name, birthday, gender, verification_method, is_underage, guardian_name, guardian_contact, guardian_relationship, terms_accepted_at)
+             VALUES (?, ?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
             [pending.username, pending.password_hash, pending.detected_category, pending.email || '', pending.detected_name || pending.username, pending.detected_birthday, pending.detected_gender, pending.verification_method, pending.is_underage ? 1 : 0, pending.guardian_name || '', pending.guardian_contact || '', pending.guardian_relationship || '']
         );
         await pool.query('UPDATE users SET customer_uid=? WHERE id=?', [makeCustomerUid(result.insertId), result.insertId]);
@@ -437,12 +437,12 @@ router.post('/reset-password', rateLimit(5, 10 * 60 * 1000), async (req, res) =>
     const { token, newPassword } = req.body || {};
     try {
         if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password required' });
-        const trimmedPassword = newPassword.replace(/^\s+|\s+$/g, '');
-        if (trimmedPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-        if (trimmedPassword.length > 16) return res.status(400).json({ error: 'Password cannot exceed 16 characters' });
+        if (/\s/.test(newPassword)) return res.status(400).json({ error: 'Password cannot contain spaces' });
+        if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+        if (newPassword.length > 16) return res.status(400).json({ error: 'Password cannot exceed 16 characters' });
         const [rows] = await pool.query('SELECT * FROM users WHERE reset_token = ? AND reset_expiry > NOW() AND reset_otp IS NULL', [token]);
         if (rows.length === 0) return res.status(400).json({ error: 'Verification required before resetting your password.' });
-        const hash = await bcrypt.hash(trimmedPassword, 10);
+        const hash = await bcrypt.hash(newPassword, 10);
         await pool.query('UPDATE users SET password_hash = ?, reset_token = NULL, reset_expiry = NULL, reset_otp = NULL, reset_otp_attempts = 0 WHERE id = ?', [hash, rows[0].id]);
         res.json({ success: true, message: 'Password reset successfully!' });
     } catch (err) {

@@ -11,6 +11,10 @@ dotenv.config();
 const NV_INVOKE_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 const NV_API_KEY = process.env.NVIDIA_API_KEY;
 
+// Gemini configuration (store token in .env as GEMINI_API_KEY) - primary provider for the Virtual Assistant
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
 // Pytesseract OCR script path - configurable via env var, fallback to project-local script
 const PYTESSERACT_SCRIPT = process.env.PYTESSERACT_SCRIPT || path.join(__dirname, 'pytesseract_ocr.py');
 
@@ -86,6 +90,43 @@ async function nvidiaChat(systemPrompt, messages) {
     return res.data?.choices?.[0]?.message?.content || null;
   } catch (e) {
     console.error('[NVIDIA Chat] Request failed:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Calls Google Gemini 2.5 Flash for the Virtual Assistant dialogue.
+ * Primary provider for `assistantDialogue`; falls back to `nvidiaChat` when this
+ * returns null (missing key, quota, network issue) so a demo never goes silent.
+ * Returns the assistant reply text, or null when unavailable.
+ */
+async function geminiChat(systemPrompt, messages) {
+  if (!GEMINI_API_KEY) {
+    console.warn('[Gemini Chat] GEMINI_API_KEY not configured, skipping');
+    return null;
+  }
+
+  const contents = messages.map(m => ({
+    role: m.role === 'user' ? 'user' : 'model',
+    parts: [{ text: m.content }]
+  }));
+
+  const payload = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    contents,
+    generationConfig: { temperature: 0.3, topP: 0.95, maxOutputTokens: 1024 }
+  };
+
+  try {
+    const res = await axios.post(GEMINI_URL, payload, {
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
+      timeout: 15000
+    });
+    const parts = res.data?.candidates?.[0]?.content?.parts || [];
+    const text = parts.map(p => p.text || '').join('').trim();
+    return text || null;
+  } catch (e) {
+    console.error('[Gemini Chat] Request failed:', e.response?.data?.error?.message || e.message);
     return null;
   }
 }
@@ -444,10 +485,42 @@ const aiServices = {
         }, 'Anomaly Detection');
     },
 
+    /**
+     * Announcement Generator — template-based Natural Language Generation, Node.js only (no external API call).
+     * Fills predefined templates with live queue data to produce a ready-to-send announcement draft.
+     * `statusData` = { waitingCount, nextServing, department, avgWaitMinutes }
+     */
     announcementGen: async (statusData) => {
-        return await callMockAI('announcement', 'https://api-inference.huggingface.co/models/gpt2', process.env.API_ALLAROUND, statusData, (data) => {
-            return { message: `The clinic has ${data.waitingCount} patients waiting. Next in line is ${data.nextServing}.` };
-        }, 'Announcement NLP');
+        const isEnabled = await checkAIToggle('announcement');
+        if (!isEnabled) {
+            console.log('[AI Disabled] Announcement Generator');
+            const output = { message: '' };
+            await logAI('Announcement NLG', statusData, output);
+            return output;
+        }
+
+        const waitingCount = Number(statusData?.waitingCount || 0);
+        const nextServing = statusData?.nextServing || null;
+        const department = statusData?.department || 'the clinic';
+        const avgWaitMinutes = statusData?.avgWaitMinutes != null ? Math.round(Number(statusData.avgWaitMinutes)) : null;
+
+        const templates = [];
+        if (waitingCount === 0) {
+            templates.push(`${department} currently has no one waiting. Walk-ins are welcome.`);
+        } else {
+            templates.push(`${department} currently has ${waitingCount} ${waitingCount === 1 ? 'patient' : 'patients'} waiting${nextServing ? `. Now serving ticket ${nextServing}` : ''}.`);
+            if (avgWaitMinutes != null) {
+                templates.push(`Average wait time at ${department} is about ${avgWaitMinutes} minute${avgWaitMinutes === 1 ? '' : 's'} for ${waitingCount} waiting ${waitingCount === 1 ? 'patient' : 'patients'}.`);
+            }
+            if (waitingCount >= 10) {
+                templates.push(`${department} is experiencing higher than usual volume (${waitingCount} waiting). Thank you for your patience.`);
+            }
+        }
+
+        const message = templates[Math.floor(Math.random() * templates.length)] || `Update from ${department}.`;
+        const output = { message };
+        await logAI('Announcement NLG', statusData, output);
+        return output;
     },
 
     cutoffRecommendation: async (metrics) => {
@@ -491,30 +564,39 @@ const aiServices = {
     /**
      * Virtual Assistant dialogue controller.
      * `payload` = { text, history: [{role,text}], context: { packages, queue, customer_name, customer_category } }
-     * Resolution order: NVIDIA chat (system prompt above) → deterministic local intent parser.
+     * Resolution order: Gemini 2.5 Flash → NVIDIA Nemotron-3 (demo-safety fallback) → deterministic local intent parser.
      */
     assistantDialogue: async (payload) => {
         const isEnabled = await checkAIToggle('assistant');
         let output = null;
+        let provider = 'local';
 
         if (isEnabled) {
             const history = (payload.history || []).slice(-6).map(h => ({
                 role: h.role === 'user' ? 'user' : 'assistant',
                 content: String(h.text || '')
             }));
-            const raw = await nvidiaChat(
-                buildAssistantSystemPrompt(payload.context),
-                [...history, { role: 'user', content: String(payload.text || '') }]
-            );
+            const systemPrompt = buildAssistantSystemPrompt(payload.context);
+            const turns = [...history, { role: 'user', content: String(payload.text || '') }];
+
+            let raw = await geminiChat(systemPrompt, turns);
+            if (raw) provider = 'gemini';
+            if (!raw) {
+                raw = await nvidiaChat(systemPrompt, turns);
+                if (raw) provider = 'nvidia';
+            }
             output = parseAssistantReply(raw);
-            if (!output) console.warn('[Virtual Assistant] LLM unavailable or unparseable, using local intent parser');
+            if (!output) {
+                provider = 'local';
+                console.warn('[Virtual Assistant] LLM unavailable or unparseable, using local intent parser');
+            }
         } else {
             console.log('[AI Disabled] Virtual Assistant Dialogue');
         }
 
         if (!output) output = assistantLocalFallback(payload);
 
-        await logAI('Virtual Assistant Dialogue', { text: payload.text }, output);
+        await logAI('Virtual Assistant Dialogue', { text: payload.text, provider }, output);
         return output;
     },
 

@@ -10,6 +10,8 @@
     <link rel="stylesheet" href="customer.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+    <script src="https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.js"></script>
 </head>
 
 <body>
@@ -124,7 +126,10 @@
                     <div class="page-title"><i class="fa-solid fa-notes-medical"></i> Medical Records & History</div>
                     <div class="page-subtitle">Your personal health records and diagnostic history</div>
                 </div>
-                <button class="btn btn-primary" onclick="openModal('mandatory-med-modal')"><i class="fa-solid fa-file-signature"></i> Update Profile Form</button>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button class="btn btn-outline" id="export-med-pdf-btn" onclick="exportMedicalRecordPDF()"><i class="fa-solid fa-file-arrow-down"></i> Export PDF</button>
+                    <button class="btn btn-primary" onclick="openModal('mandatory-med-modal')"><i class="fa-solid fa-file-signature"></i> Update Profile Form</button>
+                </div>
             </div>
 
             <div class="grid-2">
@@ -343,8 +348,41 @@
                             <option value="Divorced">Divorced</option>
                         </select></div>
                 </div>
-                <div class="form-group"><label class="form-label required">Address</label><input type="text" id="req-med-address"
-                        class="form-input" data-required="true"></div>
+                <h4 class="mt-md mb-sm">Address</h4>
+                <div style="display:grid; grid-template-columns: 1fr 2fr; gap:8px;">
+                    <div class="form-group">
+                        <label class="form-label" for="req-med-house-number">House / Unit No.</label>
+                        <input type="text" id="req-med-house-number" class="form-input" placeholder="e.g. Blk 11 Lot 12"
+                            aria-describedby="req-med-house-number-note">
+                        <small class="text-muted" id="req-med-house-number-note">Optional — leave blank if your address has no house or unit number.</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label required" for="req-med-street">Street</label>
+                        <input type="text" id="req-med-street" class="form-input" data-required="true"
+                            placeholder="e.g. Mahogany Villas Phase 2A">
+                    </div>
+                </div>
+                <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px;">
+                    <div class="form-group">
+                        <label class="form-label required" for="req-med-province">Province</label>
+                        <select id="req-med-province" class="form-input" data-required="true"
+                            onchange="onProvinceChange()">
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label required" for="req-med-city">City / Municipality</label>
+                        <select id="req-med-city" class="form-input" data-required="true" onchange="onCityChange()" disabled>
+                            <option value="">Select province first</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label required" for="req-med-barangay">Barangay</label>
+                        <select id="req-med-barangay" class="form-input" data-required="true" disabled>
+                            <option value="">Select city first</option>
+                        </select>
+                    </div>
+                </div>
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
                     <div class="form-group"><label class="form-label required">Phone Number</label><input type="text"
                             id="req-med-phone" class="form-input" data-required="true"></div>

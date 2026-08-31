@@ -31,6 +31,134 @@ const DEFAULT_SERVICES = [
     { name: 'Rapid Antibody Test', price: 1500, description: 'Rapid antibody testing service.', est_time_minutes: 20 }
 ];
 
+// One seed account per clinic position, modelled on how a DOH-licensed primary
+// clinic / diagnostic centre is actually staffed: a receptionist at the front
+// desk, a Registered Medical Technologist (RMT) per laboratory section, a
+// Registered Radiologic Technologist (RRT) for imaging, a cardiovascular
+// technologist for the cardiac tests, a nurse for vitals, an HIV counsellor
+// (required by RA 11166), and physicians who read/interpret results.
+//
+// `position` is documentation only - it is not a users column. Names are
+// sample data for a dev database; change them (and the passwords) before any
+// real deployment.
+const STAFF_SEEDS = [
+    { username: 'owner1', password: 'owner123', role: 'owner', position: 'Owner / Medical Director',
+      first_name: 'Ramon', middle_name: 'Bautista', surname: 'Villanueva' },
+    { username: 'admin_regular', password: 'admin123', role: 'admin', position: 'Clinic Administrator',
+      first_name: 'Teresita', middle_name: 'Mendoza', surname: 'Rosales' },
+    { username: 'admin_tech', password: 'admin123', role: 'admintechnical', position: 'Technical / IT Administrator',
+      first_name: 'Joel', middle_name: 'Pascual', surname: 'Bautista' },
+    { username: 'frontdesk1', password: 'pass123', role: 'frontdesk', position: 'Front Desk Receptionist',
+      first_name: 'Angeli', middle_name: 'Cruz', surname: 'Domingo' },
+    { username: 'nurse_vitals', password: 'pass123', role: 'laboratory', position: 'Staff Nurse (Vital Signs)',
+      first_name: 'Grace', middle_name: 'Padilla', surname: 'Villamor' },
+    { username: 'lab_blood', password: 'pass123', role: 'laboratory', position: 'Medical Technologist - Hematology & Clinical Chemistry',
+      first_name: 'Marites', middle_name: 'Lopez', surname: 'Saavedra' },
+    { username: 'lab_micro', password: 'pass123', role: 'laboratory', position: 'Medical Technologist - Clinical Microscopy',
+      first_name: 'Ferdinand', middle_name: 'Reyes', surname: 'Ocampo' },
+    { username: 'lab_xray', password: 'pass123', role: 'laboratory', position: 'Radiologic Technologist',
+      first_name: 'Dennis', middle_name: 'Alonzo', surname: 'Fabregas' },
+    { username: 'lab_ultrasound', password: 'pass123', role: 'laboratory', position: 'Sonographer (Ultrasound & Duplex Scans)',
+      first_name: 'Katrina', middle_name: 'Jimenez', surname: 'Escuadro' },
+    { username: 'lab_cardio', password: 'pass123', role: 'laboratory', position: 'Cardiovascular Technologist',
+      first_name: 'Alvin', middle_name: 'Molina', surname: 'Delos Reyes' },
+    { username: 'lab_counselor', password: 'pass123', role: 'laboratory', position: 'HIV Counsellor (RA 11166)',
+      first_name: 'Rowena', middle_name: 'Fajardo', surname: 'Lacsamana' },
+    { username: 'doctor1', password: 'pass123', role: 'doctor', position: 'Physician - General / Family Medicine',
+      first_name: 'Alfredo', middle_name: 'Salazar', surname: 'Mercado' },
+    { username: 'doctor_cardio', password: 'pass123', role: 'doctor', position: 'Internist - Cardiology',
+      first_name: 'Maria Cristina', middle_name: 'Herrera', surname: 'Aguilar' },
+    { username: 'customer_regular', password: 'pass123', role: 'customer', category: 'Regular',
+      first_name: 'Miguel', middle_name: 'Torres', surname: 'Panganiban' },
+    { username: 'customer_senior', password: 'pass123', role: 'customer', category: 'Senior',
+      first_name: 'Rosario', middle_name: 'Guevarra', surname: 'Nazareno' },
+    { username: 'customer_pwd', password: 'pass123', role: 'customer', category: 'PWD',
+      first_name: 'Elmer', middle_name: 'Dizon', surname: 'Cabrera' },
+    { username: 'customer_pregnant', password: 'pass123', role: 'customer', category: 'Pregnant',
+      first_name: 'Jocelyn', middle_name: 'Ramos', surname: 'Enriquez' }
+];
+
+// Physical stations a ticket can be routed to. The queue engine only knows
+// three station types (frontdesk / laboratory / doctor), so every non-desk,
+// non-physician stop is a `laboratories` row - including the counselling room.
+const LAB_SEEDS = [
+    { name: 'Physical', service_type: 'Physical', staff: 'nurse_vitals' },
+    { name: 'Blood Test Lab', service_type: 'Blood Test', staff: 'lab_blood' },
+    { name: 'Specimen', service_type: 'Handoff (feces and Urine)', staff: 'lab_micro' },
+    { name: 'X-Ray Room', service_type: 'X-Ray', staff: 'lab_xray' },
+    { name: 'Ultrasound Room', service_type: 'Ultrasound', staff: 'lab_ultrasound' },
+    { name: 'Cardiac Diagnostics', service_type: 'ECG / 2D Echo / Holter', staff: 'lab_cardio' },
+    { name: 'Counseling Room', service_type: 'HIV Counseling', staff: 'lab_counselor' }
+];
+
+const DOCTOR_SEEDS = [
+    { name: 'Dr. Alfredo Mercado', specialty: 'General Medicine', staff: 'doctor1', replaces: 'General Physician' },
+    { name: 'Dr. Maria Cristina Aguilar', specialty: 'Cardiology', staff: 'doctor_cardio' }
+];
+
+// Station sequence per service. Front desk is always step 0 (the queue engine
+// prepends it), so these list only what comes after registration.
+//
+// The ordering follows the standard Philippine out-patient flow - register and
+// take vitals at the desk, give specimens, get imaged, then see a physician who
+// interprets the results - and these rules:
+//   * Blood-drawn tests (CBC, chemistry, serology, HIV, rapid antibody) go to
+//     the blood extraction bench.
+//   * DOH AO 2007-0027 puts urinalysis and fecalysis under Clinical
+//     Microscopy, so those (and urine drug testing) go to the specimen window.
+//   * A standalone diagnostic test ends at the station: the radiologist /
+//     pathologist reads it offline and the result is released, which is why a
+//     P450 CBC has no consultation attached.
+//   * Tests a physician must walk the patient through - echocardiography,
+//     duplex scans, Holter, 24h ABPM - end at the cardiologist, and the
+//     check-up packages end at the general physician.
+//   * HIV screening is bracketed by pre-test and post-test counselling, which
+//     RA 11166 requires every HIV testing facility to provide.
+const SERVICE_STEPS = {
+    'Hematology (CBC)':                 { stations: [{ at: 'Blood Test Lab', minutes: 10 }], doctor: null },
+    'Clinical Microscopy':              { stations: [{ at: 'Specimen', minutes: 10 }], doctor: null },
+    'Blood Chemistry':                  { stations: [{ at: 'Blood Test Lab', minutes: 15 }], doctor: null },
+    'Serology Exams':                   { stations: [{ at: 'Blood Test Lab', minutes: 15 }], doctor: null },
+    'Rapid Antibody Test':              { stations: [{ at: 'Blood Test Lab', minutes: 15 }], doctor: null },
+    'Drug Testing':                     { stations: [{ at: 'Specimen', minutes: 15 }], doctor: null },
+    'X-ray':                            { stations: [{ at: 'X-Ray Room', minutes: 15 }], doctor: null },
+    'Ultrasound':                       { stations: [{ at: 'Ultrasound Room', minutes: 25 }], doctor: null },
+    'ECG / FCG':                        { stations: [{ at: 'Cardiac Diagnostics', minutes: 15 }], doctor: null },
+
+    'HIV Screening':                    { stations: [
+                                            { at: 'Counseling Room', minutes: 15 },   // pre-test counselling
+                                            { at: 'Blood Test Lab', minutes: 10 },
+                                            { at: 'Counseling Room', minutes: 15 }    // post-test counselling
+                                          ], doctor: null },
+
+    '2D Echocardiography':              { stations: [{ at: 'Cardiac Diagnostics', minutes: 30 }], doctor: 'Cardiology' },
+    'Holter Monitoring':                { stations: [{ at: 'Cardiac Diagnostics', minutes: 20 }], doctor: 'Cardiology' },
+    '24-Hour Ambulatory BP Monitoring': { stations: [{ at: 'Cardiac Diagnostics', minutes: 20 }], doctor: 'Cardiology' },
+    'Venous Duplex Scan':               { stations: [{ at: 'Ultrasound Room', minutes: 35 }], doctor: 'Cardiology' },
+    'Arterial Duplex Scan':             { stations: [{ at: 'Ultrasound Room', minutes: 35 }], doctor: 'Cardiology' },
+    'Carotid Duplex Scan':              { stations: [{ at: 'Ultrasound Room', minutes: 35 }], doctor: 'Cardiology' },
+
+    // Comprehensive annual screening: vitals, the primary-category lab panel,
+    // chest X-ray, and an ECG, all read out by the physician at the end.
+    'Annual Physical Exam':             { stations: [
+                                            { at: 'Physical', minutes: 10 },
+                                            { at: 'Blood Test Lab', minutes: 10 },
+                                            { at: 'Specimen', minutes: 10 },
+                                            { at: 'X-Ray Room', minutes: 15 },
+                                            { at: 'Cardiac Diagnostics', minutes: 15 }
+                                          ], doctor: 'General Medicine' },
+
+    // Standard PEME battery - physical exam, CBC, urinalysis/fecalysis, chest
+    // X-ray, drug test - then the physician who signs the fit-to-work
+    // certificate. No ECG: that is an add-on, not part of the basic panel.
+    'Pre-Employment Medical':           { stations: [
+                                            { at: 'Physical', minutes: 10 },
+                                            { at: 'Blood Test Lab', minutes: 10 },
+                                            { at: 'Specimen', minutes: 15 },
+                                            { at: 'X-Ray Room', minutes: 15 }
+                                          ], doctor: 'General Medicine' }
+};
+
 async function addColumnIfMissing(table, column, definition) {
     try {
         await pool.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
@@ -238,6 +366,11 @@ async function initDB() {
                 customer_id INT NOT NULL,
                 birthplace VARCHAR(255) DEFAULT '',
                 address VARCHAR(255) DEFAULT '',
+                house_number VARCHAR(100) DEFAULT '',
+                street VARCHAR(255) DEFAULT '',
+                barangay VARCHAR(255) DEFAULT '',
+                city VARCHAR(255) DEFAULT '',
+                province VARCHAR(255) DEFAULT '',
                 phone VARCHAR(50) DEFAULT '',
                 status VARCHAR(50) DEFAULT '',
                 occupation VARCHAR(100) DEFAULT '',
@@ -302,11 +435,22 @@ async function initDB() {
                 site_name VARCHAR(255) DEFAULT 'Medical Clinic',
                 logo_path VARCHAR(255) DEFAULT '/images/examplelogo.svg',
                 theme VARCHAR(20) DEFAULT 'light',
-                navbar_color VARCHAR(50) DEFAULT '#ffffff',
+                navbar_color VARCHAR(50) DEFAULT '#24303A',
                 background_image VARCHAR(255) DEFAULT ''
             )
         `);
         await pool.query(`INSERT IGNORE INTO settings (id) VALUES (1)`);
+
+        // navbar_color drives the sidebar background (--bg-sidebar in shared.css),
+        // which the design paints #24303A. The original schema default was #ffffff -
+        // written for a top navbar that never shipped, and never applied to anything
+        // until the Customize page started taking effect. Correct the untouched
+        // default so existing installs don't come back with a white sidebar; a
+        // colour an admin actually picked is left alone.
+        await pool.query(
+            `UPDATE settings SET navbar_color='#24303A'
+             WHERE id=1 AND (navbar_color IS NULL OR navbar_color='' OR navbar_color='#ffffff')`
+        );
 
         // Audit Logs
         await pool.query(`
@@ -469,6 +613,16 @@ async function initDB() {
         await addColumnIfMissing('users', 'guardian_relationship', "VARCHAR(100) DEFAULT ''");
         await addColumnIfMissing('users', 'reset_otp', 'VARCHAR(10) DEFAULT NULL');
         await addColumnIfMissing('users', 'reset_otp_attempts', 'INT DEFAULT 0');
+        await addColumnIfMissing('users', 'terms_accepted_at', 'DATETIME DEFAULT NULL');
+        // Structured address parts. `medical_records.address` is kept as the
+        // composed human-readable string every existing reader already uses
+        // (profile card, PDF export, staff views); these columns store the
+        // pieces so the cascading dropdowns can be repopulated on reopen.
+        await addColumnIfMissing('medical_records', 'house_number', "VARCHAR(100) DEFAULT ''");
+        await addColumnIfMissing('medical_records', 'street', "VARCHAR(255) DEFAULT ''");
+        await addColumnIfMissing('medical_records', 'barangay', "VARCHAR(255) DEFAULT ''");
+        await addColumnIfMissing('medical_records', 'city', "VARCHAR(255) DEFAULT ''");
+        await addColumnIfMissing('medical_records', 'province', "VARCHAR(255) DEFAULT ''");
         await addColumnIfMissing('appointments', 'qr_token', 'VARCHAR(120) DEFAULT NULL');
         await addColumnIfMissing('appointments', 'checked_in_at', 'DATETIME DEFAULT NULL');
         await addIndexIfMissing('appointments', 'idx_appointments_qr_token', '(qr_token)');
@@ -480,6 +634,9 @@ async function initDB() {
         await addColumnIfMissing('queue', 'parked_at', 'DATETIME DEFAULT NULL');
         await addColumnIfMissing('queue', 'sample_ready_at', 'DATETIME DEFAULT NULL');
         await addColumnIfMissing('queue', 'priority_boost', 'INT DEFAULT 0');
+        await addColumnIfMissing('announcements', 'created_by', 'INT DEFAULT NULL');
+        await addColumnIfMissing('announcements', 'archived', 'BOOLEAN DEFAULT false');
+        await addColumnIfMissing('announcements', 'archived_at', 'DATETIME DEFAULT NULL');
 
         // Alter ENUMs to include 'doctor' / 'parked' safely (ignore if already present)
         try { await pool.query(`ALTER TABLE users MODIFY COLUMN role ENUM('admintechnical','admin','customer','frontdesk','laboratory','owner','doctor') NOT NULL DEFAULT 'customer'`); } catch(e) {}
@@ -502,4 +659,4 @@ async function initDB() {
     }
 }
 
-module.exports = { pool, initDB, DEFAULT_SERVICES };
+module.exports = { pool, initDB, DEFAULT_SERVICES, STAFF_SEEDS, LAB_SEEDS, DOCTOR_SEEDS, SERVICE_STEPS };

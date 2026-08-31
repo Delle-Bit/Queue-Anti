@@ -47,6 +47,230 @@ function logout() {
     window.location.href = '/index.html';
 }
 
+// ── SITE SETTINGS (Customize page) ───────────────────────────────
+// Branding and theme live in the single-row `settings` table and are edited from
+// the Customize section of admintechnical.html / owner.html. GET /api/settings is
+// public (served from server.js, not the admin router) so the landing page can
+// brand itself before anyone signs in.
+const SITE_DEFAULTS = {
+    site_name: 'Medical Clinic',
+    logo_path: '/images/examplelogo.svg',
+    theme: 'light',
+    navbar_color: '#24303A',   // matches --bg-sidebar in shared.css
+    background_image: ''
+};
+
+// Elements that carry the clinic name or logo. Kept here rather than as data-
+// attributes across seven pages, so there is one place to add a new brand spot.
+const SITE_NAME_SELECTORS = ['.sidebar-brand-name', '.nav-clinic-name', '.footer-name', '.auth-panel-logo span'];
+const SITE_LOGO_SELECTORS = ['.sidebar-logo', '.nav-logo', '.loader-logo', '.about-logo', '.footer-logo', '.auth-panel-logo-img'];
+
+let siteSettings = { ...SITE_DEFAULTS };
+let siteTitleTemplate = null;   // document.title as authored, before any swap
+
+// Kick the fetch off as soon as shared.js runs rather than waiting for
+// DOMContentLoaded, so branding lands with as little flash as possible.
+const siteSettingsReady = fetchSiteSettings();
+
+async function fetchSiteSettings() {
+    try {
+        const res = await fetch('/api/settings');
+        if (!res.ok) return siteSettings;
+        const row = await res.json();
+        if (row && typeof row === 'object') {
+            for (const key of Object.keys(SITE_DEFAULTS)) {
+                // '' is a real value for background_image, so only null/undefined fall back.
+                if (row[key] !== null && row[key] !== undefined) siteSettings[key] = row[key];
+            }
+        }
+    } catch (e) { /* branding is cosmetic - keep the defaults */ }
+    return siteSettings;
+}
+
+function siteName() { return siteSettings.site_name || SITE_DEFAULTS.site_name; }
+function siteLogo() { return siteSettings.logo_path || SITE_DEFAULTS.logo_path; }
+
+// ── colour helpers ──
+function hexToRgb(hex) {
+    const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || '').trim());
+    if (!m) return null;
+    let h = m[1];
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
+}
+
+// WCAG relative luminance - decides whether the sidebar needs light or dark ink.
+function relativeLuminance({ r, g, b }) {
+    const channel = (c) => {
+        const s = c / 255;
+        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+function mixHex(hex, towardWhite, amount) {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return hex;
+    const target = towardWhite ? 255 : 0;
+    const mix = (c) => Math.round(c + (target - c) * amount);
+    return '#' + [mix(rgb.r), mix(rgb.g), mix(rgb.b)].map(c => c.toString(16).padStart(2, '0')).join('');
+}
+
+// ── appliers ──
+// navbar_color drives the sidebar, which is this app's navbar. The hover/active
+// shades and the ink are derived from it, otherwise picking a light colour leaves
+// white-on-white text and a dark hover state.
+function applyNavbarColor(color) {
+    const rgb = hexToRgb(color);
+    if (!rgb) return;
+    const isLight = relativeLuminance(rgb) > 0.4;
+    const root = document.documentElement.style;
+    root.setProperty('--bg-sidebar', color);
+    root.setProperty('--bg-sidebar-hover', mixHex(color, !isLight, 0.10));
+    root.setProperty('--bg-sidebar-active', mixHex(color, !isLight, 0.18));
+    root.setProperty('--text-sidebar', isLight ? 'rgba(26,32,40,0.72)' : '#C8D1DA');
+    root.setProperty('--text-sidebar-strong', isLight ? '#1A2028' : '#FFFFFF');
+    root.setProperty('--sidebar-section-text', isLight ? 'rgba(26,32,40,0.45)' : 'rgba(255,255,255,0.3)');
+    root.setProperty('--sidebar-divider', isLight ? 'rgba(26,32,40,0.12)' : 'rgba(255,255,255,0.08)');
+}
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+}
+
+// Strip anything that could close the url() literal or the surrounding quotes.
+function cssUrlValue(url) {
+    return String(url || '').replace(/["'()\\\s]/g, encodeURIComponent);
+}
+
+function applyBackgroundImage(url) {
+    const body = document.body;
+    if (!body) return;
+    if (!url) {
+        ['backgroundImage', 'backgroundSize', 'backgroundPosition', 'backgroundAttachment', 'backgroundRepeat']
+            .forEach(prop => { body.style[prop] = ''; });
+        return;
+    }
+    // A scrim over the photo keeps page titles and muted text legible; the cards
+    // on top of it are already opaque.
+    const scrim = siteSettings.theme === 'dark' ? 'rgba(21,27,33,0.78)' : 'rgba(247,248,250,0.78)';
+    body.style.backgroundImage = `linear-gradient(${scrim}, ${scrim}), url("${cssUrlValue(url)}")`;
+    body.style.backgroundSize = 'cover';
+    body.style.backgroundPosition = 'center';
+    body.style.backgroundAttachment = 'fixed';
+    body.style.backgroundRepeat = 'no-repeat';
+}
+
+function applyBranding() {
+    const name = siteName();
+    const logo = siteLogo();
+
+    // Titles are authored as "<Page> — Medical Clinic"; swap the clinic name in
+    // place rather than replacing the whole title.
+    if (siteTitleTemplate === null) siteTitleTemplate = document.title;
+    document.title = siteTitleTemplate.split(SITE_DEFAULTS.site_name).join(name);
+
+    document.querySelectorAll('link[rel="icon"]').forEach(el => el.setAttribute('href', logo));
+
+    document.querySelectorAll(SITE_LOGO_SELECTORS.join(', ')).forEach(img => {
+        img.setAttribute('src', logo);
+        if ((img.getAttribute('alt') || '').includes(SITE_DEFAULTS.site_name)) {
+            img.setAttribute('alt', `${name} Logo`);
+        }
+    });
+
+    document.querySelectorAll(SITE_NAME_SELECTORS.join(', ')).forEach(el => { el.textContent = name; });
+
+    // Sentences that mention the clinic by name (e.g. the footer copyright).
+    document.querySelectorAll('.footer-copy').forEach(el => {
+        el.textContent = el.textContent.split(SITE_DEFAULTS.site_name).join(name);
+    });
+}
+
+// Branding (name, logo, tab title, favicon) applies everywhere. Theme and the
+// background image are scoped to the dashboard shell - index.html brings its own
+// hand-designed palette and hero artwork in index.css, and half-darkening that or
+// dropping a photo behind the hero looks broken rather than themed.
+function applyLoadedSettings() {
+    const isAppShell = !!document.getElementById('sidebar');
+    if (isAppShell) {
+        applyTheme(siteSettings.theme);
+        applyNavbarColor(siteSettings.navbar_color);
+        applyBackgroundImage(siteSettings.background_image);
+    }
+    applyBranding();
+}
+
+// Called on every page from the DOMContentLoaded block below.
+async function applySiteSettings() {
+    await siteSettingsReady;
+    applyLoadedSettings();
+}
+
+// Re-pull and re-apply: after an admin saves, and on other open clients via the
+// settingsUpdate socket event, so a change lands without a manual reload.
+async function refreshSiteSettings() {
+    await fetchSiteSettings();
+    applyLoadedSettings();
+}
+
+// ── CUSTOMIZE FORM (admin + owner) ───────────────────────────────
+// admintechnical.html and owner.html host the same #section-customize markup, so
+// the load/save pair lives here rather than being duplicated in each page's JS
+// (they were byte-for-byte identical apart from the endpoint they POSTed to).
+// Both pages register `customize: loadCustomization` in window.onSectionLoad.
+const CUSTOMIZE_FIELDS = {
+    site_name: 'cust-site-name',
+    logo_path: 'cust-logo-path',
+    theme: 'cust-theme',
+    navbar_color: 'cust-nav-color',
+    background_image: 'cust-bg-url'
+};
+
+async function loadCustomization() {
+    await refreshSiteSettings();
+    for (const [field, id] of Object.entries(CUSTOMIZE_FIELDS)) {
+        const el = document.getElementById(id);
+        if (el) el.value = siteSettings[field] || '';
+    }
+    const colorText = document.getElementById('cust-nav-color-text');
+    if (colorText) colorText.value = siteSettings.navbar_color || SITE_DEFAULTS.navbar_color;
+}
+
+async function saveCustomization() {
+    // Only the fields this form actually renders are sent, and the backend only
+    // writes the columns it receives - so no field can null out another.
+    const payload = {};
+    for (const [field, id] of Object.entries(CUSTOMIZE_FIELDS)) {
+        const el = document.getElementById(id);
+        if (el) payload[field] = String(el.value || '').trim();
+    }
+    if (Object.keys(payload).length === 0) return;
+    try {
+        const res = await fetch('/api/admin/settings', {
+            method: 'PUT', headers: authHeaders(), body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { showToast(data.error || 'Failed to save settings', 'error'); return; }
+        showToast('Settings saved', 'success');
+        await refreshSiteSettings();   // reflect it on this page immediately
+    } catch (err) {
+        showToast('Failed to save settings', 'error');
+    }
+}
+
+// Keeps the colour swatch and the hex text box showing the same value.
+function syncNavColorInputs(source) {
+    const picker = document.getElementById('cust-nav-color');
+    const text = document.getElementById('cust-nav-color-text');
+    if (!picker || !text) return;
+    if (source === 'text') {
+        if (/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(text.value.trim())) picker.value = text.value.trim();
+    } else {
+        text.value = picker.value;
+    }
+}
+
 // ── SIDEBAR RENDERING ────────────────────────────────────────────
 function renderSidebar(navItems, activeId) {
     const username = getUsername() || 'User';
@@ -77,9 +301,9 @@ function renderSidebar(navItems, activeId) {
 
     const sidebarHtml = `
         <div class="sidebar-header">
-            <img src="/images/examplelogo.svg" alt="Logo" class="sidebar-logo">
+            <img src="${escapeHtml(siteLogo())}" alt="Logo" class="sidebar-logo">
             <div class="sidebar-brand">
-                Medical Clinic
+                <span class="sidebar-brand-name">${escapeHtml(siteName())}</span>
                 <small>${roleLabels[role] || role}</small>
             </div>
         </div>
@@ -256,6 +480,151 @@ function initSocket() {
         socket.on('queueUpdate', () => {
             if (typeof onQueueUpdate === 'function') onQueueUpdate();
         });
+        socket.on('announcementUpdate', () => {
+            if (getRole() === 'customer') refreshAnnouncementBanner();
+        });
+        // An admin saved the Customize page - re-pull branding and re-apply it.
+        socket.on('settingsUpdate', () => refreshSiteSettings());
+    }
+}
+
+// ── ANNOUNCEMENTS ───────────────────────────────────────────────
+const ANNOUNCEMENT_STAFF_ROLES = ['frontdesk', 'laboratory', 'doctor', 'admin', 'admintechnical', 'owner'];
+const ANNOUNCEMENT_STATION_BY_ROLE = { frontdesk: 'frontdesk', laboratory: 'laboratory', doctor: 'doctor' };
+let dismissedAnnouncementIds = new Set();
+try { dismissedAnnouncementIds = new Set(JSON.parse(sessionStorage.getItem('dismissedAnnouncements') || '[]')); } catch (e) {}
+
+function initAnnouncements() {
+    const role = getRole();
+    if (!role) return;
+    if (role === 'customer') setupAnnouncementBanner();
+    else if (ANNOUNCEMENT_STAFF_ROLES.includes(role)) setupAnnouncementComposer();
+}
+
+function setupAnnouncementBanner() {
+    refreshAnnouncementBanner();
+}
+
+async function refreshAnnouncementBanner() {
+    try {
+        const res = await fetch('/api/announcements/active', { headers: authHeaders() });
+        if (!res.ok) return;
+        const rows = await res.json();
+        const visible = rows.filter(a => !dismissedAnnouncementIds.has(a.id));
+        renderAnnouncementBanner(visible[0] || null);
+    } catch (e) { /* non-critical, fail silently */ }
+}
+
+function renderAnnouncementBanner(announcement) {
+    let bar = document.getElementById('announcement-banner');
+    if (!announcement) {
+        if (bar) bar.remove();
+        document.body.style.paddingTop = '';
+        return;
+    }
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'announcement-banner';
+        bar.className = 'announcement-banner';
+        document.body.prepend(bar);
+    }
+    bar.innerHTML = `
+        <i class="fa-solid fa-bullhorn"></i>
+        <span class="announcement-banner-text">${escapeHtml(announcement.message)}</span>
+        <button type="button" class="announcement-banner-close" aria-label="Dismiss announcement">&times;</button>
+    `;
+    bar.querySelector('.announcement-banner-close').addEventListener('click', () => {
+        dismissedAnnouncementIds.add(announcement.id);
+        try { sessionStorage.setItem('dismissedAnnouncements', JSON.stringify([...dismissedAnnouncementIds])); } catch (e) {}
+        refreshAnnouncementBanner();
+    });
+    document.body.style.paddingTop = bar.offsetHeight + 'px';
+}
+
+function setupAnnouncementComposer() {
+    if (document.getElementById('announcement-fab')) return;
+
+    const fab = document.createElement('button');
+    fab.id = 'announcement-fab';
+    fab.type = 'button';
+    fab.className = 'announcement-fab';
+    fab.title = 'Send an announcement';
+    fab.innerHTML = '<i class="fa-solid fa-bullhorn"></i>';
+    fab.addEventListener('click', openAnnouncementComposer);
+    document.body.appendChild(fab);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'announcement-modal';
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+        <div class="modal-box">
+            <div class="modal-header">
+                <div class="modal-title"><i class="fa-solid fa-bullhorn"></i> Send Announcement</div>
+                <button type="button" class="modal-close" data-close-announcement>&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Message</label>
+                    <textarea class="form-input" id="announcement-message" rows="4" placeholder="Type an announcement for customers..."></textarea>
+                </div>
+                <button type="button" class="btn btn-outline" id="announcement-draft-btn">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Auto-draft from live queue
+                </button>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" data-close-announcement>Cancel</button>
+                <button type="button" class="btn btn-primary" id="announcement-send-btn">Send</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.querySelectorAll('[data-close-announcement]').forEach(el => el.addEventListener('click', () => closeModal('announcement-modal')));
+    overlay.querySelector('#announcement-draft-btn').addEventListener('click', draftAnnouncement);
+    overlay.querySelector('#announcement-send-btn').addEventListener('click', sendAnnouncement);
+}
+
+function openAnnouncementComposer() {
+    const textarea = document.getElementById('announcement-message');
+    if (textarea) textarea.value = '';
+    openModal('announcement-modal');
+}
+
+async function draftAnnouncement() {
+    const station = ANNOUNCEMENT_STATION_BY_ROLE[getRole()] || 'frontdesk';
+    const btn = document.getElementById('announcement-draft-btn');
+    const original = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Drafting...'; }
+    try {
+        const res = await fetch(`/api/announcements/draft?station_type=${station}`, { headers: authHeaders() });
+        const data = await res.json();
+        const textarea = document.getElementById('announcement-message');
+        if (textarea && data.message) textarea.value = data.message;
+        else if (!data.message) showToast('AI announcements are currently disabled', 'info');
+    } catch (e) {
+        showToast('Could not draft an announcement right now', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = original; }
+    }
+}
+
+async function sendAnnouncement() {
+    const textarea = document.getElementById('announcement-message');
+    const message = (textarea?.value || '').trim();
+    if (!message) { showToast('Write a message first', 'error'); return; }
+    const btn = document.getElementById('announcement-send-btn');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch('/api/announcements', {
+            method: 'POST', headers: authHeaders(), body: JSON.stringify({ message })
+        });
+        if (!res.ok) throw new Error('Failed');
+        showToast('Announcement sent', 'success');
+        closeModal('announcement-modal');
+    } catch (e) {
+        showToast('Failed to send announcement', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
     }
 }
 
@@ -359,15 +728,13 @@ function enhanceOtpInput(inputId, length = 6) {
 // space character SHOULD be accepted in memorized secrets. This app caps the
 // max at 16 (a product choice, not a NIST recommendation — NIST suggests
 // allowing at least 64 to keep multi-word passphrases viable). Either way,
-// the space character itself is never blocked or stripped mid-password; only
-// leading/trailing whitespace is trimmed (never intentional — usually a
-// copy-paste artifact — and would otherwise make a password silently fail to
-// match on next login).
+// spaces are blocked entirely (spacebar keystrokes are suppressed, and any
+// whitespace that slips in via paste/autofill/IME is stripped immediately).
 const PASSWORD_MIN_LENGTH = 8;
 const PASSWORD_MAX_LENGTH = 16;
 
-function stripEdgeWhitespace(value) {
-    return value.replace(/^\s+|\s+$/g, '');
+function stripWhitespace(value) {
+    return value.replace(/\s+/g, '');
 }
 
 function enforcePasswordPolicy(root = document) {
@@ -413,13 +780,20 @@ function enforcePasswordPolicy(root = document) {
         }
         input.addEventListener('input', reportLength);
 
-        // Trim only on blur (not live on every keystroke) — trimming while
-        // typing would delete the space the instant it's pressed mid-passphrase,
-        // since it's technically "trailing" until the next character is typed.
-        input.addEventListener('blur', () => {
-            const trimmed = stripEdgeWhitespace(input.value);
-            if (trimmed !== input.value) {
-                input.value = trimmed;
+        // Block the spacebar keystroke outright so a space is never entered
+        // in the first place.
+        input.addEventListener('keydown', (e) => {
+            if (e.key === ' ' || e.code === 'Space') e.preventDefault();
+        });
+
+        // Belt-and-suspenders: strip any whitespace that slips in via paste,
+        // autofill, or IME composition (keydown alone won't catch those).
+        input.addEventListener('input', () => {
+            const cleaned = stripWhitespace(input.value);
+            if (cleaned !== input.value) {
+                const pos = input.selectionStart ?? cleaned.length;
+                input.value = cleaned;
+                input.setSelectionRange(Math.min(pos, cleaned.length), Math.min(pos, cleaned.length));
                 input.dispatchEvent(new Event('input', { bubbles: true }));
             }
         });
@@ -427,7 +801,7 @@ function enforcePasswordPolicy(root = document) {
         input.addEventListener('paste', (e) => {
             const text = (e.clipboardData || window.clipboardData)?.getData('text');
             if (text == null) return;
-            const cleaned = stripEdgeWhitespace(text).slice(0, PASSWORD_MAX_LENGTH);
+            const cleaned = stripWhitespace(text).slice(0, PASSWORD_MAX_LENGTH);
             if (cleaned === text) return;
             e.preventDefault();
             const start = input.selectionStart ?? input.value.length;
@@ -444,6 +818,8 @@ function enforcePasswordPolicy(root = document) {
 // ── INIT ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     initSocket();
+    applySiteSettings();
     enhancePasswordToggles();
     enforcePasswordPolicy();
+    initAnnouncements();
 });

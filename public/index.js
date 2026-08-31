@@ -538,8 +538,16 @@ function validateCurrentStep() {
     
     if (step === 3) {
         const otp = document.getElementById('reg-otp').value.trim();
+        const termsHint = document.getElementById('reg-terms-hint');
+        if (termsHint) termsHint.textContent = '';
         if (!otp || otp.length !== 6) {
             errEl.textContent = 'Enter the 6-digit verification code.';
+            errEl.classList.add('show');
+            return false;
+        }
+        if (!document.getElementById('reg-terms-accept').checked) {
+            if (termsHint) termsHint.textContent = 'You must agree to the Terms and Conditions to create an account.';
+            errEl.textContent = 'You must agree to the Terms and Conditions to create an account.';
             errEl.classList.add('show');
             return false;
         }
@@ -710,7 +718,7 @@ async function submitStep3(otp) {
         const res = await fetch('/api/auth/register/verify-otp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: registrationState.token, otp })
+            body: JSON.stringify({ token: registrationState.token, otp, terms_accepted: document.getElementById('reg-terms-accept').checked })
         });
         const data = await res.json();
         if (res.ok && data.success) {

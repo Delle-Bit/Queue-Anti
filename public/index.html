@@ -419,7 +419,7 @@
                         </div>
                         <ul class="pw-requirements">
                             <li id="reg-password-req-length"><i class="fa-solid fa-circle-check"></i> 8-16 characters</li>
-                            <li class="pw-requirements-note"><i class="fa-solid fa-circle-info"></i> Spaces are allowed — try a memorable passphrase</li>
+                            <li class="pw-requirements-note"><i class="fa-solid fa-circle-info"></i> Spaces are not allowed</li>
                         </ul>
                         <small class="text-muted" id="reg-password-length-hint" role="alert" aria-live="polite"></small>
                         <div class="password-strength" id="password-strength" style="display:none;">
@@ -460,6 +460,13 @@
                         <button type="button" class="btn btn-sm btn-outline" id="reg-resend-otp" onclick="resendOTP()">
                             <i class="fa-solid fa-rotate-left"></i> Resend Code (<span id="otp-countdown">00:00</span>)
                         </button>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label" for="reg-terms-accept">
+                            <input type="checkbox" id="reg-terms-accept" aria-describedby="reg-terms-hint">
+                            <span>I have read and agree to the <a href="#" onclick="openModal('terms-modal'); return false;">Terms and Conditions</a></span>
+                        </label>
+                        <small class="text-muted" id="reg-terms-hint" role="alert" aria-live="polite"></small>
                     </div>
                     <div class="reg-step-actions">
                         <button type="button" class="btn btn-secondary" onclick="goToStep(2)"><i class="fa-solid fa-arrow-left"></i> Back</button>
@@ -524,7 +531,7 @@
                         <input type="password" id="forgot-new-password" class="form-input" placeholder="Create password (8-16 characters)" minlength="8" maxlength="16" autocomplete="new-password" data-length-hint="forgot-new-password-hint" data-requirement-item="forgot-password-req-length">
                         <ul class="pw-requirements">
                             <li id="forgot-password-req-length"><i class="fa-solid fa-circle-check"></i> 8-16 characters</li>
-                            <li class="pw-requirements-note"><i class="fa-solid fa-circle-info"></i> Spaces are allowed — try a memorable passphrase</li>
+                            <li class="pw-requirements-note"><i class="fa-solid fa-circle-info"></i> Spaces are not allowed</li>
                         </ul>
                         <small class="text-muted" id="forgot-new-password-hint" role="alert" aria-live="polite"></small>
                     </div>
@@ -542,6 +549,52 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeForgotModal()" id="forgot-cancel-btn">Cancel</button>
                 <button class="btn btn-primary" onclick="forgotStepAction()" id="forgot-action-btn">Send Code</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== TERMS AND CONDITIONS MODAL ===== -->
+    <div id="terms-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="terms-modal-title">
+        <div class="modal-box" style="max-width: 640px;">
+            <div class="modal-header">
+                <div class="modal-title" id="terms-modal-title"><i class="fa-solid fa-file-contract"></i> Terms and Conditions</div>
+                <button class="modal-close" onclick="closeModal('terms-modal')" aria-label="Close Terms and Conditions">&times;</button>
+            </div>
+            <div class="modal-body" style="font-size: 0.9em; line-height: 1.7; max-height: 60vh; overflow-y: auto;">
+                <p class="text-muted text-sm">Last updated: August 2026</p>
+
+                <h4>1. Acceptance of Terms</h4>
+                <p>By creating an account and using Medical Clinic's digital queueing system ("the Service"), you agree to be bound by these Terms and Conditions. If you do not agree, please do not register for an account.</p>
+
+                <h4>2. The Service</h4>
+                <p>The Service lets you join queues, book appointments, and track your status for services offered at the clinic. It does not replace in-person medical evaluation, diagnosis, or treatment.</p>
+
+                <h4>3. Account Registration &amp; Identity Verification</h4>
+                <p>You must provide accurate, current information when registering, including a valid ID or guardian details for underage accounts. Priority categories (Senior, PWD, Pregnant) must reflect your actual, verifiable status — misrepresenting eligibility may result in account suspension. Each person may hold only one account.</p>
+
+                <h4>4. Medical Information &amp; Health Data</h4>
+                <p>Information you or clinic staff enter — including profile details, consultation notes, lab results, and prescriptions — is stored to support your care and is accessible to authorized clinic staff involved in your treatment. You are responsible for the accuracy of health information you self-report.</p>
+
+                <h4>5. Queue &amp; Appointment Policies</h4>
+                <p>Tickets and appointment slots may be forfeited if you do not respond or arrive within the clinic's posted waiting window. Priority ordering is determined by the clinic's queueing rules and may change without prior notice.</p>
+
+                <h4>6. Privacy &amp; Data Use</h4>
+                <p>Your data is used to provide and improve the Service and is not sold to third parties. It may be retained as required by applicable recordkeeping laws and clinic policy. Optional AI-assisted features process your queries to help answer questions about clinic services and are not a source of medical advice.</p>
+
+                <h4>7. Your Responsibilities</h4>
+                <p>You agree to keep your login credentials confidential, to use the Service only for its intended purpose, and to notify the clinic promptly of any unauthorized use of your account.</p>
+
+                <h4>8. Limitation of Liability</h4>
+                <p>The Service is provided "as is." The clinic is not liable for delays, errors, or interruptions in the Service beyond its reasonable control.</p>
+
+                <h4>9. Changes to These Terms</h4>
+                <p>These Terms may be updated from time to time. Continued use of the Service after changes take effect constitutes acceptance of the revised Terms.</p>
+
+                <h4>10. Contact</h4>
+                <p>Questions about these Terms can be directed to clinic front desk staff.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeModal('terms-modal')">Close</button>
             </div>
         </div>
     </div>

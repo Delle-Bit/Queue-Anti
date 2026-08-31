@@ -255,30 +255,8 @@ async function purgeArchive(id) {
 }
 
 // ── CUSTOMIZATION ──
-async function loadCustomization() {
-    try {
-        const res = await fetch('/api/settings', { headers: authHeaders() });
-        const settings = await res.json();
-        if(settings) {
-            document.getElementById('cust-nav-color').value = settings.navbar_color || '#1e293b';
-            document.getElementById('cust-nav-color-text').value = settings.navbar_color || '#1e293b';
-            document.getElementById('cust-bg-url').value = settings.background_image || '';
-        }
-    } catch(err) {}
-}
-
-async function saveCustomization() {
-    const navColor = document.getElementById('cust-nav-color').value;
-    const bgUrl = document.getElementById('cust-bg-url').value;
-    try {
-        const res = await fetch('/api/settings', {
-            method: 'PUT', headers: authHeaders(),
-            body: JSON.stringify({ navbar_color: navColor, background_image: bgUrl })
-        });
-        if(res.ok) { showToast('Settings saved!', 'success'); }
-        else { showToast('Failed to save settings', 'error'); }
-    } catch(err) {}
-}
+// loadCustomization() / saveCustomization() live in shared.js - owner.html hosts
+// the identical form, so the pair is shared rather than duplicated here.
 
 // ── SERVICE MANAGEMENT ──
 let allLabs = [];

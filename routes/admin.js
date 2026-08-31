@@ -5,6 +5,7 @@ const bcrypt = require('bcrypt');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const { requireStaff, requireAdmin } = require('../config');
+const aiServices = require('../ai_services');
 
 const ELEVATED_ROLES = ['admin', 'admintechnical', 'owner'];
 
@@ -389,15 +390,65 @@ router.get('/audit-logs', requireAdmin, async (req, res) => {
 // --- SETTINGS ---
 // GET /settings is served publicly from server.js (branding for unauthenticated pages)
 
+// Allowlist - also the source of the SET clause's column names, so nothing from
+// the request body can reach the SQL text.
+const SETTINGS_FIELDS = {
+    site_name: 255,
+    logo_path: 255,
+    theme: 20,
+    navbar_color: 50,
+    background_image: 255
+};
+const SETTINGS_THEMES = ['light', 'dark'];
+
+// Partial update: only the fields actually present in the body are written.
+// This used to be an unconditional full-row UPDATE, so saving the two fields the
+// Customize form sent (navbar_color + background_image) nulled out site_name and
+// logo_path and reset theme - which also silently broke the branding on the
+// customer's exported medical-record PDF, the one place those two were read.
 router.put('/settings', requireAdmin, async (req, res) => {
-    const { site_name, logo_path, theme, navbar_color, background_image } = req.body;
+    const body = req.body || {};
+    const fields = Object.keys(SETTINGS_FIELDS).filter(f => body[f] !== undefined && body[f] !== null);
+    if (fields.length === 0) return res.status(400).json({ error: 'No settings provided' });
+
+    const values = [];
+    for (const field of fields) {
+        const value = String(body[field]).trim();
+        if (value.length > SETTINGS_FIELDS[field]) {
+            return res.status(400).json({ error: `${field} must be ${SETTINGS_FIELDS[field]} characters or fewer` });
+        }
+        if (field === 'theme' && !SETTINGS_THEMES.includes(value)) {
+            return res.status(400).json({ error: `theme must be one of: ${SETTINGS_THEMES.join(', ')}` });
+        }
+        if (field === 'navbar_color' && value && !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) {
+            return res.status(400).json({ error: 'navbar_color must be a hex colour such as #24303A' });
+        }
+        if (field === 'site_name' && !value) {
+            return res.status(400).json({ error: 'Site name cannot be empty' });
+        }
+        values.push(value);
+    }
+
     try {
-        await pool.query(
-            `UPDATE settings SET site_name=?, logo_path=?, theme=?, navbar_color=?, background_image=? WHERE id=1`,
-            [site_name, logo_path, theme || 'light', navbar_color || '#ffffff', background_image || '']
-        );
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to update settings' }); }
+        const setClause = fields.map(f => `${f}=?`).join(', ');
+        await pool.query(`UPDATE settings SET ${setClause} WHERE id=1`, values);
+
+        try {
+            await pool.query(
+                'INSERT INTO audit_logs (action, entity_type, entity_id, details, performed_by) VALUES (?, ?, ?, ?, ?)',
+                ['update', 'settings', 1, JSON.stringify(Object.fromEntries(fields.map((f, i) => [f, values[i]]))), req.user.id]
+            );
+        } catch (logErr) { console.error('Settings audit log failed:', logErr.message); }
+
+        // Let every open page re-apply the branding without a manual reload.
+        const io = req.app.get('io');
+        if (io) io.emit('settingsUpdate', {});
+
+        res.json({ success: true, updated: fields });
+    } catch (err) {
+        console.error('Update settings error:', err);
+        res.status(500).json({ error: 'Failed to update settings' });
+    }
 });
 
 // --- MEDICAL RECORDS ---
@@ -415,11 +466,13 @@ router.get('/medical-records/my', async (req, res) => {
 });
 
 router.post('/medical-records/my', async (req, res) => {
-    const { full_name, surname, first_name, middle_name, no_middle_name, gender, birthday, birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions } = req.body;
+    const { full_name, surname, first_name, middle_name, no_middle_name, gender, birthday, birthplace, address, house_number, street, barangay, city, province, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions } = req.body;
     const customer_id = req.user.id;
     try {
         const missing = [];
-        const required = { surname, first_name, gender, birthday, birthplace, status, address, phone, occupation, emergency_contact };
+        // house_number is intentionally absent: many rural Philippine addresses
+        // have no house number, so it stays optional.
+        const required = { surname, first_name, gender, birthday, birthplace, status, address, street, barangay, city, province, phone, occupation, emergency_contact };
         Object.entries(required).forEach(([key, value]) => {
             if (!String(value || '').trim()) missing.push(key);
         });
@@ -434,14 +487,14 @@ router.post('/medical-records/my', async (req, res) => {
         const [existing] = await pool.query('SELECT id FROM medical_records WHERE customer_id = ? AND archived=false', [customer_id]);
         if (existing.length > 0) {
             await pool.query(
-                `UPDATE medical_records SET birthplace=?, address=?, phone=?, status=?, occupation=?, retiree=?, emergency_contact=?, current_health=?, past_conditions=? WHERE customer_id=?`,
-                [birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions, customer_id]
+                `UPDATE medical_records SET birthplace=?, address=?, house_number=?, street=?, barangay=?, city=?, province=?, phone=?, status=?, occupation=?, retiree=?, emergency_contact=?, current_health=?, past_conditions=? WHERE customer_id=?`,
+                [birthplace, address, house_number || '', street, barangay, city, province, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions, customer_id]
             );
         } else {
             await pool.query(
-                `INSERT INTO medical_records (customer_id, birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [customer_id, birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions]
+                `INSERT INTO medical_records (customer_id, birthplace, address, house_number, street, barangay, city, province, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [customer_id, birthplace, address, house_number || '', street, barangay, city, province, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions]
             );
         }
         res.json({ success: true });
@@ -554,6 +607,81 @@ router.get('/clinical-records/:customerId', requireStaff, async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+
+// --- ANNOUNCEMENTS ---
+const ANNOUNCEMENT_DEPARTMENT_NAMES = { frontdesk: 'Front Desk', laboratory: 'Laboratory', doctor: 'Doctor' };
+
+router.get('/announcements/draft', requireStaff, async (req, res) => {
+    const stationType = ['frontdesk', 'laboratory', 'doctor'].includes(req.query.station_type) ? req.query.station_type : 'frontdesk';
+    const stationId = req.query.station_id || null;
+    try {
+        const waitingParams = [stationType];
+        let waitingSql = `SELECT COUNT(*) as v FROM queue WHERE station_type=? AND status='waiting'`;
+        if (stationId) { waitingSql += ' AND station_id=?'; waitingParams.push(stationId); }
+        const [waitingRows] = await pool.query(waitingSql, waitingParams);
+
+        const nextParams = [stationType];
+        let nextSql = `SELECT number FROM queue WHERE station_type=? AND status IN ('waiting','serving')`;
+        if (stationId) { nextSql += ' AND station_id=?'; nextParams.push(stationId); }
+        nextSql += ` ORDER BY (status='serving') DESC, timestamp ASC LIMIT 1`;
+        const [nextRows] = await pool.query(nextSql, nextParams);
+
+        const avgParams = [stationType];
+        let avgSql = `SELECT AVG(TIMESTAMPDIFF(MINUTE,serve_time,complete_time)) as v FROM queue_logs WHERE station_type=? AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE()`;
+        if (stationId) { avgSql += ' AND station_id=?'; avgParams.push(stationId); }
+        const [avgRows] = await pool.query(avgSql, avgParams);
+
+        const output = await aiServices.announcementGen({
+            waitingCount: waitingRows[0].v,
+            nextServing: nextRows[0]?.number || null,
+            department: ANNOUNCEMENT_DEPARTMENT_NAMES[stationType] || stationType,
+            avgWaitMinutes: avgRows[0].v
+        });
+        res.json(output);
+    } catch (err) { res.status(500).json({ error: 'Failed to draft announcement' }); }
+});
+
+router.post('/announcements', requireStaff, async (req, res) => {
+    const message = String(req.body.message || '').trim();
+    if (!message) return res.status(400).json({ error: 'Message is required' });
+    try {
+        const [result] = await pool.query(
+            'INSERT INTO announcements (message, created_by) VALUES (?, ?)',
+            [message, req.user.id]
+        );
+        if (req.app.get('io')) req.app.get('io').emit('announcementUpdate', {});
+        res.json({ success: true, id: result.insertId });
+    } catch (err) { res.status(500).json({ error: 'Failed to send announcement' }); }
+});
+
+router.get('/announcements', requireStaff, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT a.*, u.username as sender_name FROM announcements a
+             LEFT JOIN users u ON a.created_by = u.id
+             WHERE a.archived = false ORDER BY a.timestamp DESC LIMIT 50`
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+router.get('/announcements/active', async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT id, message, timestamp FROM announcements WHERE archived = false ORDER BY timestamp DESC LIMIT 10`
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+router.delete('/announcements/:id', requireStaff, async (req, res) => {
+    try {
+        const ok = await archiveRecord('announcements', 'id', req.params.id, 'announcement', req.user.id);
+        if (!ok) return res.status(404).json({ error: 'Not found' });
+        if (req.app.get('io')) req.app.get('io').emit('announcementUpdate', {});
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Failed to archive' }); }
+});
 
 // --- FAQS / SERVICE PRICE REFERENCE ---
 router.get('/faqs', async (req, res) => {

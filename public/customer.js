@@ -566,6 +566,168 @@ function toggleSurgeryInput() {
     document.getElementById('surgery-spec-div').style.display = val === 'Yes' ? 'block' : 'none';
 }
 
+// ── PH ADDRESS CASCADE (Province → City/Municipality → Barangay) ─────
+// Data is PSGC (see scripts/build-psgc-data.js). Provinces + cities are one
+// small fetch each; barangays are sharded per province so picking a province
+// downloads only that province's ~15-90KB instead of the country's 11MB.
+// Everything is memoized, so reopening the form re-fetches nothing.
+const PH_DATA_BASE = '/data/ph';
+const phAddress = { provinces: null, cities: null, barangays: new Map(), basePromise: null };
+
+function loadPhBaseData() {
+    if (!phAddress.basePromise) {
+        phAddress.basePromise = Promise.all([
+            fetch(`${PH_DATA_BASE}/provinces.json`).then(r => { if (!r.ok) throw new Error('provinces'); return r.json(); }),
+            fetch(`${PH_DATA_BASE}/cities.json`).then(r => { if (!r.ok) throw new Error('cities'); return r.json(); })
+        ]).then(([provinces, cities]) => {
+            phAddress.provinces = provinces;
+            phAddress.cities = cities;
+        }).catch(err => {
+            phAddress.basePromise = null; // let a later reopen retry
+            throw err;
+        });
+    }
+    return phAddress.basePromise;
+}
+
+function loadPhBarangays(provinceCode) {
+    if (!phAddress.barangays.has(provinceCode)) {
+        const p = fetch(`${PH_DATA_BASE}/barangays/${provinceCode}.json`)
+            .then(r => { if (!r.ok) throw new Error('barangays'); return r.json(); })
+            .catch(err => {
+                phAddress.barangays.delete(provinceCode);
+                throw err;
+            });
+        phAddress.barangays.set(provinceCode, p);
+    }
+    return phAddress.barangays.get(provinceCode);
+}
+
+// Option value is the NAME (that's what gets stored and displayed); the PSGC
+// code rides along in a data attribute purely to filter the next level.
+function setSelectOptions(select, items, placeholder) {
+    select.innerHTML = '';
+    const ph = document.createElement('option');
+    ph.value = '';
+    ph.textContent = placeholder;
+    select.appendChild(ph);
+    items.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.n;
+        opt.textContent = item.n;
+        opt.dataset.code = item.c;
+        select.appendChild(opt);
+    });
+}
+
+function selectedCode(select) {
+    const opt = select.selectedOptions && select.selectedOptions[0];
+    return opt ? (opt.dataset.code || '') : '';
+}
+
+async function initAddressSelects() {
+    const provSel = document.getElementById('req-med-province');
+    if (!provSel || provSel.dataset.ready === 'true') return;
+    try {
+        await loadPhBaseData();
+        setSelectOptions(provSel, phAddress.provinces, 'Select province');
+        provSel.dataset.ready = 'true';
+    } catch (err) {
+        console.error('Failed to load address data', err);
+        setSelectOptions(provSel, [], 'Unable to load provinces');
+        showToast('Could not load the address list. Check your connection, then reopen the form.', 'error');
+    }
+}
+
+async function onProvinceChange() {
+    const provSel = document.getElementById('req-med-province');
+    const citySel = document.getElementById('req-med-city');
+    const brgySel = document.getElementById('req-med-barangay');
+    const provinceCode = selectedCode(provSel);
+
+    // Any province change invalidates both levels below it.
+    brgySel.disabled = true;
+    setSelectOptions(brgySel, [], 'Select city first');
+    if (!provinceCode) {
+        citySel.disabled = true;
+        setSelectOptions(citySel, [], 'Select province first');
+        return;
+    }
+    const cities = (phAddress.cities || []).filter(c => c.p === provinceCode);
+    setSelectOptions(citySel, cities, 'Select city / municipality');
+    citySel.disabled = false;
+    // Warm the shard now so picking a city feels instant.
+    loadPhBarangays(provinceCode).catch(() => {});
+}
+
+async function onCityChange() {
+    const provSel = document.getElementById('req-med-province');
+    const citySel = document.getElementById('req-med-city');
+    const brgySel = document.getElementById('req-med-barangay');
+    const provinceCode = selectedCode(provSel);
+    const cityCode = selectedCode(citySel);
+
+    if (!cityCode) {
+        brgySel.disabled = true;
+        setSelectOptions(brgySel, [], 'Select city first');
+        return;
+    }
+    setSelectOptions(brgySel, [], 'Loading barangays...');
+    // Stays enabled on failure on purpose: an empty required select blocks
+    // submission, whereas a disabled one is skipped by the validator and
+    // would let an address through with no barangay.
+    brgySel.disabled = false;
+    try {
+        const all = await loadPhBarangays(provinceCode);
+        // Guard against a slow shard resolving after the user moved on.
+        if (selectedCode(citySel) !== cityCode) return;
+        const list = all.filter(b => b.m === cityCode);
+        setSelectOptions(brgySel, list, list.length ? 'Select barangay' : 'No barangays found');
+    } catch (err) {
+        console.error('Failed to load barangays', err);
+        setSelectOptions(brgySel, [], 'Unable to load barangays');
+        showToast('Could not load barangays for that city. Please try again.', 'error');
+    }
+}
+
+// Rebuilds the single-line address string that the profile card, staff views,
+// and PDF export all already read from `medical_records.address`.
+function composeAddressString({ houseNumber, street, barangay, city, province }) {
+    const line = [houseNumber, street].map(v => String(v || '').trim()).filter(Boolean).join(' ');
+    // Many PSGC barangay names are literally "Barangay 1 (Pob.)" — don't
+    // produce "Barangay Barangay 1".
+    const brgy = String(barangay || '').trim();
+    const brgyLabel = !brgy ? '' : (/^barangay\b/i.test(brgy) ? brgy : `Barangay ${brgy}`);
+    return [line, brgyLabel, String(city || '').trim(), String(province || '').trim()]
+        .filter(Boolean)
+        .join(', ');
+}
+
+// Restores the three chained selects from a saved record, level by level —
+// each one has to be populated before the next can be set.
+async function restoreAddressSelects(med) {
+    await initAddressSelects();
+    const provSel = document.getElementById('req-med-province');
+    const citySel = document.getElementById('req-med-city');
+    const brgySel = document.getElementById('req-med-barangay');
+    if (!provSel) return;
+
+    provSel.value = med.province || '';
+    // A saved name that's no longer in PSGC (renamed/merged) won't match any
+    // option, leaving the select blank so the user just re-picks it.
+    if (!provSel.value) {
+        await onProvinceChange();
+        return;
+    }
+    await onProvinceChange();
+
+    citySel.value = med.city || '';
+    if (!citySel.value) return;
+    await onCityChange();
+
+    brgySel.value = med.barangay || '';
+}
+
 async function submitMandatoryMedicalForm() {
     if (!validateRequiredMedicalFields()) return;
     const surname = document.getElementById('req-med-surname').value.trim();
@@ -578,7 +740,12 @@ async function submitMandatoryMedicalForm() {
 
     const birthplace = document.getElementById('req-med-birthplace').value;
     const status = document.getElementById('req-med-status').value;
-    const address = document.getElementById('req-med-address').value;
+    const houseNumber = document.getElementById('req-med-house-number').value.trim();
+    const street = document.getElementById('req-med-street').value.trim();
+    const barangay = document.getElementById('req-med-barangay').value;
+    const city = document.getElementById('req-med-city').value;
+    const province = document.getElementById('req-med-province').value;
+    const address = composeAddressString({ houseNumber, street, barangay, city, province });
     const phone = document.getElementById('req-med-phone').value;
     const occupation = document.getElementById('req-med-occupation').value;
     const emergency = document.getElementById('req-med-emergency').value;
@@ -614,6 +781,11 @@ async function submitMandatoryMedicalForm() {
         birthplace,
         status,
         address,
+        house_number: houseNumber,
+        street,
+        barangay,
+        city,
+        province,
         phone,
         occupation,
         retiree,
@@ -657,7 +829,9 @@ async function populateMedicalFormFromRecord() {
         setVal('req-med-birthdate', user.birthday ? String(user.birthday).slice(0, 10) : '');
         setVal('req-med-birthplace', med.birthplace);
         setVal('req-med-status', med.status);
-        setVal('req-med-address', med.address);
+        setVal('req-med-house-number', med.house_number);
+        setVal('req-med-street', med.street);
+        await restoreAddressSelects(med);
         setVal('req-med-phone', med.phone);
         setVal('req-med-occupation', med.occupation);
         document.getElementById('req-med-retiree').checked = !!med.retiree;
@@ -676,6 +850,9 @@ window.openModal = async function(id) {
     }
     if (id === 'mandatory-med-modal') {
         await populateMedicalFormFromRecord();
+        // Safety net: if the record fetch above failed, the province list
+        // would otherwise be left stuck on "Loading...".
+        await initAddressSelects();
     }
     if (origOpenModal) origOpenModal(id);
     else document.getElementById(id)?.classList.add('active');
@@ -898,3 +1075,405 @@ async function loadMyMedicalRecords() {
     }
 }
 
+// ── MEDICAL RECORD PDF EXPORT ────────────────────────────────────────
+// Renders the patient's record as a formal clinic document via jsPDF
+// (direct download, no print dialog). Reads the same endpoints and field
+// mapping as loadMyMedicalRecords().
+//
+// Layout follows the conventions real clinic paperwork uses: serif
+// letterhead, a titled document band, boxed demographics, ruled section
+// headers, and a repeating footer carrying the confidentiality notice and
+// page count.
+// Appears under the clinic name on the letterhead. Mirrors the landing
+// page hero copy — change both together.
+const CLINIC_MOTTO = 'Smart Healthcare, At Your Fingertips';
+
+const PDF = {
+    margin: 14,
+    pageW: 210,          // A4 portrait, millimetres
+    pageH: 297,
+    brand: [198, 40, 58],       // --primary #C6283A
+    ink: [26, 32, 44],          // near-black body text
+    muted: [113, 128, 150],     // secondary text
+    hairline: [203, 213, 224],  // rules and table borders
+    band: [244, 246, 248],      // section header / zebra fill
+    headerBottom: 46,           // y where page-1 content may begin
+    runningHeaderBottom: 26,    // y where content may begin on pages 2+
+    footerTop: 278
+};
+
+// jsPDF cannot place an SVG, so the clinic logo is rasterised through a
+// canvas first. Returns null on any failure — the letterhead falls back to
+// text rather than losing the whole export over a missing image.
+async function loadLogoDataUrl(src) {
+    try {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = src;
+        });
+        const px = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = px;
+        canvas.height = px;
+        canvas.getContext('2d').drawImage(img, 0, 0, px, px);
+        return canvas.toDataURL('image/png');
+    } catch (err) {
+        console.warn('Logo unavailable for PDF letterhead', err);
+        return null;
+    }
+}
+
+function pdfLetterhead(doc, clinic, logo) {
+    const { margin, pageW, brand, ink, muted, hairline } = PDF;
+    let textX = margin;
+
+    if (logo) {
+        doc.addImage(logo, 'PNG', margin, 12, 16, 16);
+        textX = margin + 21;
+    }
+
+    doc.setTextColor(ink[0], ink[1], ink[2]);
+    doc.setFont('times', 'bold');
+    doc.setFontSize(19);
+    doc.text(clinic.name, textX, 20);
+
+    // System motto — kept in sync with the landing page hero
+    // ("Smart Healthcare, At Your Fingertips" in public/index.html).
+    // Italic serif pairs with the serif clinic name above it.
+    doc.setFont('times', 'italic');
+    doc.setFontSize(9.5);
+    doc.setTextColor(muted[0], muted[1], muted[2]);
+    doc.text(CLINIC_MOTTO, textX, 25.5);
+
+    // "CONFIDENTIAL" marker, right-aligned against the letterhead.
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(brand[0], brand[1], brand[2]);
+    doc.text('CONFIDENTIAL', pageW - margin, 20, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(muted[0], muted[1], muted[2]);
+    doc.text('Patient Health Information', pageW - margin, 24.5, { align: 'right' });
+
+    // Accent rule over a hairline — the standard letterhead divider.
+    doc.setFillColor(brand[0], brand[1], brand[2]);
+    doc.rect(margin, 31, pageW - margin * 2, 1.1, 'F');
+    doc.setDrawColor(hairline[0], hairline[1], hairline[2]);
+    doc.setLineWidth(0.2);
+    doc.line(margin, 32.9, pageW - margin, 32.9);
+
+    // Document title band.
+    doc.setFillColor(PDF.band[0], PDF.band[1], PDF.band[2]);
+    doc.rect(margin, 35.5, pageW - margin * 2, 8, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(ink[0], ink[1], ink[2]);
+    doc.text('P A T I E N T   M E D I C A L   R E C O R D', pageW / 2, 41, { align: 'center' });
+}
+
+// Compact header for continuation pages, so every sheet is identifiable on
+// its own once the document is printed and the pages separated.
+function pdfRunningHeader(doc, clinic, patient) {
+    const { margin, pageW, muted, hairline } = PDF;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(muted[0], muted[1], muted[2]);
+    doc.text(clinic.name.toUpperCase(), margin, 14);
+    doc.setFont('helvetica', 'normal');
+    doc.text(patient.name + '  ·  ' + patient.id, pageW - margin, 14, { align: 'right' });
+    doc.setDrawColor(hairline[0], hairline[1], hairline[2]);
+    doc.setLineWidth(0.2);
+    doc.line(margin, 17, pageW - margin, 17);
+}
+
+function pdfFooter(doc, pageNum, generatedAt) {
+    const { margin, pageW, muted, hairline, footerTop } = PDF;
+    doc.setDrawColor(hairline[0], hairline[1], hairline[2]);
+    doc.setLineWidth(0.2);
+    doc.line(margin, footerTop, pageW - margin, footerTop);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.setTextColor(muted[0], muted[1], muted[2]);
+    doc.text('This record contains confidential patient health information. Handle and dispose of it accordingly.', margin, footerTop + 4.5);
+    doc.text('Computer-generated document — not a certified true copy. Request a certified copy from the clinic if one is required.', margin, footerTop + 8);
+    doc.text('Generated ' + generatedAt, margin, footerTop + 11.5);
+}
+
+// Ruled section heading, matching the document band styling.
+function pdfSectionHeading(doc, title, y) {
+    const { margin, pageW, ink, brand } = PDF;
+    doc.setFillColor(PDF.band[0], PDF.band[1], PDF.band[2]);
+    doc.rect(margin, y, pageW - margin * 2, 6.5, 'F');
+    doc.setFillColor(brand[0], brand[1], brand[2]);
+    doc.rect(margin, y, 1.6, 6.5, 'F');   // accent tab on the leading edge
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.8);
+    doc.setTextColor(ink[0], ink[1], ink[2]);
+    doc.text(title.toUpperCase(), margin + 4, y + 4.4);
+    return y + 6.5;
+}
+
+// Label/value grid, enclosed in a box with alternating row tints.
+//
+// Entries are [label, value] (half width, paired two per row) or
+// [label, value, 'full'] (its own full-width row). Row height is derived
+// from the wrapped line count — long values wrap instead of being clipped,
+// which matters most for addresses.
+function pdfFieldGrid(doc, entries, startY) {
+    const { margin, pageW, ink, muted, hairline } = PDF;
+    const usable = pageW - margin * 2;
+    const colW = usable / 2;
+    const labelH = 3;
+    const lineH = 3.9;
+    let y = startY;
+
+    // Group entries into visual rows: a 'full' entry claims a row alone,
+    // otherwise two half-width entries share one.
+    const visualRows = [];
+    for (let i = 0; i < entries.length;) {
+        const entry = entries[i];
+        if (entry[2] === 'full') {
+            visualRows.push([entry]);
+            i += 1;
+        } else {
+            const next = entries[i + 1];
+            if (next && next[2] !== 'full') { visualRows.push([entry, next]); i += 2; }
+            else { visualRows.push([entry]); i += 1; }
+        }
+    }
+
+    doc.setDrawColor(hairline[0], hairline[1], hairline[2]);
+    doc.setLineWidth(0.2);
+
+    visualRows.forEach((cells, rowIndex) => {
+        const isFull = cells.length === 1 && cells[0][2] === 'full';
+        // Measure first so the row is tall enough for its tallest cell.
+        const wrapped = cells.map(cell => {
+            const width = (isFull ? usable : colW) - 6;
+            return doc.splitTextToSize(String(cell[1] || '—') || '—', width);
+        });
+        const maxLines = Math.max(1, ...wrapped.map(w => w.length));
+        const rowH = labelH + maxLines * lineH + 2.4;
+
+        if (rowIndex % 2 === 0) {
+            doc.setFillColor(250, 251, 252);
+            doc.rect(margin, y, usable, rowH, 'F');
+        }
+
+        cells.forEach((cell, col) => {
+            const x = margin + (isFull ? 0 : col * colW);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7.4);
+            doc.setTextColor(muted[0], muted[1], muted[2]);
+            doc.text(String(cell[0]).toUpperCase(), x + 3, y + labelH);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(9);
+            doc.setTextColor(ink[0], ink[1], ink[2]);
+            doc.text(wrapped[col], x + 3, y + labelH + 3.2);
+        });
+
+        // Column divider only where the row actually has two columns.
+        if (!isFull && cells.length === 2) {
+            doc.line(margin + colW, y, margin + colW, y + rowH);
+        }
+        y += rowH;
+        if (rowIndex < visualRows.length - 1) doc.line(margin, y, margin + usable, y);
+    });
+
+    doc.rect(margin, startY, usable, y - startY);   // enclose the block
+    return y;
+}
+
+// Free-text block that wraps and reports how far down the page it reached.
+function pdfTextBlock(doc, label, text, y) {
+    const { margin, pageW, ink, muted } = PDF;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.4);
+    doc.setTextColor(muted[0], muted[1], muted[2]);
+    doc.text(label.toUpperCase(), margin, y + 3);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.8);
+    doc.setTextColor(ink[0], ink[1], ink[2]);
+    const lines = doc.splitTextToSize(String(text || 'None reported'), pageW - margin * 2 - 40);
+    doc.text(lines, margin + 40, y + 3);
+    return y + Math.max(6, lines.length * 4 + 2.5);
+}
+
+async function exportMedicalRecordPDF() {
+    const btn = document.getElementById('export-med-pdf-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...'; }
+    try {
+        const [medRes, clinicalRes, settingsRes] = await Promise.all([
+            fetch('/api/medical-records/my', { headers: authHeaders() }),
+            fetch('/api/clinical-records/my', { headers: authHeaders() }),
+            // Branding is best-effort: a failed settings call must not sink the export.
+            fetch('/api/settings').catch(() => null)
+        ]);
+        const med = await medRes.json();
+        const records = await clinicalRes.json();
+        const settings = settingsRes && settingsRes.ok ? await settingsRes.json().catch(() => ({})) : {};
+
+        const clinic = {
+            name: settings.site_name || 'Medical Clinic',
+            logoPath: settings.logo_path || '/images/examplelogo.svg'
+        };
+        const logo = await loadLogoDataUrl(clinic.logoPath);
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+        const generatedAt = new Date().toLocaleString();
+        const user = med.user || {};
+
+        let ageText = '—';
+        if (user.birthday) {
+            const diff = Date.now() - new Date(user.birthday).getTime();
+            ageText = Math.abs(new Date(diff).getUTCFullYear() - 1970) + ' years';
+        }
+        const category = user.customer_category || 'Regular';
+        const patient = {
+            name: user.full_name || getUsername() || 'Customer',
+            id: user.customer_uid || ('MC-' + String(user.id || getUserId() || '').padStart(6, '0'))
+        };
+
+        pdfLetterhead(doc, clinic, logo);
+
+        let y = PDF.headerBottom + 3;
+        y = pdfSectionHeading(doc, 'Patient Information', y) + 1.5;
+        y = pdfFieldGrid(doc, [
+            ['Patient Name', patient.name],
+            ['Patient ID', patient.id],
+            ['Date of Birth', user.birthday ? new Date(user.birthday).toLocaleDateString() : '—'],
+            ['Age', ageText],
+            ['Sex', user.gender || 'Unspecified'],
+            ['Priority Category', user.is_underage ? category + ' / Underage' : category],
+            ['Civil Status', med.status || '—'],
+            ['Occupation', med.occupation || '—'],
+            ['Place of Birth', med.birthplace || '—'],
+            ['Contact Number', med.phone || '—'],
+            // Full width: a complete PH address won't fit in half a row.
+            ['Residential Address', med.address || '—', 'full'],
+            ['Emergency Contact', med.emergency_contact || '—', 'full']
+        ], y);
+
+        y += 6;
+        y = pdfSectionHeading(doc, 'Reported Health Conditions', y) + 2;
+
+        let symptomsText = 'None reported';
+        if (med.current_health) {
+            try {
+                const arr = JSON.parse(med.current_health);
+                if (Array.isArray(arr) && arr.length) symptomsText = arr.join(' · ');
+            } catch (e) { symptomsText = med.current_health; }
+        }
+        y = pdfTextBlock(doc, 'Current', symptomsText, y);
+
+        let pastText = 'None reported';
+        if (med.past_conditions) {
+            try {
+                const pc = JSON.parse(med.past_conditions);
+                if (pc && typeof pc === 'object') {
+                    pastText = [
+                        'High blood pressure: ' + (pc.high_bp || 'No'),
+                        'Heart / circulation: ' + (pc.heart_problems || 'No'),
+                        'Blood clots: ' + (pc.blood_clots || 'No'),
+                        'High cholesterol: ' + (pc.high_cholesterol || 'No'),
+                        'Surgeries: ' + (pc.surgeries || 'No') + (pc.surgeries === 'Yes' && pc.surgeries_details ? ' (' + pc.surgeries_details + ')' : '')
+                    ].join(' · ');
+                }
+            } catch (e) { pastText = med.past_conditions; }
+        }
+        y = pdfTextBlock(doc, 'History', pastText, y);
+
+        y += 5;
+        y = pdfSectionHeading(doc, 'Consultation & Laboratory Records', y) + 2;
+
+        const typeLabels = { prescription: 'Prescription', examination: 'Examination', diagnostic: 'Diagnostic', lab_result: 'Laboratory' };
+        const tableRows = records.map(r => {
+            let details = '';
+            if (r.data) {
+                try {
+                    const d = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+                    if (r.record_type === 'examination') {
+                        details = 'BP ' + (d.bp || '—') + '  ·  HR ' + (d.pulse || '—') + ' bpm  ·  Temp ' + (d.temp || '—') + ' °C';
+                    } else if (r.record_type === 'prescription' && d.items) {
+                        details = d.items.map(i => i.medicine + ' (' + i.dosage + ')').join('\n');
+                    } else if (r.record_type === 'lab_result') {
+                        const params = d.parameters
+                            ? Object.entries(d.parameters).map(([k, v]) => k + ': ' + v).join('\n')
+                            : '';
+                        details = [d.test_name || 'General', params].filter(Boolean).join('\n');
+                    }
+                } catch (e) { /* leave details blank on malformed JSON */ }
+            }
+            return [
+                formatDateTime(r.created_at),
+                typeLabels[r.record_type] || r.record_type,
+                details || '—',
+                r.notes || '—',
+                r.staff_full_name || r.staff_name || 'Clinic Staff'
+            ];
+        });
+
+        if (tableRows.length === 0) {
+            doc.setFont('helvetica', 'italic');
+            doc.setFontSize(8.8);
+            doc.setTextColor(PDF.muted[0], PDF.muted[1], PDF.muted[2]);
+            doc.text('No consultation or laboratory records on file.', PDF.margin, y + 4);
+            pdfFooter(doc, 1, generatedAt);
+        } else {
+            doc.autoTable({
+                startY: y + 1,
+                head: [['Date & Time', 'Type', 'Findings / Details', 'Remarks', 'Recorded By']],
+                body: tableRows,
+                theme: 'grid',
+                margin: { left: PDF.margin, right: PDF.margin, top: PDF.runningHeaderBottom, bottom: 26 },
+                styles: {
+                    font: 'helvetica', fontSize: 7.6, cellPadding: 2.2,
+                    textColor: PDF.ink, lineColor: PDF.hairline, lineWidth: 0.15,
+                    valign: 'top', overflow: 'linebreak'
+                },
+                headStyles: {
+                    fillColor: PDF.brand, textColor: [255, 255, 255],
+                    fontSize: 7.4, fontStyle: 'bold', halign: 'left'
+                },
+                alternateRowStyles: { fillColor: [250, 251, 252] },
+                columnStyles: {
+                    0: { cellWidth: 26 },
+                    1: { cellWidth: 20 },
+                    2: { cellWidth: 48 },
+                    3: { cellWidth: 'auto' },
+                    4: { cellWidth: 26, textColor: PDF.muted }
+                },
+                // Stamps the running header and footer on every page the table
+                // spills onto, so continuation sheets stand on their own.
+                didDrawPage: () => {
+                    const page = doc.internal.getCurrentPageInfo().pageNumber;
+                    if (page > 1) pdfRunningHeader(doc, clinic, patient);
+                    pdfFooter(doc, page, generatedAt);
+                }
+            });
+        }
+
+        // Page numbering is deferred: the total is only known once the table
+        // has finished paginating.
+        const total = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= total; i++) {
+            doc.setPage(i);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.8);
+            doc.setTextColor(PDF.muted[0], PDF.muted[1], PDF.muted[2]);
+            doc.text('Page ' + i + ' of ' + total, PDF.pageW - PDF.margin, PDF.footerTop + 11.5, { align: 'right' });
+        }
+
+        const safeName = String(patient.name).replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
+        doc.save('medical-record-' + (safeName || 'patient') + '-' + new Date().toISOString().slice(0, 10) + '.pdf');
+    } catch (err) {
+        console.error('Error exporting medical record PDF:', err);
+        showToast('Failed to generate PDF export', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-file-arrow-down"></i> Export PDF'; }
+    }
+}
