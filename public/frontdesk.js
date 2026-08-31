@@ -49,8 +49,10 @@ async function loadFdQueue() {
 
         document.getElementById('fd-avg').textContent = analytics.avg_time + 'm';
         document.getElementById('fd-perhr').textContent = analytics.per_hour;
-        document.getElementById('fd-fastest').textContent = analytics.fastest ? analytics.fastest.mins + 'm' : '--';
-        document.getElementById('fd-slowest').textContent = analytics.slowest ? analytics.slowest.mins + 'm' : '--';
+        // With no measurable ticket yet these come back empty — show 0m, matching the zeroed
+        // avg/per-hour cards beside them, instead of concatenating null into "nullm".
+        document.getElementById('fd-fastest').textContent = `${Number(analytics.fastest?.mins ?? 0)}m`;
+        document.getElementById('fd-slowest').textContent = `${Number(analytics.slowest?.mins ?? 0)}m`;
 
         // Distribution
         const distHtml = (analytics.distribution || []).map(d => {

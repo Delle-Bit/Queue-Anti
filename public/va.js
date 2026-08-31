@@ -12,6 +12,16 @@ const VA_MAX_BUBBLES = 3;
 const VA_SILENCE_TIMEOUT_MS = 3000; // auto-stop this long after the user stops speaking
 const VA_INITIAL_LISTEN_TIMEOUT_MS = 8000; // grace period to start speaking after the mic activates
 
+// Speech-recognition failure reasons, mapped to something the customer can act on.
+// 'aborted' and 'no-speech' are expected during normal use and never surface.
+const VA_SPEECH_ERRORS = {
+    'not-allowed': 'Microphone access is blocked. Allow the microphone for this site, then click the nurse again.',
+    'service-not-allowed': 'Microphone access is blocked. Allow the microphone for this site, then click the nurse again.',
+    'audio-capture': "I can't find a microphone. Check that one is connected and selected, then try again.",
+    'network': 'I lost the connection to the speech service. Check your internet and try again.',
+    'default': "I couldn't hear that clearly. Click the nurse and try again."
+};
+
 let vaState = 'idle';
 let vaMuted = localStorage.getItem('vaMuted') === 'true';
 let recognition = null;
@@ -70,9 +80,25 @@ function updateMicButtonUI(isActive) {
 // ── FLOATING SPEECH BUBBLES ───────────────────────────────────────
 // Replaces the old fixed chat panel: bubbles float above the avatar and
 // retire on their own, keeping the dashboard visible underneath.
+function bubbleReadMs(text) {
+    return Math.min(12000, Math.max(3500, text.length * 70));
+}
+
 function pushVaBubble(role, text, options = {}) {
     const wrap = document.getElementById('va-bubbles');
     if (!wrap || !text) return null;
+
+    // Identical back-to-back messages (a repeated recognition error, a retried request)
+    // only stack up as noise — refresh the existing bubble's timer instead of cloning it.
+    const live = wrap.querySelectorAll('.va-bubble:not(.leaving)');
+    const last = live[live.length - 1];
+    if (last && last.classList.contains(role) &&
+        last.querySelector('.va-bubble-text')?.textContent === text) {
+        if (last.dataset.timer) clearTimeout(Number(last.dataset.timer));
+        delete last.dataset.timer;
+        if (!options.persist) last.dataset.timer = setTimeout(() => retireVaBubble(last), bubbleReadMs(text));
+        return last;
+    }
 
     const bubble = document.createElement('div');
     bubble.className = `va-bubble ${role}`;
@@ -82,20 +108,23 @@ function pushVaBubble(role, text, options = {}) {
     `;
     wrap.appendChild(bubble);
 
-    // Keep the stack shallow so the avatar is never buried.
-    while (wrap.children.length > VA_MAX_BUBBLES) {
-        retireVaBubble(wrap.firstElementChild);
+    // Keep the stack shallow so the avatar is never buried. Retiring is asynchronous
+    // (the node lingers for the leave transition), so count only the bubbles that are
+    // not already on their way out — counting those would never let this loop end.
+    const liveBubbles = () => wrap.querySelectorAll('.va-bubble:not(.leaving)');
+    while (liveBubbles().length > VA_MAX_BUBBLES) {
+        retireVaBubble(liveBubbles()[0]);
     }
 
     if (!options.persist) {
-        const readMs = Math.min(12000, Math.max(3500, text.length * 70));
-        bubble.dataset.timer = setTimeout(() => retireVaBubble(bubble), readMs);
+        bubble.dataset.timer = setTimeout(() => retireVaBubble(bubble), bubbleReadMs(text));
     }
     return bubble;
 }
 
 function retireVaBubble(bubble) {
     if (!bubble) return;
+    if (bubble.classList.contains('leaving')) return; // already retiring — don't queue a second removal
     if (bubble.dataset.timer) clearTimeout(Number(bubble.dataset.timer));
     bubble.classList.add('leaving');
     setTimeout(() => bubble.remove(), 260);
@@ -298,6 +327,9 @@ function startLipSync() {
     nextSyllableAt = 0;
 
     const tick = (now) => {
+        // Chrome sometimes drops the utterance's onend, which would otherwise leave this
+        // ticker running at 60fps forever. The synthesizer itself is the source of truth.
+        if (window.speechSynthesis && !window.speechSynthesis.speaking) { stopLipSync(); return; }
         if (now >= nextSyllableAt) {
             mouthTarget = 0.35 + Math.random() * 0.65;
             nextSyllableAt = now + 90 + Math.random() * 90;
@@ -333,6 +365,14 @@ function startSpeechRecognition() {
     }
     if (isListening) return;
 
+    // Drop any previous session first: a stale object's late onend/onerror would
+    // otherwise fire into this one, clearing isListening and duplicating messages.
+    if (recognition) {
+        recognition.onstart = recognition.onresult = recognition.onerror = recognition.onend = null;
+        try { recognition.abort(); } catch (e) { /* already stopped */ }
+        recognition = null;
+    }
+
     recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.lang = 'en-US';
@@ -341,6 +381,7 @@ function startSpeechRecognition() {
 
     let listeningBubble = null;
     let finalTranscript = '';
+    let errorShown = false;
 
     const armSilenceTimer = (ms) => {
         clearTimeout(silenceTimer);
@@ -376,11 +417,14 @@ function startSpeechRecognition() {
         }
     };
 
+    // A continuous session can raise several errors in a row (Chrome repeats 'network'
+    // and permission failures) — say what went wrong once, then stay quiet.
     recognition.onerror = (event) => {
         console.error('Speech recognition error:', event.error);
-        if (event.error !== 'aborted' && event.error !== 'no-speech') {
-            pushVaBubble('assistant', "I couldn't hear that clearly. Click the nurse and try again.");
-        }
+        if (event.error === 'aborted' || event.error === 'no-speech') return;
+        if (errorShown) return;
+        errorShown = true;
+        pushVaBubble('assistant', VA_SPEECH_ERRORS[event.error] || VA_SPEECH_ERRORS.default);
     };
 
     recognition.onend = () => {
@@ -398,7 +442,18 @@ function startSpeechRecognition() {
         }
     };
 
-    recognition.start();
+    // Claim the listening state before start() resolves: onstart can lag past the
+    // avatar's 260ms click delay, and until it fires a second click would open a
+    // rival session on the same microphone.
+    isListening = true;
+    try {
+        recognition.start();
+    } catch (e) {
+        console.error('Speech recognition failed to start:', e);
+        isListening = false;
+        setVaState('idle');
+        pushVaBubble('assistant', VA_SPEECH_ERRORS.default);
+    }
 }
 
 // Manual stop (second click / Enter) goes through the same recognition.stop() path
