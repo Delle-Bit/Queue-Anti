@@ -25,13 +25,13 @@
     "semantic_hash": ""
   },
   "database.js": {
-    "mtime": 1788209988.203467,
-    "ast_hash": "4521cffd1a415a000df3dffc83ae91b3",
+    "mtime": 1788177917.734719,
+    "ast_hash": "e51881092add0106fb73520d8cb99e57",
     "semantic_hash": ""
   },
   "package.json": {
-    "mtime": 1788210108.2489283,
-    "ast_hash": "d1e7614cf0899ef26217e9f9db8754f1",
+    "mtime": 1787474034.4319112,
+    "ast_hash": "a2ec654d14cbb5b81e28ba235e7d7b39",
     "semantic_hash": ""
   },
   "public/admintechnical.js": {
@@ -40,8 +40,8 @@
     "semantic_hash": ""
   },
   "public/customer.js": {
-    "mtime": 1788210074.285825,
-    "ast_hash": "a7f4611b3f361cfc6ab2cdbd42a96da0",
+    "mtime": 1788202613.7013984,
+    "ast_hash": "d15df5da8e6f79d515f10ed32f7273c7",
     "semantic_hash": ""
   },
   "public/doctor.js": {
@@ -85,8 +85,8 @@
     "semantic_hash": ""
   },
   "routes/admin.js": {
-    "mtime": 1788210295.9370785,
-    "ast_hash": "0f17b5117f68110d53fcfc9b0f46b6d3",
+    "mtime": 1788209743.3523033,
+    "ast_hash": "fd8fdebcc2a0c4a7e6d04efd924cfcdb",
     "semantic_hash": ""
   },
   "routes/auth.js": {
@@ -110,8 +110,8 @@
     "semantic_hash": "6ea7fd5f985a148ee75291adeac35834"
   },
   "server.js": {
-    "mtime": 1788210103.5723417,
-    "ast_hash": "88ba85ea8e7ad47f88651c33c0365cb6",
+    "mtime": 1788177037.054898,
+    "ast_hash": "a8d1b03f62652d3a3e755657322af490",
     "semantic_hash": ""
   },
   ".agents/rules/graphify.md": {
@@ -1157,11 +1157,6 @@
   "scripts/build-psgc-data.js": {
     "mtime": 1788171889.4226441,
     "ast_hash": "4d8bd803809f8c71cdcaeb01bc60a19b",
-    "semantic_hash": ""
-  },
-  "appointment_automation.js": {
-    "mtime": 1788210014.4965856,
-    "ast_hash": "8969ae3adb2b746db3d67186c523dbaf",
     "semantic_hash": ""
   }
 }
