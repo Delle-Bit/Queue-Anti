@@ -20,24 +20,24 @@ const pool = mysql.createPool({
 });
 
 const DEFAULT_SERVICES = [
-    { name: 'Hematology (CBC)', price: 450, description: 'Complete blood count screening.', est_time_minutes: 15 },
-    { name: 'Clinical Microscopy', price: 300, description: 'Routine clinical microscopy service.', est_time_minutes: 15 },
-    { name: 'Ultrasound', price: 2800, description: 'Diagnostic ultrasound imaging.', est_time_minutes: 30 },
-    { name: 'X-ray', price: 900, description: 'Diagnostic X-ray imaging.', est_time_minutes: 20 },
-    { name: '2D Echocardiography', price: 6000, description: '2D echocardiography heart imaging.', est_time_minutes: 45 },
-    { name: 'Venous Duplex Scan', price: 4500, description: 'Venous duplex vascular scan.', est_time_minutes: 45 },
-    { name: 'Arterial Duplex Scan', price: 5800, description: 'Arterial duplex vascular scan.', est_time_minutes: 45 },
-    { name: 'Carotid Duplex Scan', price: 6000, description: 'Carotid duplex vascular scan.', est_time_minutes: 45 },
-    { name: 'Holter Monitoring', price: 6500, description: 'Holter cardiac monitoring service.', est_time_minutes: 30 },
-    { name: '24-Hour Ambulatory BP Monitoring', price: 5000, description: '24-hour ambulatory blood pressure monitoring.', est_time_minutes: 30 },
-    { name: 'ECG / FCG', price: 1300, description: 'Electrocardiogram / FCG service.', est_time_minutes: 20 },
-    { name: 'Blood Chemistry', price: 4500, description: 'Blood chemistry laboratory panel.', est_time_minutes: 25 },
-    { name: 'Serology Exams', price: 2500, description: 'Serology laboratory exams.', est_time_minutes: 25 },
-    { name: 'Drug Testing', price: 900, description: 'Drug testing service.', est_time_minutes: 20 },
-    { name: 'HIV Screening', price: 1200, description: 'HIV screening test.', est_time_minutes: 20 },
-    { name: 'Annual Physical Exam', price: 3500, description: 'Annual physical examination package.', est_time_minutes: 45 },
-    { name: 'Pre-Employment Medical', price: 3500, description: 'Pre-employment medical examination package.', est_time_minutes: 45 },
-    { name: 'Rapid Antibody Test', price: 1500, description: 'Rapid antibody testing service.', est_time_minutes: 20 }
+    { name: 'Hematology (CBC)', price: 450, description: 'Complete blood count screening.', est_time_minutes: 15, category: 'Laboratory' },
+    { name: 'Clinical Microscopy', price: 300, description: 'Routine clinical microscopy service.', est_time_minutes: 15, category: 'Laboratory' },
+    { name: 'Ultrasound', price: 2800, description: 'Diagnostic ultrasound imaging.', est_time_minutes: 30, category: 'Imaging' },
+    { name: 'X-ray', price: 900, description: 'Diagnostic X-ray imaging.', est_time_minutes: 20, category: 'Imaging' },
+    { name: '2D Echocardiography', price: 6000, description: '2D echocardiography heart imaging.', est_time_minutes: 45, category: 'Cardiology' },
+    { name: 'Venous Duplex Scan', price: 4500, description: 'Venous duplex vascular scan.', est_time_minutes: 45, category: 'Vascular' },
+    { name: 'Arterial Duplex Scan', price: 5800, description: 'Arterial duplex vascular scan.', est_time_minutes: 45, category: 'Vascular' },
+    { name: 'Carotid Duplex Scan', price: 6000, description: 'Carotid duplex vascular scan.', est_time_minutes: 45, category: 'Vascular' },
+    { name: 'Holter Monitoring', price: 6500, description: 'Holter cardiac monitoring service.', est_time_minutes: 30, category: 'Cardiology' },
+    { name: '24-Hour Ambulatory BP Monitoring', price: 5000, description: '24-hour ambulatory blood pressure monitoring.', est_time_minutes: 30, category: 'Cardiology' },
+    { name: 'ECG / FCG', price: 1300, description: 'Electrocardiogram / FCG service.', est_time_minutes: 20, category: 'Cardiology' },
+    { name: 'Blood Chemistry', price: 4500, description: 'Blood chemistry laboratory panel.', est_time_minutes: 25, category: 'Laboratory' },
+    { name: 'Serology Exams', price: 2500, description: 'Serology laboratory exams.', est_time_minutes: 25, category: 'Laboratory' },
+    { name: 'Drug Testing', price: 900, description: 'Drug testing service.', est_time_minutes: 20, category: 'Screening' },
+    { name: 'HIV Screening', price: 1200, description: 'HIV screening test.', est_time_minutes: 20, category: 'Screening' },
+    { name: 'Annual Physical Exam', price: 3500, description: 'Annual physical examination package.', est_time_minutes: 45, category: 'Check-up' },
+    { name: 'Pre-Employment Medical', price: 3500, description: 'Pre-employment medical examination package.', est_time_minutes: 45, category: 'Check-up' },
+    { name: 'Rapid Antibody Test', price: 1500, description: 'Rapid antibody testing service.', est_time_minutes: 20, category: 'Screening' }
 ];
 
 // One seed account per clinic position, modelled on how a DOH-licensed primary
@@ -272,6 +272,7 @@ async function initDB() {
                 description TEXT,
                 price DECIMAL(10,2) NOT NULL DEFAULT 0,
                 est_time_minutes INT DEFAULT 15,
+                category VARCHAR(60) NOT NULL DEFAULT 'General',
                 doctor_id INT DEFAULT NULL,
                 is_active BOOLEAN DEFAULT true,
                 archived BOOLEAN DEFAULT false,
@@ -304,9 +305,10 @@ async function initDB() {
                 station_id INT DEFAULT NULL,
                 number VARCHAR(30) NOT NULL,
                 type VARCHAR(10) NOT NULL,
-                status ENUM('waiting','serving','parked','completed','cancelled') NOT NULL DEFAULT 'waiting',
+                status ENUM('waiting','serving','on-hold','completed','cancelled') NOT NULL DEFAULT 'waiting',
                 customer_id INT DEFAULT NULL,
                 sequence_id INT DEFAULT NULL,
+                step_index INT DEFAULT NULL,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 archived BOOLEAN DEFAULT false,
                 archived_at DATETIME DEFAULT NULL,
@@ -322,7 +324,7 @@ async function initDB() {
                 package_id INT NOT NULL,
                 current_step INT DEFAULT 0,
                 total_steps INT NOT NULL DEFAULT 1,
-                status ENUM('in_progress','completed','cancelled') DEFAULT 'in_progress',
+                status ENUM('in_progress','completed','unfinished','cancelled') DEFAULT 'in_progress',
                 started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 completed_at DATETIME DEFAULT NULL,
                 archived BOOLEAN DEFAULT false,
@@ -476,7 +478,13 @@ async function initDB() {
                 entity_type VARCHAR(50),
                 entity_id INT DEFAULT NULL,
                 details TEXT,
+                summary VARCHAR(255) DEFAULT '',
+                reason TEXT,
+                before_snapshot JSON DEFAULT NULL,
+                after_snapshot JSON DEFAULT NULL,
                 performed_by INT DEFAULT NULL,
+                actor_name VARCHAR(255) DEFAULT '',
+                actor_role VARCHAR(40) DEFAULT '',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (performed_by) REFERENCES users(id) ON DELETE SET NULL
             )
@@ -488,7 +496,9 @@ async function initDB() {
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 user_id INT NOT NULL,
                 login_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
                 logout_time DATETIME DEFAULT NULL,
+                end_reason VARCHAR(30) DEFAULT NULL,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         `);
@@ -523,6 +533,8 @@ async function initDB() {
                 entity_type VARCHAR(60) NOT NULL,
                 entity_id VARCHAR(100) NOT NULL,
                 snapshot JSON DEFAULT NULL,
+                label VARCHAR(255) DEFAULT '',
+                reason TEXT,
                 archived_by INT DEFAULT NULL,
                 archived_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 restored_at DATETIME DEFAULT NULL,
@@ -646,19 +658,85 @@ async function initDB() {
         await addColumnIfMissing('ai_settings', 'assistant_enabled', 'BOOLEAN DEFAULT true');
         await addColumnIfMissing('queue_sequences', 'has_doctor_step', 'BOOLEAN DEFAULT false');
         await addColumnIfMissing('queue_sequences', 'doctor_id', 'INT DEFAULT NULL');
-        await addColumnIfMissing('queue', 'parked_reason', 'VARCHAR(60) DEFAULT NULL');
-        await addColumnIfMissing('queue', 'parked_at', 'DATETIME DEFAULT NULL');
         await addColumnIfMissing('queue', 'sample_ready_at', 'DATETIME DEFAULT NULL');
         await addColumnIfMissing('queue', 'priority_boost', 'INT DEFAULT 0');
         await addColumnIfMissing('announcements', 'created_by', 'INT DEFAULT NULL');
         await addColumnIfMissing('announcements', 'archived', 'BOOLEAN DEFAULT false');
         await addColumnIfMissing('announcements', 'archived_at', 'DATETIME DEFAULT NULL');
 
-        // Alter ENUMs to include 'doctor' / 'parked' safely (ignore if already present)
+        // Which step of the visit a queue row belongs to. Previously this was only
+        // encoded in the row's id suffix ("..._s2"), which made "is this the final
+        // front desk step?" and the call-back rollback guesswork. Backfilled below.
+        await addColumnIfMissing('queue', 'step_index', 'INT DEFAULT NULL');
+        // Front desk re-insertion (line cutting): the 1-based slot this row should
+        // occupy in its station's waiting list, overriding priority scoring for
+        // this row only. See getNextFromList in queue_automation.js.
+        await addColumnIfMissing('queue', 'reinsert_slot', 'INT DEFAULT NULL');
+        // The row this one must be called immediately after. Anchoring to a
+        // specific neighbour rather than to a rank is what makes a re-insertion a
+        // one-time placement: a stored rank would silently re-apply itself as the
+        // line drained, so the patient stayed second forever instead of being
+        // called once the patient ahead of them was done.
+        await addColumnIfMissing('queue', 'reinsert_after', 'VARCHAR(100) DEFAULT NULL');
+        await addColumnIfMissing('queue', 'reinserted_at', 'DATETIME DEFAULT NULL');
+        await addColumnIfMissing('queue', 'reinserted_by', 'INT DEFAULT NULL');
+        // "Parked" is now "On-Hold" everywhere. New columns rather than a rename so
+        // the copy below can run before the old ones are dropped.
+        await addColumnIfMissing('queue', 'hold_reason', 'VARCHAR(60) DEFAULT NULL');
+        await addColumnIfMissing('queue', 'hold_at', 'DATETIME DEFAULT NULL');
+        // How the front desk closed the visit, and why. Only the front desk writes
+        // these - it is the final gatekeeper for every service route.
+        await addColumnIfMissing('queue_sequences', 'outcome', 'VARCHAR(20) DEFAULT NULL');
+        await addColumnIfMissing('queue_sequences', 'outcome_reason', 'TEXT');
+        await addColumnIfMissing('queue_sequences', 'finalized_by', 'INT DEFAULT NULL');
+        await addColumnIfMissing('queue_sequences', 'finalized_at', 'DATETIME DEFAULT NULL');
+        // Audit trail: what / who / when / why, plus the before+after snapshots.
+        await addColumnIfMissing('audit_logs', 'summary', "VARCHAR(255) DEFAULT ''");
+        await addColumnIfMissing('audit_logs', 'reason', 'TEXT');
+        await addColumnIfMissing('audit_logs', 'before_snapshot', 'JSON DEFAULT NULL');
+        await addColumnIfMissing('audit_logs', 'after_snapshot', 'JSON DEFAULT NULL');
+        await addColumnIfMissing('audit_logs', 'actor_name', "VARCHAR(255) DEFAULT ''");
+        await addColumnIfMissing('audit_logs', 'actor_role', "VARCHAR(40) DEFAULT ''");
+        await addIndexIfMissing('audit_logs', 'idx_audit_created', '(created_at)');
+        // Staff idle-session tracking (15-minute inactivity timeout).
+        await addColumnIfMissing('staff_sessions', 'last_activity', 'DATETIME DEFAULT NULL');
+        await addColumnIfMissing('staff_sessions', 'end_reason', 'VARCHAR(30) DEFAULT NULL');
+        await addIndexIfMissing('staff_sessions', 'idx_staff_sessions_open', '(user_id, logout_time)');
+        // Archive list: a name a human can recognise, and why it was archived.
+        await addColumnIfMissing('archived_records', 'label', "VARCHAR(255) DEFAULT ''");
+        await addColumnIfMissing('archived_records', 'reason', 'TEXT');
+        // Service catalogue filtering (customer-facing search by category).
+        await addColumnIfMissing('service_packages', 'category', "VARCHAR(60) NOT NULL DEFAULT 'General'");
+        await addIndexIfMissing('service_packages', 'idx_packages_category', '(category)');
+
+        // Alter ENUMs to include 'doctor' / 'on-hold' safely (ignore if already present)
         try { await pool.query(`ALTER TABLE users MODIFY COLUMN role ENUM('admintechnical','admin','customer','frontdesk','laboratory','owner','doctor') NOT NULL DEFAULT 'customer'`); } catch(e) {}
         try { await pool.query(`ALTER TABLE queue MODIFY COLUMN station_type ENUM('frontdesk','laboratory','doctor') NOT NULL DEFAULT 'frontdesk'`); } catch(e) {}
         try { await pool.query(`ALTER TABLE queue_logs MODIFY COLUMN station_type ENUM('frontdesk','laboratory','doctor') DEFAULT 'frontdesk'`); } catch(e) {}
-        try { await pool.query(`ALTER TABLE queue MODIFY COLUMN status ENUM('waiting','serving','parked','completed','cancelled') NOT NULL DEFAULT 'waiting'`); } catch(e) {}
+
+        // "Parked" -> "On-Hold" migration, in three steps so no row is ever left
+        // holding a value the column does not allow: widen the ENUM to accept both
+        // spellings, move the data across, then narrow it to the new spelling only.
+        try { await pool.query(`ALTER TABLE queue MODIFY COLUMN status ENUM('waiting','serving','parked','on-hold','completed','cancelled') NOT NULL DEFAULT 'waiting'`); } catch(e) {}
+        try { await pool.query(`UPDATE queue SET status='on-hold' WHERE status='parked'`); } catch(e) {}
+        try { await pool.query(`UPDATE queue SET hold_reason=parked_reason WHERE hold_reason IS NULL AND parked_reason IS NOT NULL`); } catch(e) {}
+        try { await pool.query(`UPDATE queue SET hold_at=parked_at WHERE hold_at IS NULL AND parked_at IS NOT NULL`); } catch(e) {}
+        try { await pool.query(`ALTER TABLE queue MODIFY COLUMN status ENUM('waiting','serving','on-hold','completed','cancelled') NOT NULL DEFAULT 'waiting'`); } catch(e) {}
+        try { await pool.query(`ALTER TABLE queue DROP COLUMN parked_reason`); } catch(e) {}
+        try { await pool.query(`ALTER TABLE queue DROP COLUMN parked_at`); } catch(e) {}
+
+        // 'unfinished' is set by the front desk when it closes a visit that did not
+        // run to completion (see POST /api/queue/finalize).
+        try { await pool.query(`ALTER TABLE queue_sequences MODIFY COLUMN status ENUM('in_progress','completed','unfinished','cancelled') DEFAULT 'in_progress'`); } catch(e) {}
+
+        // Backfill step_index for rows written before the column existed. The id
+        // suffix is the only record of the step for those: "cust_7_12" is step 0,
+        // "cust_7_12_s2" is step 2.
+        try {
+            await pool.query("UPDATE queue SET step_index = 0 WHERE step_index IS NULL AND id NOT LIKE '%\\_s%'");
+            await pool.query(`UPDATE queue SET step_index = CAST(SUBSTRING_INDEX(id, '_s', -1) AS UNSIGNED)
+                              WHERE step_index IS NULL AND id LIKE '%\\_s%'`);
+        } catch (e) { console.error('[DB] step_index backfill failed:', e.message); }
         // 'no-show' is set by the missed-appointment sweep in appointment_automation.js
         // when a scheduled slot passes its grace period without a check-in.
         try { await pool.query(`ALTER TABLE appointments MODIFY COLUMN status ENUM('scheduled','checked-in','completed','cancelled','no-show') DEFAULT 'scheduled'`); } catch(e) {}

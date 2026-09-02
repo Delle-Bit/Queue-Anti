@@ -462,3 +462,13 @@
         grid-template-columns: 1fr !important;
     }
 }
+
+/* Service card meta row: category badge + service ID, so the customer can
+   search by either and see what they matched on. */
+.pkg-card-tags {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 6px 0 10px;
+}

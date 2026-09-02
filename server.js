@@ -8,8 +8,9 @@ const jwt = require('jsonwebtoken');
 const http = require('http');
 const socketIo = require('socket.io');
 const { JWT_SECRET, requireAdmin } = require('./config');
-const { nextTicketNumber, APPOINTMENT_PRIORITY_BOOST } = require('./queue_automation');
+const { nextTicketNumber, APPOINTMENT_PRIORITY_BOOST, composeServiceSteps } = require('./queue_automation');
 const { startMissedAppointmentSweep } = require('./appointment_automation');
+const sessionActivity = require('./session_activity');
 
 // Shown when someone tries to check in against a slot the sweep already closed.
 const MISSED_APPOINTMENT_MESSAGE = 'This appointment was marked as "Did Not Arrive" because its scheduled time passed without a check-in. Please approach the front desk to be assisted.';
@@ -67,6 +68,43 @@ function verifyRoles(...roles) {
     };
 }
 
+// ── STAFF SESSION ACTIVITY ──────────────────────────────────────────────────
+// The 15-minute inactivity timeout. `enforceIdleTimeout` rejects a stale staff
+// token; the two endpoints below are how the browser reports that the user is
+// still at the terminal, and that it has given up on them.
+//
+// Deliberately heartbeat-driven rather than traffic-driven: the staff dashboards
+// poll their queue every 5 seconds, so an unattended screen would otherwise keep
+// its own session alive forever. See session_activity.js.
+app.post('/api/session/heartbeat', authenticateToken, async (req, res) => {
+    if (!sessionActivity.isStaffRole(req.user.role)) {
+        return res.json({ success: true, tracked: false });
+    }
+    const state = await sessionActivity.inspect(req.user.id);
+    if (state.expired) {
+        await sessionActivity.terminate(req.user.id, 'timeout');
+        res.set('X-Session-Timeout', '1');
+        return res.status(401).json({
+            error: 'Your session ended after 15 minutes of inactivity. Please sign in again.',
+            code: 'session_timeout'
+        });
+    }
+    await sessionActivity.touch(req.user.id);
+    res.json({
+        success: true,
+        tracked: true,
+        idle_limit_ms: sessionActivity.IDLE_LIMIT_MS,
+        warn_before_ms: sessionActivity.WARN_BEFORE_MS
+    });
+});
+
+app.post('/api/session/timeout', authenticateToken, async (req, res) => {
+    if (sessionActivity.isStaffRole(req.user.role)) {
+        await sessionActivity.terminate(req.user.id, 'timeout');
+    }
+    res.json({ success: true });
+});
+
 // Routes — order matters: specific routes before catch-all
 const queueRoutes = require('./routes/queue');
 const authRoutes = require('./routes/auth');
@@ -75,13 +113,15 @@ const reportRoutes = require('./routes/reports');
 const packageRoutes = require('./routes/packages');
 const assistantRoutes = require('./routes/assistant');
 
+const idleTimeout = sessionActivity.enforceIdleTimeout;
+
 app.use('/api/auth', authRoutes);
 app.use('/api/packages', packageRoutes);
-app.use('/api/queue', authenticateToken, queueRoutes);
-app.use('/api/assistant', authenticateToken, assistantRoutes);
-app.use('/api/reports', authenticateToken, verifyRoles('owner'), reportRoutes);
-app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
-app.use('/api', authenticateToken, adminRoutes);
+app.use('/api/queue', authenticateToken, idleTimeout, queueRoutes);
+app.use('/api/assistant', authenticateToken, idleTimeout, assistantRoutes);
+app.use('/api/reports', authenticateToken, idleTimeout, verifyRoles('owner'), reportRoutes);
+app.use('/api/admin', authenticateToken, idleTimeout, requireAdmin, adminRoutes);
+app.use('/api', authenticateToken, idleTimeout, adminRoutes);
 
 async function startQueueFromAppointment(appointment, io) {
     const [existing] = await pool.query(
@@ -91,13 +131,27 @@ async function startQueueFromAppointment(appointment, io) {
     if (existing.length > 0) return { alreadyActive: true };
 
     const [labs] = await pool.query(
-        'SELECT * FROM package_laboratories WHERE package_id = ? AND archived = false ORDER BY sequence_order',
+        `SELECT pl.*, l.name AS lab_name FROM package_laboratories pl
+         JOIN laboratories l ON pl.laboratory_id = l.id
+         WHERE pl.package_id = ? AND pl.archived = false AND l.archived = false
+         ORDER BY pl.sequence_order`,
         [appointment.package_id]
     );
-    const [pkgDoctor] = await pool.query('SELECT doctor_id FROM service_packages WHERE id = ? AND doctor_id IS NOT NULL', [appointment.package_id]);
+    const [pkgDoctor] = await pool.query(
+        `SELECT sp.doctor_id, d.name AS doctor_name FROM service_packages sp
+         JOIN doctors d ON sp.doctor_id = d.id
+         WHERE sp.id = ? AND sp.doctor_id IS NOT NULL AND d.archived = false`,
+        [appointment.package_id]
+    );
     const hasDoctorStep = pkgDoctor.length > 0;
     if (labs.length === 0 && !hasDoctorStep) return { unavailable: true };
-    const totalSteps = 1 + labs.length + (hasDoctorStep ? 1 : 0);
+    // Counted from the same step composer the queue engine routes with, rather
+    // than re-derived here - that arithmetic drifted the moment the closing front
+    // desk step was added, leaving appointment visits one step short.
+    const totalSteps = composeServiceSteps(
+        labs,
+        hasDoctorStep ? { id: pkgDoctor[0].doctor_id, name: pkgDoctor[0].doctor_name } : null
+    ).length;
     const [userRows] = await pool.query('SELECT customer_category FROM users WHERE id=?', [appointment.customer_id]);
     const category = userRows[0]?.customer_category || 'Regular';
     let type = 'Q';
@@ -124,8 +178,8 @@ async function startQueueFromAppointment(appointment, io) {
     // what the front desk collects, so it is what the revenue logs should carry.
     const amountDue = appointment.amount_due != null ? appointment.amount_due : appointment.price;
     await pool.query(
-        `INSERT INTO queue (id, station_type, station_id, number, type, status, customer_id, sequence_id, priority_boost)
-         VALUES (?, 'frontdesk', NULL, ?, ?, 'waiting', ?, ?, ?)`,
+        `INSERT INTO queue (id, station_type, station_id, number, type, status, customer_id, sequence_id, step_index, priority_boost)
+         VALUES (?, 'frontdesk', NULL, ?, ?, 'waiting', ?, ?, 0, ?)`,
         [queueId, ticketNum, type, appointment.customer_id, seqId, priorityBoost]
     );
     await pool.query(
@@ -286,7 +340,9 @@ async function seedServiceSteps() {
                 console.warn(`[Seed] No ${plan.doctor} doctor on file - "${pkgName}" left without a consultation step`);
             }
         }
-        console.log(`[Seed] "${pkgName}": Front Desk -> ${wired.join(' -> ')}${consult}`);
+        // Both front desk bookends are printed, because both are steps the queue
+        // engine actually creates - see composeServiceSteps in queue_automation.js.
+        console.log(`[Seed] "${pkgName}": Front Desk -> ${wired.join(' -> ')}${consult} -> Front Desk (close)`);
     }
 }
 
@@ -376,14 +432,16 @@ async function startServer() {
         let packageId = pkgRows[0]?.id;
         if (!packageId) {
             const [pkgResult] = await pool.query(
-                'INSERT INTO service_packages (name, description, price, est_time_minutes, is_active) VALUES (?, ?, ?, ?, true)',
-                [svc.name, svc.description, svc.price, svc.est_time_minutes]
+                'INSERT INTO service_packages (name, description, price, est_time_minutes, category, is_active) VALUES (?, ?, ?, ?, ?, true)',
+                [svc.name, svc.description, svc.price, svc.est_time_minutes, svc.category || 'General']
             );
             packageId = pkgResult.insertId;
         } else {
             await pool.query(
-                'UPDATE service_packages SET description=?, price=?, est_time_minutes=?, is_active=true, archived=false, archived_at=NULL WHERE id=?',
-                [svc.description, svc.price, svc.est_time_minutes, packageId]
+                // category is backfilled only when it is still the default, so a
+                // category an admin actually chose is not overwritten on reboot.
+                "UPDATE service_packages SET description=?, price=?, est_time_minutes=?, category=IF(category='' OR category='General', ?, category), is_active=true, archived=false, archived_at=NULL WHERE id=?",
+                [svc.description, svc.price, svc.est_time_minutes, svc.category || 'General', packageId]
             );
         }
         await pool.query(

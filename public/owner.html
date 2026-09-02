@@ -27,18 +27,28 @@
                 <div class="page-header">
                     <div>
                         <div class="page-title"><i class="fa-solid fa-file-shield"></i> Audit Logs</div>
-                        <div class="page-subtitle">Track system-wide activities</div>
+                        <div class="page-subtitle">Every configuration and data change: what changed, who changed it, when, and why</div>
                     </div>
+                </div>
+                <div class="filter-bar">
                     <div class="search-bar">
                         <i class="fa-solid fa-magnifying-glass"></i>
-                        <input type="text" placeholder="Search logs..." oninput="filterAudits(this.value)">
+                        <input type="text" id="audit-search" aria-label="Search audit log"
+                               placeholder="Search by user, record, reason..." oninput="searchAuditLogs()">
                     </div>
+                    <select class="form-select" id="audit-action-filter" aria-label="Filter by action" onchange="loadAuditLogs()">
+                        <option value="">All actions</option>
+                    </select>
+                    <select class="form-select" id="audit-entity-filter" aria-label="Filter by record type" onchange="loadAuditLogs()">
+                        <option value="">All record types</option>
+                    </select>
+                    <span class="filter-count" id="audit-count"></span>
                 </div>
                 <div class="card">
                     <div class="table-wrapper">
                         <table>
-                            <thead><tr><th>Action</th><th>Type</th><th>Details</th><th>User</th><th>Timestamp</th></tr></thead>
-                            <tbody id="ow-audits"></tbody>
+                            <thead><tr><th>When</th><th>Who</th><th>Action</th><th>What changed</th><th>Why</th><th></th></tr></thead>
+                            <tbody id="audit-table"></tbody>
                         </table>
                     </div>
                 </div>
@@ -100,7 +110,7 @@
                 <div class="page-header">
                     <div>
                         <div class="page-title"><i class="fa-solid fa-box-archive"></i> Archive Management</div>
-                        <div class="page-subtitle">View and recover deleted accounts and records</div>
+                        <div class="page-subtitle">Nothing in this system is deleted outright — every archived record is here and restorable</div>
                     </div>
                 </div>
                 <div class="card mb-md">
@@ -114,10 +124,23 @@
                 </div>
                 <div class="card">
                     <div class="card-header"><div class="card-title">Archived Records (Recoverable)</div></div>
+                    <div class="card-body" style="padding:16px 20px 0;">
+                        <div class="filter-bar">
+                            <div class="search-bar">
+                                <i class="fa-solid fa-search"></i>
+                                <input type="text" id="archive-search" aria-label="Search archives"
+                                       placeholder="Search by name, type or reason..." oninput="searchArchives()">
+                            </div>
+                            <select class="form-select" id="archive-type-filter" aria-label="Filter by record type" onchange="loadArchives()">
+                                <option value="">All record types</option>
+                            </select>
+                            <span class="filter-count" id="archive-count"></span>
+                        </div>
+                    </div>
                     <div class="table-wrapper">
                         <table>
-                            <thead><tr><th>Entity</th><th>ID</th><th>Archived By</th><th>Date</th><th>Action</th></tr></thead>
-                            <tbody id="archives-table"></tbody>
+                            <thead><tr><th>Archived</th><th>Type</th><th>Record</th><th>Archived By</th><th>Reason</th><th>Actions</th></tr></thead>
+                            <tbody id="archive-table"></tbody>
                         </table>
                     </div>
                 </div>
@@ -128,11 +151,43 @@
             <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-users-gear"></i> Manage Accounts</div></div></div>
             <div class="card mb-lg">
                 <div class="card-header"><div class="card-title"><i class="fa-solid fa-user-tie"></i> Staff Accounts</div></div>
-                <div class="table-wrapper"><table><thead><tr><th>ID</th><th>Username</th><th>Name</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead><tbody id="staff-table"></tbody></table></div>
+                <div class="card-body" style="padding:16px 20px 0;">
+                    <div class="filter-bar">
+                        <div class="search-bar"><i class="fa-solid fa-search"></i>
+                            <input type="text" id="staff-search" aria-label="Search staff accounts"
+                                   placeholder="Search by user ID, username, name or email..." oninput="searchAccounts()"></div>
+                        <select class="form-select" id="staff-role-filter" aria-label="Filter by role" onchange="loadAccounts()">
+                            <option value="">All roles</option>
+                            <option value="frontdesk">Front Desk</option>
+                            <option value="laboratory">Laboratory</option>
+                            <option value="doctor">Doctor</option>
+                            <option value="admin">Admin</option>
+                            <option value="admintechnical">Admin Technical</option>
+                            <option value="owner">Owner</option>
+                        </select>
+                        <span class="filter-count" id="staff-count"></span>
+                    </div>
+                </div>
+                <div class="table-wrapper"><table><thead><tr><th>ID</th><th>Username</th><th>Name / Email</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead><tbody id="staff-table"></tbody></table></div>
             </div>
             <div class="card">
                 <div class="card-header"><div class="card-title"><i class="fa-solid fa-user"></i> Customer Accounts</div></div>
-                <div class="table-wrapper"><table><thead><tr><th>Username</th><th>Name</th><th>Category</th><th>Services</th><th>Since</th></tr></thead><tbody id="cust-table"></tbody></table></div>
+                <div class="card-body" style="padding:16px 20px 0;">
+                    <div class="filter-bar">
+                        <div class="search-bar"><i class="fa-solid fa-search"></i>
+                            <input type="text" id="cust-search" aria-label="Search customer accounts"
+                                   placeholder="Search by patient ID, username, name or email..." oninput="searchAccounts()"></div>
+                        <select class="form-select" id="cust-category-filter" aria-label="Filter by category" onchange="loadAccounts()">
+                            <option value="">All categories</option>
+                            <option value="Regular">Regular</option>
+                            <option value="Senior">Senior</option>
+                            <option value="PWD">PWD</option>
+                            <option value="Pregnant">Pregnant</option>
+                        </select>
+                        <span class="filter-count" id="cust-count"></span>
+                    </div>
+                </div>
+                <div class="table-wrapper"><table><thead><tr><th>Patient ID</th><th>Username</th><th>Name</th><th>Category</th><th>Services</th><th>Since</th></tr></thead><tbody id="cust-table"></tbody></table></div>
             </div>
         </div>
 
@@ -147,7 +202,16 @@
         <div id="section-services" class="content-section" style="display:none;">
             <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-box-open"></i> Service Management</div></div>
             <button class="btn btn-primary" onclick="prepareNewService()"><i class="fa-solid fa-plus"></i> Add Package</button></div>
-            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Name</th><th>Price</th><th>Est. Time</th><th>Labs</th><th>Active</th><th>Actions</th></tr></thead><tbody id="svc-list"></tbody></table></div></div>
+            <div class="filter-bar">
+                <div class="search-bar"><i class="fa-solid fa-search"></i>
+                    <input type="text" id="svc-search" aria-label="Search services"
+                           placeholder="Search by service ID, name or category..." oninput="renderServiceList()"></div>
+                <select class="form-select" id="svc-category-filter" aria-label="Filter by category" onchange="renderServiceList()">
+                    <option value="">All categories</option>
+                </select>
+                <span class="filter-count" id="svc-count"></span>
+            </div>
+            <div class="card"><div class="table-wrapper"><table><thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Price</th><th>Est. Time</th><th>Station Route</th><th>Active</th><th>Actions</th></tr></thead><tbody id="svc-list"></tbody></table></div></div>
         </div>
 
         <!-- CREATE ACCOUNTS -->
@@ -250,10 +314,12 @@
                 <div class="form-group"><label class="form-label">Package Name</label><input type="text" class="form-input" id="svc-name"></div>
                 <div class="form-group"><label class="form-label">Description</label><input type="text" class="form-input" id="svc-desc"></div>
                 <div class="grid-2"><div class="form-group"><label class="form-label">Price (₱)</label><input type="number" class="form-input" id="svc-price" step="0.01"></div>
-                <div class="form-group"><label class="form-label">Est. Time (min)</label><input type="number" class="form-input" id="svc-time" disabled placeholder="AI Calculated"></div></div>
+                <div class="form-group"><label class="form-label">Category</label><input type="text" class="form-input" id="svc-category" list="svc-category-options" placeholder="e.g. Laboratory, Imaging, Cardiology">
+                <datalist id="svc-category-options"></datalist></div></div>
+                <div class="form-group"><label class="form-label">Est. Time (min)</label><input type="number" class="form-input" id="svc-time" disabled placeholder="AI Calculated"></div>
                 <div class="form-group"><label class="form-label">Doctor Consultation</label><select class="form-select" id="svc-doctor"><option value="">No doctor consultation</option></select></div>
                 <div class="form-group"><label class="form-label">Station Sequence</label><div id="svc-lab-list"></div>
-                <button class="btn btn-sm btn-outline mt-sm" onclick="addLabToSequence()"><i class="fa-solid fa-plus"></i> Add Lab Step</button></div>
+                <button class="btn btn-sm btn-outline mt-sm" onclick="addLabToSequence()"><i class="fa-solid fa-plus"></i> Add Station Step</button></div>
             </div>
             <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('svc-modal')">Cancel</button><button class="btn btn-success" onclick="saveService()">Save</button></div>
         </div>
@@ -271,6 +337,7 @@
     </div>
     <script src="/socket.io/socket.io.js"></script>
     <script src="shared.js"></script>
+    <script src="admin-shared.js"></script>
     <script src="owner.js"></script>
 </body>
 </html>

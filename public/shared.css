@@ -1211,3 +1211,118 @@ tbody tr:last-child td { border-bottom: none; }
     transition: var(--transition);
 }
 .announcement-fab:hover { background: var(--primary-dark); transform: scale(1.05); }
+
+/* ── DANGER ZONE ─────────────────────────────────────────────────
+   Actions that end something rather than advance it. Deliberately
+   collapsed and visually separated from the primary queue controls:
+   "Complete" used to sit beside "Call Next" as an equal-weight
+   button, and a mis-click there closed a patient's whole visit. */
+.danger-zone {
+    border: 1px solid var(--danger, #dc2626);
+    border-radius: 10px;
+    background: var(--danger-light, rgba(220, 38, 38, 0.08));
+    padding: 0;
+    overflow: hidden;
+}
+.danger-zone > summary {
+    cursor: pointer;
+    padding: 10px 14px;
+    font-weight: 600;
+    font-size: 0.9em;
+    color: var(--danger, #dc2626);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    list-style: none;
+}
+.danger-zone > summary::-webkit-details-marker { display: none; }
+.danger-zone > summary::after {
+    content: '\f078';                      /* chevron-down */
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+    margin-left: auto;
+    font-size: 0.8em;
+    transition: transform 0.2s ease;
+}
+.danger-zone[open] > summary::after { transform: rotate(180deg); }
+.danger-zone-body {
+    padding: 0 14px 14px;
+    border-top: 1px solid var(--border-light, rgba(0, 0, 0, 0.08));
+    padding-top: 12px;
+}
+.danger-zone-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.danger-zone-actions .btn { flex: 1 1 160px; justify-content: center; }
+
+/* Queue rows the front desk has cut back into the line, so the reason a
+   ticket is out of numerical order is visible rather than mysterious. */
+.queue-row-reinserted { background: var(--warning-light, rgba(217, 119, 6, 0.10)); }
+.badge-reinserted {
+    background: var(--warning-light, rgba(217, 119, 6, 0.15));
+    color: var(--warning, #b45309);
+    border: 1px solid var(--warning, #d97706);
+}
+
+/* Search + filter bar above a table or card grid. */
+.filter-bar {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 16px;
+}
+.filter-bar .search-bar { flex: 1 1 240px; min-width: 0; }
+.filter-bar .form-select { flex: 0 1 200px; min-height: 40px; }
+.filter-bar .filter-count { color: var(--text-muted); font-size: 0.85em; margin-left: auto; }
+
+/* Audit log: the before → after detail, shown under a row on demand. */
+.audit-diff {
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.78em;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--bg-input);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+.audit-reason { font-style: italic; }
+.audit-reason-missing { color: var(--text-muted); font-style: italic; }
+
+@media (max-width: 768px) {
+    .filter-bar .form-select { flex: 1 1 100%; min-height: 44px; }
+    .filter-bar .filter-count { margin-left: 0; flex: 1 1 100%; }
+    .danger-zone-actions .btn { flex: 1 1 100%; }
+}
+
+/* ── STATION QUEUE CONTROLS ──────────────────────────────────────
+   The Call Next / Done / Call Back / Re-insert row on each staff
+   dashboard. Replaces per-page inline flex styles so all three
+   stations wrap identically, and so the buttons stack one per row
+   on a phone instead of squeezing their labels. */
+.queue-controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+.queue-controls:first-of-type { margin-top: 0; }
+.queue-controls .btn {
+    flex: 1 1 160px;
+    justify-content: center;
+}
+.queue-controls-full .btn { flex: 1 1 100%; }
+
+/* Below this the two-up row cannot hold a label like
+   "Done — Next Station" without clipping it. */
+@media (max-width: 560px) {
+    .queue-controls .btn { flex: 1 1 100%; }
+}
+
+/* Touch targets. `.btn-sm` already meets the 44px minimum on mobile;
+   the full-size buttons sit at 37px, which is under it — and these
+   are the primary controls on a shared clinic tablet. */
+@media (max-width: 768px) {
+    .btn { min-height: 44px; }
+}

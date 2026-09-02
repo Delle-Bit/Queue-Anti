@@ -60,18 +60,25 @@ async function loadLabQueue() {
         currentSequenceId = serving ? serving.sequence_id : null;
         currentServingTicket = serving ? serving.number : null;
 
+        // Server-ordered: the list is already in the order this station will call,
+        // which is not join order once priority or a re-insertion is involved.
         const waiting = queue.filter(q => q.status === 'waiting');
         document.getElementById('lab-queue-list').innerHTML = waiting.length === 0
-            ? '<tr><td colspan="4" class="text-center text-muted">Empty</td></tr>'
-            : waiting.map(w => `<tr><td><strong>${w.number}</strong></td><td>${categoryBadge(w.customer_category||'Regular')}</td><td>${w.full_name||w.username||'--'}</td><td>${formatTime(w.timestamp)}</td></tr>`).join('');
+            ? '<tr><td colspan="5" class="text-center text-muted">Empty</td></tr>'
+            : waiting.map((w, i) => `<tr class="${w.reinserted ? 'queue-row-reinserted' : ''}">
+                <td>${w.call_position || i + 1}</td>
+                <td><strong>${w.number}</strong>${w.reinserted ? ' <span class="badge badge-reinserted" title="Re-inserted by the front desk">re-inserted</span>' : ''}</td>
+                <td>${categoryBadge(w.customer_category||'Regular')}</td>
+                <td>${w.full_name||w.username||'--'}</td>
+                <td>${formatTime(w.timestamp)}</td></tr>`).join('');
 
-        const parked = queue.filter(q => q.status === 'parked');
-        document.getElementById('lab-parked-list').innerHTML = parked.length === 0
-            ? '<tr><td colspan="5" class="text-center text-muted">No one parked</td></tr>'
-            : parked.map(p => `<tr>
-                <td><strong>${p.number}</strong></td><td>${p.full_name||p.username||'--'}</td><td>${formatTime(p.parked_at)}</td>
+        const onHold = queue.filter(q => q.status === 'on-hold');
+        document.getElementById('lab-hold-list').innerHTML = onHold.length === 0
+            ? '<tr><td colspan="5" class="text-center text-muted">Nobody is On-Hold</td></tr>'
+            : onHold.map(p => `<tr>
+                <td><strong>${p.number}</strong></td><td>${p.full_name||p.username||'--'}</td><td>${formatTime(p.hold_at)}</td>
                 <td>${p.sample_ready_at ? '<span class="badge badge-success">Ready</span>' : '<span class="text-muted">Waiting</span>'}</td>
-                <td><button class="btn btn-sm btn-primary" onclick="labUnpark('${p.id}')"><i class="fa-solid fa-arrow-rotate-left"></i> Sample Received</button></td>
+                <td><button class="btn btn-sm btn-primary" onclick="labResume('${p.id}')"><i class="fa-solid fa-arrow-rotate-left"></i> Sample Received</button></td>
             </tr>`).join('');
 
         document.getElementById('lab-avg').textContent = analytics.avg_time + 'm';
@@ -100,40 +107,80 @@ function filterLabLogs(q) {
     renderLabLogsList(allLabLogs.filter(l => (l.ticket_number||'').toLowerCase().includes(q.toLowerCase())));
 }
 
+// Confirmed, always: one click moves a real person out of the chair, and an
+// accidental advance previously had no undo.
 async function labCallNext() {
     if (!myLabId) return;
+    const confirmed = await confirmAction({
+        title: 'Call the next patient?',
+        message: 'The next ticket in this laboratory\u2019s queue will be called.',
+        detail: 'If you call the wrong ticket, use "Call Back" to undo it.',
+        icon: 'fa-solid fa-bell',
+        confirmLabel: 'Call next',
+        confirmClass: 'btn-success'
+    });
+    if (!confirmed) return;
+
     const res = await fetch('/api/queue/next', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ station_type: 'laboratory', station_id: myLabId }) });
-    const data = await res.json();
-    if (data.success) {
-        showToast('Calling: ' + data.next, 'success');
-        loadLabQueue();
-    } else {
-        showToast(data.message || 'Queue empty', 'info');
-    }
+    const data = await res.json().catch(() => ({}));
+    if (data.success) showToast('Calling: ' + data.next, 'success');
+    else showToast(data.error || data.message || 'Queue empty', res.ok ? 'info' : 'error');
+    loadLabQueue();
 }
 
-async function labComplete() {
+// Hand the patient on. A laboratory never ends a visit - every route goes back
+// to the front desk, which is the only station that can close a transaction.
+async function labAdvance() {
     if (!currentLabQueueId) return showToast('No active patient', 'error');
     const res = await fetch('/api/queue/complete-step', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ queue_id: currentLabQueueId }) });
-    const data = await res.json();
-    showToast(data.finished ? 'All steps completed!' : 'Advancing to: ' + (data.next_station || 'next'), 'success');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        showToast(data.error || 'Failed to advance', 'error');
+        loadLabQueue();
+        return;
+    }
+    showToast(data.is_final_step
+        ? `${data.next_ticket} sent back to the front desk to close out`
+        : 'Sent on to: ' + (data.next_station || 'the next station'), 'success');
     loadLabQueue();
 }
 
-async function labPark() {
+async function labCallBack() {
+    if (!myLabId) return;
+    const confirmed = await confirmAction({
+        title: 'Call back the previous ticket?',
+        message: 'The patient now at this station goes back to the front of the queue, and the ticket completed just before them is recalled.',
+        detail: 'Only works while the next station has not already picked that patient up.',
+        icon: 'fa-solid fa-rotate-left',
+        confirmLabel: 'Call back'
+    });
+    if (!confirmed) return;
+
+    const res = await fetch('/api/queue/call-back', {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ station_type: 'laboratory', station_id: myLabId })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) showToast(data.error || 'Nothing to call back', 'error');
+    else if (data.recalled) showToast(`Recalled ${data.recalled}`, 'success');
+    else showToast(data.message || 'Queue reverted', 'info');
+    loadLabQueue();
+}
+
+async function labHold() {
     if (!currentLabQueueId) return showToast('No active patient', 'error');
-    const res = await fetch('/api/queue/park', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ queue_id: currentLabQueueId, reason: 'PENDING_BIOLOGICAL_SAMPLE' }) });
-    const data = await res.json();
-    if (data.success) showToast('Patient parked — calling next', 'success');
-    else showToast(data.error || 'Failed to park patient', 'error');
+    const res = await fetch('/api/queue/hold', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ queue_id: currentLabQueueId, reason: 'PENDING_BIOLOGICAL_SAMPLE' }) });
+    const data = await res.json().catch(() => ({}));
+    if (data.success) showToast('Patient put On-Hold — calling next', 'success');
+    else showToast(data.error || 'Failed to put patient On-Hold', 'error');
     loadLabQueue();
 }
 
-async function labUnpark(queueId) {
-    const res = await fetch('/api/queue/unpark', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ queue_id: queueId }) });
-    const data = await res.json();
-    if (data.success) showToast('Patient re-queued with priority', 'success');
-    else showToast(data.error || 'Failed to unpark patient', 'error');
+async function labResume(queueId) {
+    const res = await fetch('/api/queue/resume', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ queue_id: queueId }) });
+    const data = await res.json().catch(() => ({}));
+    if (data.success) showToast(`Patient re-queued at position ${data.slot} of the line`, 'success');
+    else showToast(data.error || 'Failed to resume patient', 'error');
     loadLabQueue();
 }
 

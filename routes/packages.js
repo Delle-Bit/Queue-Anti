@@ -5,6 +5,15 @@ const jwt = require('jsonwebtoken');
 const { JWT_SECRET, requireStaff } = require('../config');
 const { composeServiceSteps } = require('../queue_automation');
 const { APPOINTMENT_SURCHARGE_PCT, appointmentPrice } = require('../appointment_automation');
+const { recordAudit, requireReason, snapshotRow } = require('../audit');
+const { archiveRecord } = require('../archive');
+
+const DEFAULT_CATEGORY = 'General';
+
+function normalizeCategory(value) {
+    const category = String(value == null ? '' : value).trim().slice(0, 60);
+    return category || DEFAULT_CATEGORY;
+}
 
 function authRequired(req, res, next) {
     const token = (req.headers['authorization'] || '').split(' ')[1];
@@ -14,15 +23,28 @@ function authRequired(req, res, next) {
 }
 
 // GET all packages with lab details
+// Optional ?q= (matches service ID, name, description or category) and
+// ?category= narrow the catalogue server-side, so the customer's Services search
+// works the same whether there are 18 packages or 1,800.
 router.get('/', async (req, res) => {
     try {
+        const params = [];
+        const filters = ['sp.is_active = true', 'sp.archived = false'];
+        const term = String(req.query.q || '').trim();
+        if (term) {
+            filters.push('(CAST(sp.id AS CHAR) LIKE ? OR sp.name LIKE ? OR sp.description LIKE ? OR sp.category LIKE ?)');
+            const like = `%${term}%`;
+            params.push(like, like, like, like);
+        }
+        if (req.query.category) { filters.push('sp.category = ?'); params.push(req.query.category); }
+
         const [packages] = await pool.query(`
             SELECT sp.*, d.name as doctor_name, d.specialty as doctor_specialty
             FROM service_packages sp
             LEFT JOIN doctors d ON sp.doctor_id = d.id AND d.archived = false
-            WHERE sp.is_active = true AND sp.archived = false
-            ORDER BY sp.name
-        `);
+            WHERE ${filters.join(' AND ')}
+            ORDER BY sp.category, sp.name
+        `, params);
         for (let pkg of packages) {
             const [labs] = await pool.query(
                 `SELECT pl.*, l.name as lab_name, l.service_type
@@ -42,6 +64,19 @@ router.get('/', async (req, res) => {
         }
         res.json(packages);
     } catch (err) { res.status(500).json({ error: 'Failed to fetch packages' }); }
+});
+
+// The categories actually in use, so the customer's filter only offers options
+// that will match something.
+router.get('/categories', async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT category, COUNT(*) AS cnt FROM service_packages
+             WHERE is_active = true AND archived = false AND category <> ''
+             GROUP BY category ORDER BY category`
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: 'Failed to fetch categories' }); }
 });
 
 // GET package details with real-time ETA
@@ -110,14 +145,14 @@ async function rejectFrontDeskStations(laboratories) {
 }
 
 // POST create package (frontdesk/admin)
-router.post('/', authRequired, requireStaff, async (req, res) => {
-    const { name, description, price, est_time_minutes, laboratories, doctor_id } = req.body;
+router.post('/', authRequired, requireStaff, requireReason, async (req, res) => {
+    const { name, description, price, est_time_minutes, laboratories, doctor_id, category } = req.body;
     try {
         const stationError = await rejectFrontDeskStations(laboratories);
         if (stationError) return res.status(400).json({ error: stationError });
         const [result] = await pool.query(
-            'INSERT INTO service_packages (name, description, price, est_time_minutes, doctor_id) VALUES (?, ?, ?, ?, ?)',
-            [name, description || '', price, est_time_minutes || 15, doctor_id || null]
+            'INSERT INTO service_packages (name, description, price, est_time_minutes, category, doctor_id) VALUES (?, ?, ?, ?, ?, ?)',
+            [name, description || '', price, est_time_minutes || 15, normalizeCategory(category), doctor_id || null]
         );
         const pkgId = result.insertId;
         if (laboratories && laboratories.length > 0) {
@@ -128,21 +163,36 @@ router.post('/', authRequired, requireStaff, async (req, res) => {
                 );
             }
         }
-        await pool.query('INSERT INTO audit_logs (action, entity_type, entity_id, details, performed_by) VALUES (?, ?, ?, ?, ?)',
-            ['create', 'service_package', pkgId, JSON.stringify({ name, price }), req.user.id]);
+        await recordAudit({
+            req, action: 'create', entityType: 'service_package', entityId: pkgId,
+            summary: `Added service "${name}" at ${price}`,
+            after: { ...(await snapshotRow('service_packages', 'id', pkgId)), stations: (laboratories || []).length }
+        });
         res.json({ success: true, id: pkgId });
-    } catch (err) { res.status(500).json({ error: 'Failed to create package' }); }
+    } catch (err) {
+        console.error('Create package error:', err);
+        res.status(500).json({ error: 'Failed to create package' });
+    }
 });
 
 // PUT update package
-router.put('/:id', authRequired, requireStaff, async (req, res) => {
-    const { name, description, price, est_time_minutes, laboratories, is_active, doctor_id } = req.body;
+router.put('/:id', authRequired, requireStaff, requireReason, async (req, res) => {
+    const { name, description, price, est_time_minutes, laboratories, is_active, doctor_id, category } = req.body;
     try {
         const stationError = await rejectFrontDeskStations(laboratories);
         if (stationError) return res.status(400).json({ error: stationError });
+        const before = await snapshotRow('service_packages', 'id', req.params.id);
+        if (!before) return res.status(404).json({ error: 'Package not found' });
+        const [beforeStations] = await pool.query(
+            `SELECT l.name FROM package_laboratories pl JOIN laboratories l ON pl.laboratory_id = l.id
+             WHERE pl.package_id = ? AND pl.archived = false ORDER BY pl.sequence_order`,
+            [req.params.id]
+        );
+
         await pool.query(
-            'UPDATE service_packages SET name=?, description=?, price=?, est_time_minutes=?, doctor_id=?, is_active=? WHERE id=?',
-            [name, description, price, est_time_minutes, doctor_id || null, is_active !== false, req.params.id]
+            'UPDATE service_packages SET name=?, description=?, price=?, est_time_minutes=?, category=?, doctor_id=?, is_active=? WHERE id=?',
+            [name, description, price, est_time_minutes, normalizeCategory(category != null ? category : before.category),
+             doctor_id || null, is_active !== false, req.params.id]
         );
         if (laboratories) {
             await pool.query('UPDATE package_laboratories SET archived=true, archived_at=NOW() WHERE package_id = ?', [req.params.id]);
@@ -153,10 +203,48 @@ router.put('/:id', authRequired, requireStaff, async (req, res) => {
                 );
             }
         }
-        await pool.query('INSERT INTO audit_logs (action, entity_type, entity_id, details, performed_by) VALUES (?, ?, ?, ?, ?)',
-            ['update', 'service_package', req.params.id, JSON.stringify({ name, price }), req.user.id]);
+        const [afterStations] = await pool.query(
+            `SELECT l.name FROM package_laboratories pl JOIN laboratories l ON pl.laboratory_id = l.id
+             WHERE pl.package_id = ? AND pl.archived = false ORDER BY pl.sequence_order`,
+            [req.params.id]
+        );
+        // The station route is the part of a service an operator is most likely
+        // to be asked about later, so it goes in the snapshot alongside the row.
+        await recordAudit({
+            req, action: 'update', entityType: 'service_package', entityId: req.params.id,
+            summary: `Updated service "${before.name}"${Number(before.price) !== Number(price) ? ` (price ${before.price} → ${price})` : ''}`,
+            before: { ...before, stations: beforeStations.map(r => r.name).join(' → ') },
+            after: { ...(await snapshotRow('service_packages', 'id', req.params.id)), stations: afterStations.map(r => r.name).join(' → ') }
+        });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to update package' }); }
+    } catch (err) {
+        console.error('Update package error:', err);
+        res.status(500).json({ error: 'Failed to update package' });
+    }
+});
+
+// Soft delete. The catalogue had no delete at all, so a retired service could
+// only be switched inactive and never left the admin list; it now archives like
+// every other entity and is restorable from Archives.
+router.delete('/:id', authRequired, requireStaff, requireReason, async (req, res) => {
+    try {
+        const [active] = await pool.query(
+            `SELECT COUNT(*) AS cnt FROM queue_sequences
+             WHERE package_id = ? AND status = 'in_progress' AND archived = false`,
+            [req.params.id]
+        );
+        if (active[0].cnt > 0) {
+            return res.status(409).json({
+                error: `${active[0].cnt} patient(s) are part-way through this service. Wait for them to finish, or mark the service inactive instead.`
+            });
+        }
+        const archived = await archiveRecord('service_packages', 'id', req.params.id, 'service_package', req);
+        if (!archived) return res.status(400).json({ error: 'This service is already archived, or does not exist.' });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Archive package error:', err);
+        res.status(500).json({ error: 'Failed to archive package' });
+    }
 });
 
 const aiServices = require('../ai_services');

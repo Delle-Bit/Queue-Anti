@@ -4,6 +4,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const { pool } = require('../database');
+const sessionActivity = require('../session_activity');
 const multer = require('multer');
 const aiServices = require('../ai_services');
 const { JWT_SECRET } = require('../config');
@@ -103,9 +104,12 @@ async function issueSessionToken(user, res) {
         { id: user.id, username: user.username, role: user.role, category: user.customer_category },
         JWT_SECRET, { expiresIn: '8h' }
     );
-    // Track staff login
+    // Track staff login, and start the 15-minute inactivity clock for this
+    // session (session_activity.js) so a fresh sign-in is never treated as the
+    // continuation of an idle one.
     if (user.role !== 'customer') {
-        await pool.query('INSERT INTO staff_sessions (user_id) VALUES (?)', [user.id]);
+        await pool.query('INSERT INTO staff_sessions (user_id, last_activity) VALUES (?, NOW())', [user.id]);
+        await sessionActivity.start(user.id);
     }
     res.json({
         success: true, token, role: user.role,

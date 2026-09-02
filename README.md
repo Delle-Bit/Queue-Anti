@@ -67,10 +67,14 @@ server log.
 
 ## Stations & service steps
 
-Every ticket starts at the front desk, then walks the stations its service is
-wired to, and ends at a physician when the service calls for one. Stations live
-in `laboratories`, the per-service order lives in `package_laboratories`, and the
-seeded plan is `SERVICE_STEPS` in `database.js`.
+Every ticket starts at the front desk, walks the stations its service is wired
+to (seeing a physician when the service calls for one), then **returns to the
+front desk**, which is the only station that can record the visit as officially
+Completed or Unfinished. Stations live in `laboratories`, the per-service order
+lives in `package_laboratories`, and the seeded plan is `SERVICE_STEPS` in
+`database.js`. Both front desk steps are added by `composeServiceSteps` in
+`queue_automation.js` and are never stored as station rows, so the tables below
+list only what happens between them.
 
 | Station             | Handles                                        | Staff          |
 | ------------------- | ---------------------------------------------- | -------------- |
@@ -86,7 +90,7 @@ Sequences follow the standard Philippine out-patient flow — register and pay a
 the desk, give specimens, get imaged, then see the physician who interprets the
 results:
 
-| Service                            | After the front desk                                                            |
+| Service                            | Between the two front desk steps                                                |
 | ---------------------------------- | ------------------------------------------------------------------------------- |
 | Hematology (CBC)                   | Blood Test Lab                                                                  |
 | Blood Chemistry                    | Blood Test Lab                                                                  |

@@ -44,6 +44,7 @@ function logout() {
     localStorage.removeItem('clinicRole');
     localStorage.removeItem('clinicUsername');
     localStorage.removeItem('clinicCategory');
+    localStorage.removeItem('clinicLastActivity');
     window.location.href = '/index.html';
 }
 
@@ -258,9 +259,20 @@ async function saveCustomization() {
         if (el) payload[field] = String(el.value || '').trim();
     }
     if (Object.keys(payload).length === 0) return;
+    // Branding is clinic-wide configuration, so it goes on the audit trail with
+    // a reason like every other configuration change. The server rejects the
+    // request without one.
+    const reason = await promptReason({
+        title: 'Save appearance changes',
+        message: 'These settings apply to every user of the clinic system.',
+        placeholder: 'e.g. updated to the new clinic logo and brand colour',
+        confirmLabel: 'Save settings',
+        presets: ['Rebranding update', 'Corrected clinic name', 'Seasonal theme change']
+    });
+    if (!reason) return;
     try {
         const res = await fetch('/api/admin/settings', {
-            method: 'PUT', headers: authHeaders(), body: JSON.stringify(payload)
+            method: 'PUT', headers: authHeaders(), body: JSON.stringify({ ...payload, reason })
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) { showToast(data.error || 'Failed to save settings', 'error'); return; }
@@ -276,10 +288,26 @@ async function saveCustomization() {
 // gets the same validation, audit_logs entry and settingsUpdate broadcast rather
 // than a second code path that could drift from it.
 async function resetCustomization() {
-    if (!confirm('Reset site name, logo, theme, navbar colour and background image to their defaults?\n\nThis affects every user, not just you.')) return;
+    const confirmed = await confirmAction({
+        title: 'Reset appearance to defaults',
+        message: 'Site name, logo, theme, navbar colour and background image will all go back to their shipped defaults.',
+        detail: 'This affects every user of the clinic system, not just you.',
+        icon: 'fa-solid fa-rotate-left',
+        confirmLabel: 'Reset to defaults',
+        confirmClass: 'btn-danger'
+    });
+    if (!confirmed) return;
+    const reason = await promptReason({
+        title: 'Reason for resetting appearance',
+        placeholder: 'e.g. reverting an unapproved branding change',
+        confirmLabel: 'Reset appearance',
+        confirmClass: 'btn-danger',
+        presets: ['Reverting an unapproved change', 'Starting branding over', 'Fixing a broken theme']
+    });
+    if (!reason) return;
     try {
         const res = await fetch('/api/admin/settings', {
-            method: 'PUT', headers: authHeaders(), body: JSON.stringify({ ...SITE_DEFAULTS })
+            method: 'PUT', headers: authHeaders(), body: JSON.stringify({ ...SITE_DEFAULTS, reason })
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) { showToast(data.error || 'Failed to reset settings', 'error'); return; }
@@ -934,6 +962,294 @@ function enforcePasswordPolicy(root = document) {
     });
 }
 
+
+// ── CONFIRMATION & REASON DIALOGS ────────────────────────────────────────────
+// Built from JavaScript rather than added to each page's markup: the dashboards
+// are six separate HTML files with no templating, so a shared dialog has to
+// bring its own DOM or it has to be pasted six times.
+
+let dialogSeq = 0;
+
+function buildDialog({ title, icon, bodyHtml, confirmLabel, confirmClass, cancelLabel }) {
+    const id = `shared-dialog-${++dialogSeq}`;
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.id = id;
+    // Above the announcement banner (250) and the sidebar drawer (200), so a
+    // dialog is never opened underneath something.
+    overlay.style.zIndex = '400';
+    overlay.innerHTML = `
+        <div class="modal-box" style="max-width:480px;">
+            <div class="modal-header">
+                <div class="modal-title">${icon ? `<i class="${icon}"></i> ` : ''}${escapeHtml(title)}</div>
+                <button class="modal-close" type="button" data-dialog-cancel>&times;</button>
+            </div>
+            <div class="modal-body">${bodyHtml}</div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" type="button" data-dialog-cancel>${escapeHtml(cancelLabel || 'Cancel')}</button>
+                <button class="btn ${confirmClass || 'btn-primary'}" type="button" data-dialog-confirm>${escapeHtml(confirmLabel || 'Confirm')}</button>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+    return overlay;
+}
+
+// Resolves true/false. Used for the mandatory "Next" confirmation and any other
+// step that should not happen on a single stray click.
+function confirmAction({ title = 'Please confirm', message = '', detail = '', icon = 'fa-solid fa-circle-question',
+                         confirmLabel = 'Confirm', confirmClass = 'btn-primary', cancelLabel = 'Cancel' } = {}) {
+    return new Promise(resolve => {
+        const bodyHtml = `
+            <p style="margin:0 0 ${detail ? '8px' : '0'};">${escapeHtml(message)}</p>
+            ${detail ? `<p class="text-muted text-sm" style="margin:0;">${escapeHtml(detail)}</p>` : ''}`;
+        const overlay = buildDialog({ title, icon, bodyHtml, confirmLabel, confirmClass, cancelLabel });
+
+        function close(result) {
+            document.removeEventListener('keydown', onKey);
+            overlay.remove();
+            resolve(result);
+        }
+        function onKey(e) {
+            if (e.key === 'Escape') close(false);
+            if (e.key === 'Enter') close(true);
+        }
+        overlay.querySelectorAll('[data-dialog-cancel]').forEach(b => b.addEventListener('click', () => close(false)));
+        overlay.querySelector('[data-dialog-confirm]').addEventListener('click', () => close(true));
+        overlay.addEventListener('click', e => { if (e.target === overlay) close(false); });
+        document.addEventListener('keydown', onKey);
+
+        overlay.classList.add('active');
+        overlay.querySelector('[data-dialog-confirm]').focus();
+    });
+}
+
+// Resolves the reason string, or null if cancelled. Every system-level
+// configuration change asks for one, and the server rejects the request without
+// it - so this is the client half of a rule enforced on both sides.
+const REASON_MIN_LENGTH = 3;
+
+function promptReason({ title = 'Reason for this change', message = '',
+                        placeholder = 'e.g. price corrected per the 2026 rate sheet',
+                        confirmLabel = 'Save change', confirmClass = 'btn-primary',
+                        presets = [] } = {}) {
+    return new Promise(resolve => {
+        const bodyHtml = `
+            ${message ? `<p style="margin:0 0 12px;">${escapeHtml(message)}</p>` : ''}
+            <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label" for="dialog-reason">Reason / remarks <span style="color:var(--danger)">*</span></label>
+                <textarea class="form-input" id="dialog-reason" rows="3"
+                          placeholder="${escapeHtml(placeholder)}" style="resize:vertical;"></textarea>
+                <small class="text-muted">Recorded in the audit log against your account. Minimum ${REASON_MIN_LENGTH} characters.</small>
+                <div id="dialog-reason-error" class="text-sm" style="display:none;color:var(--danger);margin-top:6px;"></div>
+            </div>
+            ${presets.length ? `<div class="mt-sm" style="display:flex;flex-wrap:wrap;gap:6px;">
+                ${presets.map(pr => `<button type="button" class="btn btn-sm btn-outline" data-preset="${escapeHtml(pr)}">${escapeHtml(pr)}</button>`).join('')}
+            </div>` : ''}`;
+        const overlay = buildDialog({
+            title, icon: 'fa-solid fa-clipboard-check', bodyHtml, confirmLabel, confirmClass
+        });
+        const field = overlay.querySelector('#dialog-reason');
+        const error = overlay.querySelector('#dialog-reason-error');
+
+        function close(result) {
+            document.removeEventListener('keydown', onKey);
+            overlay.remove();
+            resolve(result);
+        }
+        function submit() {
+            const value = field.value.trim();
+            if (value.length < REASON_MIN_LENGTH) {
+                error.textContent = `Please give a reason of at least ${REASON_MIN_LENGTH} characters.`;
+                error.style.display = 'block';
+                field.focus();
+                return;
+            }
+            close(value);
+        }
+        function onKey(e) {
+            if (e.key === 'Escape') close(null);
+            // Enter alone inserts a newline in the textarea, so the shortcut is
+            // the deliberate two-key one.
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit();
+        }
+        overlay.querySelectorAll('[data-preset]').forEach(btn => btn.addEventListener('click', () => {
+            field.value = btn.dataset.preset;
+            error.style.display = 'none';
+            field.focus();
+        }));
+        overlay.querySelectorAll('[data-dialog-cancel]').forEach(b => b.addEventListener('click', () => close(null)));
+        overlay.querySelector('[data-dialog-confirm]').addEventListener('click', submit);
+        overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+        document.addEventListener('keydown', onKey);
+
+        overlay.classList.add('active');
+        field.focus();
+    });
+}
+
+// ── STAFF INACTIVITY TIMEOUT ────────────────────────────────────────────────
+// A staff terminal left alone for 15 minutes is signed out and returned to the
+// sign-in page. Only the browser can tell an idle terminal from a busy one, so
+// the clock lives here; the server is told about real activity through
+// /api/session/heartbeat and enforces the same limit on the token, so a closed
+// laptop cannot leave a usable session behind. See session_activity.js.
+
+const IDLE_LIMIT_MS = 15 * 60 * 1000;
+const IDLE_WARN_MS = 60 * 1000;          // warn one minute out
+const HEARTBEAT_MIN_INTERVAL_MS = 60 * 1000;
+const IDLE_CHECK_INTERVAL_MS = 5 * 1000;
+
+// Shared through localStorage so activity in one tab keeps the others alive -
+// otherwise a staff member working in two tabs is logged out of the one they
+// happen not to be looking at.
+const IDLE_STORAGE_KEY = 'clinicLastActivity';
+
+const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'touchstart', 'wheel', 'click'];
+
+let idleTimer = null;
+let idleWarningDialog = null;
+let lastHeartbeatAt = 0;
+let sessionEnding = false;
+
+function readLastActivity() {
+    const stored = Number(localStorage.getItem(IDLE_STORAGE_KEY));
+    return Number.isFinite(stored) && stored > 0 ? stored : Date.now();
+}
+
+function markActivity() {
+    if (sessionEnding) return;
+    localStorage.setItem(IDLE_STORAGE_KEY, String(Date.now()));
+    dismissIdleWarning();
+    sendHeartbeat();
+}
+
+function sendHeartbeat(force = false) {
+    const now = Date.now();
+    if (!force && now - lastHeartbeatAt < HEARTBEAT_MIN_INTERVAL_MS) return;
+    lastHeartbeatAt = now;
+    fetch('/api/session/heartbeat', { method: 'POST', headers: authHeaders() }).catch(() => {});
+}
+
+function dismissIdleWarning() {
+    if (!idleWarningDialog) return;
+    idleWarningDialog.remove();
+    idleWarningDialog = null;
+}
+
+function showIdleWarning(secondsLeft) {
+    if (idleWarningDialog) {
+        const counter = idleWarningDialog.querySelector('[data-idle-countdown]');
+        if (counter) counter.textContent = secondsLeft;
+        return;
+    }
+    idleWarningDialog = buildDialog({
+        title: 'Still there?',
+        icon: 'fa-solid fa-clock',
+        bodyHtml: `<p style="margin:0;">You will be signed out in
+                   <strong data-idle-countdown>${secondsLeft}</strong> seconds because of inactivity.</p>
+                   <p class="text-muted text-sm" style="margin:8px 0 0;">This protects patient records on shared terminals.</p>`,
+        confirmLabel: 'Keep me signed in',
+        confirmClass: 'btn-primary',
+        cancelLabel: 'Sign out now'
+    });
+    idleWarningDialog.querySelectorAll('[data-dialog-cancel]').forEach(b =>
+        b.addEventListener('click', () => endSessionForInactivity(true)));
+    idleWarningDialog.querySelector('[data-dialog-confirm]').addEventListener('click', () => {
+        markActivity();
+        sendHeartbeat(true);
+    });
+    idleWarningDialog.classList.add('active');
+}
+
+// `manual` distinguishes the user choosing to sign out from the timer running
+// down, purely so the sign-in page can say which happened.
+function endSessionForInactivity(manual = false) {
+    if (sessionEnding) return;
+    sessionEnding = true;
+    if (idleTimer) clearInterval(idleTimer);
+    dismissIdleWarning();
+    localStorage.removeItem(IDLE_STORAGE_KEY);
+    const token = getToken();
+    const finish = () => { window.location.replace(manual ? '/index.html' : '/index.html?timeout=1'); };
+    if (!token) return finish();
+    // keepalive so the request survives the navigation that follows it.
+    fetch('/api/session/timeout', { method: 'POST', headers: authHeaders(), keepalive: true })
+        .catch(() => {})
+        .finally(() => {
+            localStorage.removeItem('clinicToken');
+            localStorage.removeItem('clinicRole');
+            localStorage.removeItem('clinicUsername');
+            localStorage.removeItem('clinicCategory');
+            finish();
+        });
+}
+
+// The server can decide a session is over before the local clock does (another
+// tab timed out, or the server restarted and rejected a stale token). Every
+// /api response is checked for the header it sets, which is why this wraps
+// fetch rather than being added to each of the dozens of existing call sites.
+function installSessionExpiryInterceptor() {
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = function (input, init) {
+        return nativeFetch(input, init).then(response => {
+            if (response.status === 401 && response.headers.get('X-Session-Timeout') === '1' && !sessionEnding) {
+                sessionEnding = true;
+                localStorage.removeItem(IDLE_STORAGE_KEY);
+                localStorage.removeItem('clinicToken');
+                localStorage.removeItem('clinicRole');
+                localStorage.removeItem('clinicUsername');
+                localStorage.removeItem('clinicCategory');
+                window.location.replace('/index.html?timeout=1');
+            }
+            return response;
+        });
+    };
+}
+
+function initIdleTimeout() {
+    const role = getRole();
+    // Customers are on their own phones; the requirement is about staff
+    // terminals sitting unattended in a public clinic.
+    if (!getToken() || !role || role === 'customer') return;
+
+    installSessionExpiryInterceptor();
+    localStorage.setItem(IDLE_STORAGE_KEY, String(Date.now()));
+    sendHeartbeat(true);
+    ACTIVITY_EVENTS.forEach(evt => document.addEventListener(evt, markActivity, { passive: true }));
+    // Returning to the tab is itself a sign of life.
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) markActivity(); });
+
+    idleTimer = setInterval(() => {
+        const idleFor = Date.now() - readLastActivity();
+        if (idleFor >= IDLE_LIMIT_MS) return endSessionForInactivity();
+        if (idleFor >= IDLE_LIMIT_MS - IDLE_WARN_MS) {
+            showIdleWarning(Math.max(1, Math.ceil((IDLE_LIMIT_MS - idleFor) / 1000)));
+        } else {
+            dismissIdleWarning();
+        }
+    }, IDLE_CHECK_INTERVAL_MS);
+}
+
+// ── CLIENT-SIDE TABLE FILTERING ─────────────────────────────────────────────
+// Shared by the account, audit and archive search boxes: match a search term
+// against a chosen set of fields on each row, case-insensitively, so "senior",
+// "MC-2026" and "42" all work in the same box.
+function matchesSearch(row, term, fields) {
+    const q = String(term || '').trim().toLowerCase();
+    if (!q) return true;
+    return fields.some(field => String(row[field] ?? '').toLowerCase().includes(q));
+}
+
+// Debounce for search boxes that hit the server, so typing does not fire a
+// request per keystroke.
+function debounce(fn, wait = 250) {
+    let handle = null;
+    return function (...args) {
+        if (handle) clearTimeout(handle);
+        handle = setTimeout(() => fn.apply(this, args), wait);
+    };
+}
+
 // ── INIT ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     initSocket();
@@ -941,4 +1257,5 @@ document.addEventListener('DOMContentLoaded', () => {
     enhancePasswordToggles();
     enforcePasswordPolicy();
     initAnnouncements();
+    initIdleTimeout();
 });

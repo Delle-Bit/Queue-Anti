@@ -7,45 +7,73 @@ const crypto = require('crypto');
 const { requireStaff, requireAdmin } = require('../config');
 const aiServices = require('../ai_services');
 const appointmentAutomation = require('../appointment_automation');
+const sessionActivity = require('../session_activity');
+const { recordAudit, requireReason, snapshotRow } = require('../audit');
+const { archiveRecord, ARCHIVE_TABLE_MAP } = require('../archive');
 
 const ELEVATED_ROLES = ['admin', 'admintechnical', 'owner'];
 
-async function archiveRecord(table, idColumn, idValue, entityType, userId) {
-    const [rows] = await pool.query(`SELECT * FROM ${table} WHERE ${idColumn} = ?`, [idValue]);
-    if (rows.length === 0) return false;
-    await pool.query(
-        `INSERT INTO archived_records (entity_type, entity_id, snapshot, archived_by) VALUES (?, ?, ?, ?)`,
-        [entityType, String(idValue), JSON.stringify(rows[0]), userId || null]
-    );
-    await pool.query(`UPDATE ${table} SET archived=true, archived_at=NOW() WHERE ${idColumn} = ?`, [idValue]);
-    await pool.query(
-        'INSERT INTO audit_logs (action, entity_type, entity_id, details, performed_by) VALUES (?, ?, ?, ?, ?)',
-        ['archive', entityType, Number(idValue) || null, JSON.stringify({ table }), userId || null]
-    );
-    return true;
+// --- USERS ---
+// Free-text search across the columns an operator would actually type into a
+// search box. Built as a parameterised OR block rather than string-concatenated
+// SQL, so a search term can never reach the query text.
+function buildSearchClause(term, columns) {
+    const q = String(term || '').trim();
+    if (!q) return { clause: '', params: [] };
+    const like = `%${q}%`;
+    return {
+        clause: `(${columns.map(c => `${c} LIKE ?`).join(' OR ')})`,
+        params: columns.map(() => like)
+    };
 }
 
-// --- USERS ---
 router.get('/users/staff', requireAdmin, async (req, res) => {
     try {
-        const [rows] = await pool.query(`SELECT id, username, role, full_name, email, created_at FROM users WHERE role != 'customer' AND archived = false ORDER BY created_at DESC`);
+        // id is cast so a search for "12" matches the account number as readily
+        // as it matches a name.
+        const search = buildSearchClause(req.query.q, [
+            'CAST(u.id AS CHAR)', 'u.username', 'u.full_name', 'u.email', 'u.role'
+        ]);
+        const params = [];
+        let where = `u.role != 'customer' AND u.archived = false`;
+        if (search.clause) { where += ` AND ${search.clause}`; params.push(...search.params); }
+        if (req.query.role) { where += ' AND u.role = ?'; params.push(req.query.role); }
+        const [rows] = await pool.query(
+            `SELECT u.id, u.username, u.role, u.full_name, u.email, u.created_at
+             FROM users u WHERE ${where} ORDER BY u.created_at DESC LIMIT 500`,
+            params
+        );
         res.json(rows);
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    } catch (err) {
+        console.error('Staff list error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
 router.get('/users/customers', requireAdmin, async (req, res) => {
     try {
-        const [rows] = await pool.query(`
-            SELECT u.id, u.username, u.full_name, u.email, u.customer_category, u.created_at,
-                   COUNT(qs.id) as total_services
-            FROM users u LEFT JOIN queue_sequences qs ON u.id = qs.customer_id AND qs.status='completed'
-            WHERE u.role = 'customer' AND u.archived = false GROUP BY u.id ORDER BY u.created_at DESC
-        `);
+        const search = buildSearchClause(req.query.q, [
+            'CAST(u.id AS CHAR)', 'u.customer_uid', 'u.username', 'u.full_name', 'u.email', 'u.customer_category'
+        ]);
+        const params = [];
+        let where = `u.role = 'customer' AND u.archived = false`;
+        if (search.clause) { where += ` AND ${search.clause}`; params.push(...search.params); }
+        if (req.query.category) { where += ' AND u.customer_category = ?'; params.push(req.query.category); }
+        const [rows] = await pool.query(
+            `SELECT u.id, u.customer_uid, u.username, u.full_name, u.email, u.customer_category, u.created_at,
+                    COUNT(qs.id) as total_services
+             FROM users u LEFT JOIN queue_sequences qs ON u.id = qs.customer_id AND qs.status='completed'
+             WHERE ${where} GROUP BY u.id ORDER BY u.created_at DESC LIMIT 500`,
+            params
+        );
         res.json(rows);
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    } catch (err) {
+        console.error('Customer list error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
-router.post('/users', requireAdmin, async (req, res) => {
+router.post('/users', requireAdmin, requireReason, async (req, res) => {
     const { username, password, role, email, full_name } = req.body;
     try {
         // Admin role cannot create other admins
@@ -53,20 +81,28 @@ router.post('/users', requireAdmin, async (req, res) => {
             return res.status(403).json({ error: 'Admin cannot create other Admin accounts' });
         }
         const hash = await bcrypt.hash(password, 10);
-        await pool.query(
+        const [result] = await pool.query(
             'INSERT INTO users (username, password_hash, role, email, full_name) VALUES (?, ?, ?, ?, ?)',
             [username, hash, role, email || '', full_name || '']
         );
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to create user' }); }
+        await recordAudit({
+            req, action: 'create', entityType: 'user', entityId: result.insertId,
+            summary: `Created ${role} account "${username}"`,
+            after: { id: result.insertId, username, role, email: email || '', full_name: full_name || '' }
+        });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        console.error('Create user error:', err);
+        res.status(500).json({ error: 'Failed to create user' });
+    }
 });
 
-router.put('/users/:id', requireAdmin, async (req, res) => {
+router.put('/users/:id', requireAdmin, requireReason, async (req, res) => {
     const { password, role, email, full_name } = req.body;
     try {
-        const [targetRows] = await pool.query('SELECT role FROM users WHERE id=?', [req.params.id]);
-        if (targetRows.length === 0) return res.status(404).json({ error: 'User not found' });
-        const targetRole = targetRows[0].role;
+        const before = await snapshotRow('users', 'id', req.params.id);
+        if (!before) return res.status(404).json({ error: 'User not found' });
+        const targetRole = before.role;
 
         // Plain admins must not modify elevated accounts or grant elevated roles
         if (req.user.role === 'admin') {
@@ -89,12 +125,21 @@ router.put('/users/:id', requireAdmin, async (req, res) => {
             await pool.query('UPDATE users SET role=?, email=?, full_name=? WHERE id=?',
                 [role, email || '', full_name || '', req.params.id]);
         }
+        const after = await snapshotRow('users', 'id', req.params.id);
+        await recordAudit({
+            req, action: 'update', entityType: 'user', entityId: req.params.id,
+            summary: `Updated account "${before.username}"${password ? ' (password reset)' : ''}`,
+            before, after
+        });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to update user' }); }
+    } catch (err) {
+        console.error('Update user error:', err);
+        res.status(500).json({ error: 'Failed to update user' });
+    }
 });
 
-router.delete('/users/:id', requireAdmin, async (req, res) => {
-    const { reason } = req.body;
+router.delete('/users/:id', requireAdmin, requireReason, async (req, res) => {
+    const reason = req.auditReason;
     try {
         if (Number(req.params.id) === req.user.id) {
             return res.status(403).json({ error: 'You cannot delete your own account' });
@@ -108,16 +153,18 @@ router.delete('/users/:id', requireAdmin, async (req, res) => {
         if (userRows.length === 0) return res.status(404).json({ error: 'User not found' });
         const user = userRows[0];
 
-        const archived = await archiveRecord('users', 'id', req.params.id, 'user', req.user.id);
-        if (archived) {
-            await pool.query(
-                `INSERT INTO account_deletion_logs (account_id, account_name, deleted_by, deleted_by_name, reason)
-                 VALUES (?, ?, ?, ?, ?)`,
-                [req.params.id, user.full_name || user.username, req.user.id, req.user.username, reason || 'No reason provided']
-            );
-        }
+        const archived = await archiveRecord('users', 'id', req.params.id, 'user', req, reason);
+        if (!archived) return res.status(400).json({ error: 'This account is already archived.' });
+        await pool.query(
+            `INSERT INTO account_deletion_logs (account_id, account_name, deleted_by, deleted_by_name, reason)
+             VALUES (?, ?, ?, ?, ?)`,
+            [req.params.id, user.full_name || user.username, req.user.id, req.user.username, reason]
+        );
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to delete user' }); }
+    } catch (err) {
+        console.error('Delete user error:', err);
+        res.status(500).json({ error: 'Failed to delete user' });
+    }
 });
 
 router.get('/users/deletion-logs', requireAdmin, async (req, res) => {
@@ -138,33 +185,55 @@ router.get('/laboratories', requireStaff, async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.post('/laboratories', requireAdmin, async (req, res) => {
+router.post('/laboratories', requireAdmin, requireReason, async (req, res) => {
     const { name, service_type, assigned_staff_id, start_time, cutoff_time } = req.body;
     try {
-        await pool.query(
+        const [result] = await pool.query(
             'INSERT INTO laboratories (name, service_type, assigned_staff_id, start_time, cutoff_time) VALUES (?, ?, ?, ?, ?)',
             [name, service_type || '', assigned_staff_id || null, start_time || null, cutoff_time || null]
         );
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+        await recordAudit({
+            req, action: 'create', entityType: 'laboratory', entityId: result.insertId,
+            summary: `Added laboratory "${name}"`,
+            after: await snapshotRow('laboratories', 'id', result.insertId)
+        });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        console.error('Create laboratory error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
-router.put('/laboratories/:id', requireAdmin, async (req, res) => {
+router.put('/laboratories/:id', requireAdmin, requireReason, async (req, res) => {
     const { name, service_type, assigned_staff_id, is_open, start_time, cutoff_time } = req.body;
     try {
+        const before = await snapshotRow('laboratories', 'id', req.params.id);
+        if (!before) return res.status(404).json({ error: 'Laboratory not found' });
         await pool.query(
             'UPDATE laboratories SET name=?, service_type=?, assigned_staff_id=?, is_open=?, start_time=?, cutoff_time=? WHERE id=?',
             [name, service_type, assigned_staff_id || null, is_open !== false, start_time || null, cutoff_time || null, req.params.id]
         );
+        await recordAudit({
+            req, action: 'update', entityType: 'laboratory', entityId: req.params.id,
+            summary: `Updated laboratory "${before.name}"`,
+            before, after: await snapshotRow('laboratories', 'id', req.params.id)
+        });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    } catch (err) {
+        console.error('Update laboratory error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
-router.delete('/laboratories/:id', requireAdmin, async (req, res) => {
+router.delete('/laboratories/:id', requireAdmin, requireReason, async (req, res) => {
     try {
-        await archiveRecord('laboratories', 'id', req.params.id, 'laboratory', req.user.id);
+        const archived = await archiveRecord('laboratories', 'id', req.params.id, 'laboratory', req);
+        if (!archived) return res.status(400).json({ error: 'This laboratory is already archived.' });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    } catch (err) {
+        console.error('Archive laboratory error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
 // --- DOCTORS ---
@@ -178,33 +247,55 @@ router.get('/doctors', requireStaff, async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.post('/doctors', requireAdmin, async (req, res) => {
+router.post('/doctors', requireAdmin, requireReason, async (req, res) => {
     const { name, specialty, assigned_staff_id } = req.body;
     try {
-        await pool.query(
+        const [result] = await pool.query(
             'INSERT INTO doctors (name, specialty, assigned_staff_id) VALUES (?, ?, ?)',
             [name, specialty || '', assigned_staff_id || null]
         );
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+        await recordAudit({
+            req, action: 'create', entityType: 'doctor', entityId: result.insertId,
+            summary: `Added doctor "${name}"`,
+            after: await snapshotRow('doctors', 'id', result.insertId)
+        });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        console.error('Create doctor error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
-router.put('/doctors/:id', requireAdmin, async (req, res) => {
+router.put('/doctors/:id', requireAdmin, requireReason, async (req, res) => {
     const { name, specialty, assigned_staff_id, is_open } = req.body;
     try {
+        const before = await snapshotRow('doctors', 'id', req.params.id);
+        if (!before) return res.status(404).json({ error: 'Doctor not found' });
         await pool.query(
             'UPDATE doctors SET name=?, specialty=?, assigned_staff_id=?, is_open=? WHERE id=?',
             [name, specialty || '', assigned_staff_id || null, is_open !== false, req.params.id]
         );
+        await recordAudit({
+            req, action: 'update', entityType: 'doctor', entityId: req.params.id,
+            summary: `Updated doctor "${before.name}"`,
+            before, after: await snapshotRow('doctors', 'id', req.params.id)
+        });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    } catch (err) {
+        console.error('Update doctor error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
-router.delete('/doctors/:id', requireAdmin, async (req, res) => {
+router.delete('/doctors/:id', requireAdmin, requireReason, async (req, res) => {
     try {
-        await archiveRecord('doctors', 'id', req.params.id, 'doctor', req.user.id);
+        const archived = await archiveRecord('doctors', 'id', req.params.id, 'doctor', req);
+        if (!archived) return res.status(400).json({ error: 'This doctor is already archived.' });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    } catch (err) {
+        console.error('Archive doctor error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
 
@@ -463,16 +554,61 @@ router.get('/analytics/owner', requireAdmin, async (req, res) => {
 // --- STAFF SESSIONS ---
 router.post('/staff-sessions/logout', async (req, res) => {
     try {
-        await pool.query(`UPDATE staff_sessions SET logout_time=NOW() WHERE user_id=? AND logout_time IS NULL ORDER BY id DESC LIMIT 1`, [req.user.id]);
+        // Also drops the in-memory idle clock, so the token cannot be replayed
+        // after the user has signed out (session_activity.js).
+        await sessionActivity.terminate(req.user.id, 'logout');
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
 // --- AUDIT LOGS ---
+// Every row answers What / Who / When / Why. actor_name is read from the log
+// itself rather than joined live, so an entry still names the person who made
+// the change after their account is renamed or archived; the join is only a
+// fallback for rows written before that column existed.
 router.get('/audit-logs', requireAdmin, async (req, res) => {
     try {
-        const [rows] = await pool.query(`SELECT al.*, u.username FROM audit_logs al LEFT JOIN users u ON al.performed_by=u.id ORDER BY al.created_at DESC LIMIT 100`);
+        const params = [];
+        const filters = [];
+        const search = buildSearchClause(req.query.q, [
+            'al.action', 'al.entity_type', 'al.summary', 'al.reason', 'al.details',
+            'al.actor_name', 'u.username'
+        ]);
+        if (search.clause) { filters.push(search.clause); params.push(...search.params); }
+        if (req.query.action) { filters.push('al.action = ?'); params.push(req.query.action); }
+        if (req.query.entity_type) { filters.push('al.entity_type = ?'); params.push(req.query.entity_type); }
+        if (req.query.from) { filters.push('al.created_at >= ?'); params.push(`${req.query.from} 00:00:00`); }
+        if (req.query.to) { filters.push('al.created_at <= ?'); params.push(`${req.query.to} 23:59:59`); }
+
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 1000);
+        const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+        const [rows] = await pool.query(
+            `SELECT al.id, al.action, al.entity_type, al.entity_id, al.details, al.summary, al.reason,
+                    al.before_snapshot, al.after_snapshot, al.created_at,
+                    COALESCE(NULLIF(al.actor_name, ''), u.username, 'System') AS actor_name,
+                    COALESCE(NULLIF(al.actor_role, ''), u.role, '')          AS actor_role,
+                    COALESCE(NULLIF(al.actor_name, ''), u.username, 'System') AS username
+             FROM audit_logs al LEFT JOIN users u ON al.performed_by = u.id
+             ${where} ORDER BY al.created_at DESC, al.id DESC LIMIT ${limit}`,
+            params
+        );
         res.json(rows);
+    } catch (err) {
+        console.error('Audit log error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
+});
+
+// The distinct values present, so the log's filter dropdowns only ever offer
+// options that will actually match something.
+router.get('/audit-logs/facets', requireAdmin, async (req, res) => {
+    try {
+        const [actions] = await pool.query('SELECT DISTINCT action FROM audit_logs ORDER BY action');
+        const [types] = await pool.query("SELECT DISTINCT entity_type FROM audit_logs WHERE entity_type <> '' ORDER BY entity_type");
+        res.json({
+            actions: actions.map(r => r.action),
+            entity_types: types.map(r => r.entity_type)
+        });
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
@@ -495,7 +631,7 @@ const SETTINGS_THEMES = ['light', 'dark'];
 // Customize form sent (navbar_color + background_image) nulled out site_name and
 // logo_path and reset theme - which also silently broke the branding on the
 // customer's exported medical-record PDF, the one place those two were read.
-router.put('/settings', requireAdmin, async (req, res) => {
+router.put('/settings', requireAdmin, requireReason, async (req, res) => {
     const body = req.body || {};
     const fields = Object.keys(SETTINGS_FIELDS).filter(f => body[f] !== undefined && body[f] !== null);
     if (fields.length === 0) return res.status(400).json({ error: 'No settings provided' });
@@ -519,15 +655,16 @@ router.put('/settings', requireAdmin, async (req, res) => {
     }
 
     try {
+        const before = await snapshotRow('settings', 'id', 1);
         const setClause = fields.map(f => `${f}=?`).join(', ');
         await pool.query(`UPDATE settings SET ${setClause} WHERE id=1`, values);
+        const after = await snapshotRow('settings', 'id', 1);
 
-        try {
-            await pool.query(
-                'INSERT INTO audit_logs (action, entity_type, entity_id, details, performed_by) VALUES (?, ?, ?, ?, ?)',
-                ['update', 'settings', 1, JSON.stringify(Object.fromEntries(fields.map((f, i) => [f, values[i]]))), req.user.id]
-            );
-        } catch (logErr) { console.error('Settings audit log failed:', logErr.message); }
+        await recordAudit({
+            req, action: 'update', entityType: 'settings', entityId: 1,
+            summary: `Updated appearance settings: ${fields.join(', ')}`,
+            before, after
+        });
 
         // Let every open page re-apply the branding without a manual reload.
         const io = req.app.get('io');
@@ -765,7 +902,7 @@ router.get('/announcements/active', async (req, res) => {
 
 router.delete('/announcements/:id', requireStaff, async (req, res) => {
     try {
-        const ok = await archiveRecord('announcements', 'id', req.params.id, 'announcement', req.user.id);
+        const ok = await archiveRecord('announcements', 'id', req.params.id, 'announcement', req, 'Announcement withdrawn by staff');
         if (!ok) return res.status(404).json({ error: 'Not found' });
         if (req.app.get('io')) req.app.get('io').emit('announcementUpdate', {});
         res.json({ success: true });
@@ -780,64 +917,102 @@ router.get('/faqs', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+// The recoverable archive. Everything soft-deleted anywhere in the system lands
+// here with a snapshot, a human-readable label and the reason it was archived,
+// and every type in ARCHIVE_TABLE_MAP can be restored with one action.
 router.get('/archives', requireAdmin, async (req, res) => {
     try {
+        const params = [];
+        const filters = ['ar.restored_at IS NULL', 'ar.permanently_deleted_at IS NULL'];
+        const search = buildSearchClause(req.query.q, [
+            'ar.entity_type', 'ar.entity_id', 'ar.label', 'ar.reason', 'u.username'
+        ]);
+        if (search.clause) { filters.push(search.clause); params.push(...search.params); }
+        if (req.query.type) { filters.push('ar.entity_type = ?'); params.push(req.query.type); }
+
         const [rows] = await pool.query(
-            `SELECT ar.*, u.username as archived_by_name
+            `SELECT ar.id, ar.entity_type, ar.entity_id, ar.label, ar.reason, ar.snapshot,
+                    ar.archived_at, u.username as archived_by_name
              FROM archived_records ar LEFT JOIN users u ON ar.archived_by=u.id
-             WHERE ar.restored_at IS NULL AND ar.permanently_deleted_at IS NULL
-             ORDER BY ar.archived_at DESC LIMIT 200`
+             WHERE ${filters.join(' AND ')}
+             ORDER BY ar.archived_at DESC LIMIT 300`,
+            params
+        );
+        // Restorable says whether this session can actually put the record back,
+        // so the UI can grey out the button instead of failing on click.
+        res.json(rows.map(r => ({ ...r, restorable: !!ARCHIVE_TABLE_MAP[r.entity_type] })));
+    } catch (err) {
+        console.error('Archives list error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
+});
+
+router.get('/archives/types', requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT entity_type, COUNT(*) AS cnt FROM archived_records
+             WHERE restored_at IS NULL AND permanently_deleted_at IS NULL
+             GROUP BY entity_type ORDER BY entity_type`
         );
         res.json(rows);
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.post('/archives/:id/restore', requireAdmin, async (req, res) => {
-    const map = {
-        user: ['users', 'id'],
-        laboratory: ['laboratories', 'id'],
-        doctor: ['doctors', 'id'],
-        service_package: ['service_packages', 'id'],
-        appointment: ['appointments', 'id'],
-        queue: ['queue', 'id'],
-        queue_sequence: ['queue_sequences', 'id'],
-        queue_log: ['queue_logs', 'id'],
-        medical_record: ['medical_records', 'id'],
-        lab_note: ['lab_notes', 'id']
-    };
+router.post('/archives/:id/restore', requireAdmin, requireReason, async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM archived_records WHERE id=? AND restored_at IS NULL AND permanently_deleted_at IS NULL', [req.params.id]);
         if (rows.length === 0) return res.status(404).json({ error: 'Archive record not found' });
-        const [table, idColumn] = map[rows[0].entity_type] || [];
-        if (!table) return res.status(400).json({ error: 'Unsupported archive type' });
-        await pool.query(`UPDATE ${table} SET archived=false, archived_at=NULL WHERE ${idColumn}=?`, [rows[0].entity_id]);
+        const archive = rows[0];
+        const [table, idColumn] = ARCHIVE_TABLE_MAP[archive.entity_type] || [];
+        if (!table) return res.status(400).json({ error: `Unsupported archive type: ${archive.entity_type}` });
+
+        const [result] = await pool.query(
+            `UPDATE ${table} SET archived=false, archived_at=NULL WHERE ${idColumn}=?`,
+            [archive.entity_id]
+        );
+        // The underlying row is gone (hard-deleted, or cascaded away with its
+        // parent), so there is nothing to un-archive. Saying so is better than
+        // reporting success and leaving the record missing from the live list.
+        if (result.affectedRows === 0) {
+            return res.status(410).json({
+                error: `The original ${archive.entity_type} record no longer exists, so it cannot be restored.`
+            });
+        }
         await pool.query('UPDATE archived_records SET restored_at=NOW() WHERE id=?', [req.params.id]);
+        await recordAudit({
+            req, action: 'restore', entityType: archive.entity_type, entityId: archive.entity_id,
+            summary: `Restored ${archive.entity_type} "${archive.label || archive.entity_id}" from the archive`,
+            details: { archive_id: archive.id, archived_at: archive.archived_at }
+        });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to restore' }); }
+    } catch (err) {
+        console.error('Restore error:', err);
+        res.status(500).json({ error: 'Failed to restore' });
+    }
 });
 
-router.delete('/archives/:id', requireAdmin, async (req, res) => {
-    const map = {
-        user: ['users', 'id'],
-        laboratory: ['laboratories', 'id'],
-        doctor: ['doctors', 'id'],
-        service_package: ['service_packages', 'id'],
-        appointment: ['appointments', 'id'],
-        queue: ['queue', 'id'],
-        queue_sequence: ['queue_sequences', 'id'],
-        queue_log: ['queue_logs', 'id'],
-        medical_record: ['medical_records', 'id'],
-        lab_note: ['lab_notes', 'id']
-    };
+// The one genuinely irreversible action in the system, so it keeps the snapshot
+// and the reason on the audit trail even though the row itself is gone.
+router.delete('/archives/:id', requireAdmin, requireReason, async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM archived_records WHERE id=? AND permanently_deleted_at IS NULL', [req.params.id]);
         if (rows.length === 0) return res.status(404).json({ error: 'Archive record not found' });
-        const [table, idColumn] = map[rows[0].entity_type] || [];
-        if (!table) return res.status(400).json({ error: 'Unsupported archive type' });
-        await pool.query(`DELETE FROM ${table} WHERE ${idColumn}=? AND archived=true`, [rows[0].entity_id]);
+        const archive = rows[0];
+        const [table, idColumn] = ARCHIVE_TABLE_MAP[archive.entity_type] || [];
+        if (!table) return res.status(400).json({ error: `Unsupported archive type: ${archive.entity_type}` });
+        await pool.query(`DELETE FROM ${table} WHERE ${idColumn}=? AND archived=true`, [archive.entity_id]);
         await pool.query('UPDATE archived_records SET permanently_deleted_at=NOW() WHERE id=?', [req.params.id]);
+        await recordAudit({
+            req, action: 'purge', entityType: archive.entity_type, entityId: archive.entity_id,
+            summary: `Permanently deleted ${archive.entity_type} "${archive.label || archive.entity_id}"`,
+            before: archive.snapshot && typeof archive.snapshot === 'object' ? archive.snapshot : null,
+            details: { archive_id: archive.id, label: archive.label }
+        });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to permanently delete' }); }
+    } catch (err) {
+        console.error('Purge error:', err);
+        res.status(500).json({ error: 'Failed to permanently delete' });
+    }
 });
 
 module.exports = router;

@@ -191,9 +191,10 @@
                         <div style="font-size: 2.2em; font-weight: 800; color: var(--primary); margin-top: 4px; line-height: 1;" id="doc-serving">--</div>
                         <div class="fw-600 mt-sm" id="doc-serving-name" style="font-size: 1.1em;">--</div>
                     </div>
-                    <div style="display: flex; gap: 8px;">
-                        <button class="btn btn-secondary" onclick="docCallNext()"><i class="fa-solid fa-bell"></i> Call Next</button>
-                        <button class="btn btn-primary" onclick="docComplete()"><i class="fa-solid fa-check"></i> Complete Consultation</button>
+                    <div class="queue-controls">
+                        <button class="btn btn-success" onclick="docCallNext()"><i class="fa-solid fa-bell"></i> Call Next</button>
+                        <button class="btn btn-primary" onclick="docAdvance()"><i class="fa-solid fa-arrow-right"></i> Done — Next Station</button>
+                        <button class="btn btn-outline" onclick="docCallBack()" title="Undo the last Call Next and recall the previous ticket"><i class="fa-solid fa-rotate-left"></i> Call Back</button>
                     </div>
                 </div>
 

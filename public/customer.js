@@ -34,7 +34,8 @@ window.onQueueUpdate = () => {
 };
 
 // ── DASHBOARD ──────────────────────────────────────────────────
-let lastQueueStatus = null; // tracks 'parked' -> non-parked transitions for the chime/notification
+let lastQueueStatus = null; // tracks 'on-hold' -> active transitions for the chime/notification
+let allPackages = [];       // the Services catalogue, kept for client-side search
 
 async function loadDashboard() {
     await checkMandatoryMedicalForm(false);
@@ -45,22 +46,22 @@ async function loadDashboard() {
         if (!data.active) {
             document.getElementById('no-active-queue').style.display = 'block';
             document.getElementById('active-queue-panel').style.display = 'none';
-            document.getElementById('parked-queue-panel').style.display = 'none';
+            document.getElementById('hold-queue-panel').style.display = 'none';
             lastQueueStatus = null;
             hideSectionLoader('active-queue-panel');
             return;
         }
         document.getElementById('no-active-queue').style.display = 'none';
 
-        handleParkedTransition(data);
+        handleHoldTransition(data);
 
-        if (data.parked) {
+        if (data.on_hold) {
             document.getElementById('active-queue-panel').style.display = 'none';
-            document.getElementById('parked-queue-panel').style.display = 'block';
-            const station = data.parked_station_name || 'the lab';
-            document.getElementById('parked-instruction').textContent =
-                `Take your time. Once ready, bring your sample to ${station}. Your place in line will resume with priority.`;
-            const readyBtn = document.getElementById('parked-ready-btn');
+            document.getElementById('hold-queue-panel').style.display = 'block';
+            const station = data.hold_station_name || 'the lab';
+            document.getElementById('hold-instruction').textContent =
+                `Take your time. Once ready, bring your sample to ${station}. You will rejoin the line just behind the next patient.`;
+            const readyBtn = document.getElementById('hold-ready-btn');
             if (data.sample_ready_at) {
                 readyBtn.disabled = true;
                 readyBtn.innerHTML = '<i class="fa-solid fa-check"></i> Staff Notified — Awaiting Hand-off';
@@ -72,7 +73,7 @@ async function loadDashboard() {
             return;
         }
 
-        document.getElementById('parked-queue-panel').style.display = 'none';
+        document.getElementById('hold-queue-panel').style.display = 'none';
         document.getElementById('active-queue-panel').style.display = 'block';
 
         document.getElementById('dash-ahead').textContent = data.people_ahead;
@@ -81,29 +82,32 @@ async function loadDashboard() {
         document.getElementById('dash-current-processing').textContent = data.current_processing || '--';
 
         const stationLabel = data.current_queue
-            ? (data.current_queue.station_type === 'frontdesk' ? 'Front Desk' : data.steps.find(s=>s.status==='active')?.name || 'Processing')
+            ? (data.steps.find(s => s.status === 'active')?.name
+               || (data.current_queue.station_type === 'frontdesk' ? 'Front Desk' : 'Processing'))
             : '--';
-        document.getElementById('dash-current-station').textContent = 'Currently at: ' + stationLabel;
+        document.getElementById('dash-current-station').textContent = data.awaiting_finalization
+            ? 'Last step: return to the Front Desk to close your visit'
+            : 'Currently at: ' + stationLabel;
 
         document.getElementById('queue-stepper-container').innerHTML = renderQueueTrack(data.steps);
     } catch (err) { console.error('Dashboard error:', err); }
     hideSectionLoader('active-queue-panel');
 }
 
-// Detects the PARKED -> active transition and fires the chime + browser notification.
+// Detects the ON-HOLD -> active transition and fires the chime + browser notification.
 // Runs on every dashboard refresh (socket-driven via onQueueUpdate), so it only needs
 // to compare against the previously observed status.
-function handleParkedTransition(data) {
-    const wasParked = lastQueueStatus === 'parked';
-    lastQueueStatus = data.parked ? 'parked' : 'active';
+function handleHoldTransition(data) {
+    const wasOnHold = lastQueueStatus === 'on-hold';
+    lastQueueStatus = data.on_hold ? 'on-hold' : 'active';
 
-    if (data.parked && 'Notification' in window && Notification.permission === 'default') {
-        // Ask while the patient is actually entering the parked state — a real user-driven moment.
+    if (data.on_hold && 'Notification' in window && Notification.permission === 'default') {
+        // Ask while the patient is actually going On-Hold — a real user-driven moment.
         Notification.requestPermission();
     }
 
-    if (wasParked && !data.parked) {
-        playParkedResumeChime();
+    if (wasOnHold && !data.on_hold) {
+        playResumeChime();
         const station = data.current_queue?.station_type === 'doctor' ? 'the Doctor' : 'the next station';
         const message = `Your sample has been received — please proceed to ${station}.`;
         if ('Notification' in window && Notification.permission === 'granted') {
@@ -113,7 +117,7 @@ function handleParkedTransition(data) {
     }
 }
 
-function playParkedResumeChime() {
+function playResumeChime() {
     try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         const now = ctx.currentTime;
@@ -155,6 +159,12 @@ function renderQueueTrack(steps = []) {
     const labels = { pending: 'Waiting', active: 'In Progress', completed: 'Completed' };
     const icons = { pending: 'fa-clock', active: 'fa-spinner fa-spin', completed: 'fa-check' };
     const typeLabels = { frontdesk: 'Verification & payment', doctor: 'Consultation', laboratory: 'Laboratory' };
+    // The front desk is both the first and the last stop of every visit, but it
+    // is doing a different job each time - captioning both as "verification &
+    // payment" would tell the patient to expect to pay twice.
+    const stepCaption = (step) => step.is_final
+        ? 'Return to the front desk to close your visit'
+        : (typeLabels[step.type] || 'Service');
 
     // Fill reaches the active node, or the far end once every department is done.
     const activeIndex = steps.findIndex(s => s.status === 'active');
@@ -181,7 +191,7 @@ function renderQueueTrack(steps = []) {
             <div class="queue-track-meta">
                 <strong>${index + 1}. ${step.name}</strong>
                 <span class="queue-track-status">${labels[step.status] || 'Waiting'}</span>
-                <small>${typeLabels[step.type] || 'Service'} · ${detail}</small>
+                <small>${stepCaption(step)} · ${detail}</small>
             </div>
         </div>`;
     }).join('');
@@ -210,28 +220,81 @@ async function loadServices() {
     try {
         showSectionLoader('packages-grid', 'Loading services...');
         const res = await fetch('/api/packages');
-        const packages = await res.json();
-        const grid = document.getElementById('packages-grid');
-        if (packages.length === 0) {
-            grid.innerHTML = '<div class="card text-center" style="grid-column:1/-1;padding:40px;"><p class="text-muted">No services available yet.</p></div>';
-            return;
-        }
-        grid.innerHTML = packages.map(p => `
-            <div class="pkg-card ${p.is_available === false ? 'pkg-card-unavailable' : ''}" onclick="showPackageDetail(${p.id})">
-                <div class="pkg-card-badge">${categoryBadge(getCategory())}</div>
-                <h3>${p.name}</h3>
-                <p>${p.description || 'No description'}</p>
-                <div class="pkg-card-footer">
-                    <span class="pkg-price">${formatCurrency(p.price)}</span>
-                    <span class="pkg-time"><i class="fa-solid fa-clock"></i> ~${p.est_time_minutes}min</span>
-                </div>
-                ${p.is_available === false
-                    ? '<div class="mt-sm"><span class="badge badge-danger">Currently Unavailable</span></div>'
-                    : `<div class="mt-sm text-sm text-muted">${p.steps?.length || 0} step(s) &middot; starts at Front Desk</div>`}
-            </div>
-        `).join('');
+        allPackages = await res.json();
+        populateServiceCategories(allPackages);
+        renderServices();
     } catch (err) { console.error(err); }
     hideSectionLoader('packages-grid');
+}
+
+// Only categories that actually have a service in them, so the filter never
+// offers a choice that returns nothing.
+function populateServiceCategories(packages) {
+    const select = document.getElementById('service-category-filter');
+    if (!select) return;
+    const categories = [...new Set(packages.map(p => p.category).filter(Boolean))].sort();
+    const current = select.value;
+    select.innerHTML = '<option value="">All categories</option>' +
+        categories.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+    select.value = current;
+}
+
+// Filtering happens on the already-fetched catalogue so results appear as the
+// patient types. /api/packages also accepts ?q= and ?category= for the same
+// filtering server-side, which is what keeps this workable as the catalogue grows.
+function renderServices() {
+    const grid = document.getElementById('packages-grid');
+    if (!grid) return;
+    const term = document.getElementById('service-search')?.value || '';
+    const category = document.getElementById('service-category-filter')?.value || '';
+
+    const rows = allPackages.filter(p =>
+        (!category || p.category === category) &&
+        matchesSearch({ ...p, id_text: String(p.id) }, term, ['id_text', 'name', 'category', 'description']));
+
+    const count = document.getElementById('service-count');
+    if (count) {
+        count.textContent = allPackages.length === 0 ? ''
+            : `${rows.length} of ${allPackages.length} services`;
+    }
+
+    if (allPackages.length === 0) {
+        grid.innerHTML = '<div class="card text-center" style="grid-column:1/-1;padding:40px;"><p class="text-muted">No services available yet.</p></div>';
+        return;
+    }
+    if (rows.length === 0) {
+        grid.innerHTML = `<div class="card text-center" style="grid-column:1/-1;padding:40px;">
+            <p class="text-muted">No services match your search.</p>
+            <button class="btn btn-sm btn-outline mt-sm" onclick="clearServiceFilters()">Clear filters</button></div>`;
+        return;
+    }
+
+    grid.innerHTML = rows.map(p => `
+        <div class="pkg-card ${p.is_available === false ? 'pkg-card-unavailable' : ''}" onclick="showPackageDetail(${p.id})">
+            <div class="pkg-card-badge">${categoryBadge(getCategory())}</div>
+            <h3>${escapeHtml(p.name)}</h3>
+            <div class="pkg-card-tags">
+                <span class="badge badge-neutral">${escapeHtml(p.category || 'General')}</span>
+                <span class="text-muted text-sm">ID #${p.id}</span>
+            </div>
+            <p>${escapeHtml(p.description || 'No description')}</p>
+            <div class="pkg-card-footer">
+                <span class="pkg-price">${formatCurrency(p.price)}</span>
+                <span class="pkg-time"><i class="fa-solid fa-clock"></i> ~${p.est_time_minutes}min</span>
+            </div>
+            ${p.is_available === false
+                ? '<div class="mt-sm"><span class="badge badge-danger">Currently Unavailable</span></div>'
+                : `<div class="mt-sm text-sm text-muted">${p.steps?.length || 0} step(s) &middot; Front Desk to Front Desk</div>`}
+        </div>
+    `).join('');
+}
+
+function clearServiceFilters() {
+    const search = document.getElementById('service-search');
+    const filter = document.getElementById('service-category-filter');
+    if (search) search.value = '';
+    if (filter) filter.value = '';
+    renderServices();
 }
 
 async function showPackageDetail(id) {
@@ -252,14 +315,21 @@ async function showPackageDetail(id) {
         const steps = pkg.steps && pkg.steps.length
             ? pkg.steps
             : [{ name: 'Front Desk', type: 'frontdesk', est_time_minutes: 5 },
-               ...(pkg.laboratories || []).map(l => ({ name: l.lab_name, type: 'laboratory', service_type: l.service_type, est_time_minutes: l.est_time_minutes }))];
+               ...(pkg.laboratories || []).map(l => ({ name: l.lab_name, type: 'laboratory', service_type: l.service_type, est_time_minutes: l.est_time_minutes })),
+               { name: 'Front Desk — Finalization', type: 'frontdesk', est_time_minutes: 3, is_final: true }];
         const stepSubtitle = { frontdesk: 'Verification & payment', laboratory: 'Laboratory', doctor: 'Consultation' };
         const labsHtml = steps.map((s, i) => {
-            const detail = s.type === 'laboratory' ? (s.service_type || stepSubtitle.laboratory) : stepSubtitle[s.type] || '';
+            const detail = s.is_final
+                ? 'Outcome recorded'
+                : (s.type === 'laboratory' ? (s.service_type || stepSubtitle.laboratory) : stepSubtitle[s.type] || '');
+            // Both front desk steps are mandatory and neither can be skipped, so
+            // both carry the required marker - the first as the cashier, the last
+            // as the only station that can close the visit.
+            const note = s.is_final ? ' • required last' : (s.type === 'frontdesk' ? ' • required first' : '');
             return `
             <div class="pkg-lab-item${s.type === 'frontdesk' ? ' pkg-lab-item-required' : ''}">
                 <div class="pkg-lab-num">${i + 1}</div>
-                <div class="pkg-lab-info"><strong>${s.name}</strong><small>${detail} • ~${s.est_time_minutes}min${s.type === 'frontdesk' ? ' • required first' : ''}</small></div>
+                <div class="pkg-lab-info"><strong>${s.name}</strong><small>${detail} • ~${s.est_time_minutes}min${note}</small></div>
             </div>`;
         }).join('');
         document.getElementById('pkg-modal-labs').innerHTML = labsHtml;

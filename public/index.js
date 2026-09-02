@@ -1100,11 +1100,26 @@ function setupRegisterHandlers() {
 }
 
 // Initialize register handlers on load
+// Staff sent here by the 15-minute inactivity timeout arrive with ?timeout=1
+// (see initIdleTimeout in shared.js). Saying why they are back at the sign-in
+// page is the difference between a security feature and an apparent bug.
+function announceSessionTimeout() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('timeout') !== '1') return;
+    showToast('You were signed out after 15 minutes of inactivity. Please sign in again.', 'warning', 8000);
+    // Cleared from the URL so a refresh or a bookmark does not repeat it.
+    params.delete('timeout');
+    const query = params.toString();
+    window.history.replaceState({}, '', window.location.pathname + (query ? '?' + query : ''));
+    if (typeof openAuthPanel === 'function') openAuthPanel('login');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     setupRegisterHandlers();
     enhanceOtpInput('reg-otp');
     enhanceOtpInput('login-otp');
     enhanceOtpInput('forgot-otp');
+    announceSessionTimeout();
 });
 
 // ── Forgot Password Modal ────────────────────────────────────────

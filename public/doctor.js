@@ -88,14 +88,16 @@ async function loadDocQueue() {
         // 2. Render waiting list
         const waiting = queue.filter(q => q.status === 'waiting');
         document.getElementById('doc-waiting').textContent = waiting.length;
+        // Server-ordered: already in the order this station will call, which is
+        // not join order once priority or a re-insertion is involved.
         document.getElementById('doc-queue-list').innerHTML = waiting.length === 0
             ? '<tr><td colspan="4" class="text-center text-muted">No patients waiting in queue.</td></tr>'
-            : waiting.map(w => `
-                <tr>
-                    <td><strong>${w.number}</strong></td>
+            : waiting.map((w, i) => `
+                <tr class="${w.reinserted ? 'queue-row-reinserted' : ''}">
+                    <td><strong>${w.number}</strong>${w.reinserted ? ' <span class="badge badge-reinserted" title="Re-inserted by the front desk">re-inserted</span>' : ''}</td>
                     <td>${categoryBadge(w.customer_category || 'Regular')}</td>
                     <td>${w.full_name || w.username || '--'}</td>
-                    <td>${formatTime(w.timestamp)}</td>
+                    <td>#${w.call_position || i + 1} &middot; ${formatTime(w.timestamp)}</td>
                 </tr>
             `).join('');
 
@@ -138,28 +140,60 @@ async function loadDocAppts() {
 }
 
 // Call Next Patient
+// Confirmed, always: one click moves a real person out of the consultation
+// room, and an accidental advance previously had no undo.
 async function docCallNext() {
     if (!myDoctorId) return;
+    const confirmed = await confirmAction({
+        title: 'Call the next patient?',
+        message: 'The next ticket in your queue will be called in.',
+        detail: 'If you call the wrong ticket, use "Call Back" to undo it.',
+        icon: 'fa-solid fa-bell',
+        confirmLabel: 'Call next',
+        confirmClass: 'btn-success'
+    });
+    if (!confirmed) return;
+
     try {
         const res = await fetch('/api/queue/next', {
             method: 'POST',
             headers: authHeaders(),
             body: JSON.stringify({ station_type: 'doctor', station_id: myDoctorId })
         });
-        const data = await res.json();
-        if (data.success) {
-            showToast('Calling: ' + data.next, 'success');
-            loadDocQueue();
-        } else {
-            showToast(data.message || 'Queue empty', 'info');
-        }
+        const data = await res.json().catch(() => ({}));
+        if (data.success) showToast('Calling: ' + data.next, 'success');
+        else showToast(data.error || data.message || 'Queue empty', res.ok ? 'info' : 'error');
+        loadDocQueue();
     } catch (err) {
         showToast('Failed to call next patient', 'error');
     }
 }
 
-// Complete Consultation
-async function docComplete() {
+async function docCallBack() {
+    if (!myDoctorId) return;
+    const confirmed = await confirmAction({
+        title: 'Call back the previous patient?',
+        message: 'The patient now in the room goes back to the front of the queue, and the consultation completed just before them is reopened.',
+        detail: 'Only works while the next station has not already picked that patient up.',
+        icon: 'fa-solid fa-rotate-left',
+        confirmLabel: 'Call back'
+    });
+    if (!confirmed) return;
+
+    const res = await fetch('/api/queue/call-back', {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ station_type: 'doctor', station_id: myDoctorId })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) showToast(data.error || 'Nothing to call back', 'error');
+    else if (data.recalled) showToast(`Recalled ${data.recalled}`, 'success');
+    else showToast(data.message || 'Queue reverted', 'info');
+    loadDocQueue();
+}
+
+// Hand the patient on. A consultation never ends a visit - every route goes
+// back to the front desk, which is the only station that can close one.
+async function docAdvance() {
     if (!currentDocQueueId) return showToast('No active patient', 'error');
     
     // Auto-save/commit any unsaved draft content first to avoid losing notes
@@ -175,14 +209,19 @@ async function docComplete() {
             headers: authHeaders(),
             body: JSON.stringify({ queue_id: currentDocQueueId })
         });
-        const data = await res.json();
-        if (data.success) {
-            showToast(data.finished ? 'All steps completed!' : 'Advancing to next station', 'success');
-            // Clear local storage draft for this user
-            localStorage.removeItem(`doctor_draft_${currentServingUserId}`);
-            currentServingUserId = null;
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            showToast(data.error || 'Failed to advance', 'error');
             loadDocQueue();
+            return;
         }
+        showToast(data.is_final_step
+            ? `${data.next_ticket} sent back to the front desk to close out`
+            : 'Sent on to: ' + (data.next_station || 'the next station'), 'success');
+        // Clear local storage draft for this user
+        localStorage.removeItem(`doctor_draft_${currentServingUserId}`);
+        currentServingUserId = null;
+        loadDocQueue();
     } catch (err) {
         showToast('Failed to complete consultation', 'error');
     }

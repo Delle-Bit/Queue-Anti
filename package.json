@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --check server.js && node --check database.js && node --check config.js && node --check ai_services.js && node --check queue_automation.js && node --check appointment_automation.js && node --check email_service.js && node --check lib/better_auth_bridge.js && node --check routes/auth.js && node --check routes/admin.js && node --check routes/queue.js && node --check routes/packages.js && node --check routes/reports.js && node --check routes/assistant.js && node --check public/va.js && node --check public/customer.js && node --input-type=module -e \"import('./lib/better_auth.mjs').then(()=>process.exit(0))\""
+    "test": "node --check server.js && node --check database.js && node --check config.js && node --check ai_services.js && node --check queue_automation.js && node --check appointment_automation.js && node --check audit.js && node --check archive.js && node --check session_activity.js && node --check email_service.js && node --check lib/better_auth_bridge.js && node --check routes/auth.js && node --check routes/admin.js && node --check routes/queue.js && node --check routes/packages.js && node --check routes/reports.js && node --check routes/assistant.js && node --check public/va.js && node --check public/customer.js && node --check public/shared.js && node --check public/admin-shared.js && node --check public/admintechnical.js && node --check public/owner.js && node --check public/frontdesk.js && node --check public/laboratory.js && node --check public/doctor.js && node --check public/index.js && node --input-type=module -e \"import('./lib/better_auth.mjs').then(()=>process.exit(0))\""
   },
   "keywords": [],
   "author": "",

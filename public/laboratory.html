@@ -57,14 +57,21 @@
                             <div style="font-size:3em;font-weight:700;color:var(--primary);" id="lab-serving">--</div>
                             <div class="text-muted mt-sm" id="lab-serving-name">No patient currently active</div>
                         </div>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                            <button class="btn btn-secondary" style="flex:1" onclick="navigateTo('results')"><i class="fa-solid fa-square-poll-vertical"></i> Enter Results</button>
-                            <button class="btn btn-success" style="flex:1" onclick="labCallNext()"><i class="fa-solid fa-bell"></i> Call Next</button>
-                            <button class="btn btn-primary" style="flex:1" onclick="labComplete()"><i class="fa-solid fa-check"></i> Complete</button>
+                        <div class="queue-controls">
+                            <button class="btn btn-success" onclick="labCallNext()"><i class="fa-solid fa-bell"></i> Call Next</button>
+                            <button class="btn btn-primary" onclick="labAdvance()"><i class="fa-solid fa-arrow-right"></i> Done — Next Station</button>
                         </div>
-                        <div style="margin-top:8px;">
-                            <button class="btn btn-outline" style="width:100%;" onclick="labPark()"><i class="fa-solid fa-hourglass-half"></i> Park / Wait for Sample</button>
+                        <div class="queue-controls">
+                            <button class="btn btn-secondary" onclick="navigateTo('results')"><i class="fa-solid fa-square-poll-vertical"></i> Enter Results</button>
+                            <button class="btn btn-outline" onclick="labCallBack()" title="Undo the last Call Next and recall the previous ticket"><i class="fa-solid fa-rotate-left"></i> Call Back</button>
                         </div>
+                        <div class="queue-controls queue-controls-full">
+                            <button class="btn btn-outline" onclick="labHold()"><i class="fa-solid fa-hourglass-half"></i> Put On-Hold / Wait for Sample</button>
+                        </div>
+                        <p class="text-sm text-muted" style="margin:10px 0 0;">
+                            <i class="fa-solid fa-circle-info"></i> Only the front desk can close a transaction.
+                            Send the patient on and they will be routed back to the desk.
+                        </p>
                     </div>
                     <div class="card mt-md">
                         <div class="card-header"><div class="card-title"><i class="fa-solid fa-list"></i> Waiting</div></div>
@@ -72,6 +79,7 @@
                             <table>
                                 <thead>
                                     <tr>
+                                        <th>#</th>
                                         <th>Ticket</th>
                                         <th>Category</th>
                                         <th>Customer</th>
@@ -83,19 +91,19 @@
                         </div>
                     </div>
                     <div class="card mt-md">
-                        <div class="card-header"><div class="card-title"><i class="fa-solid fa-hourglass-half"></i> Parked — Awaiting Samples</div></div>
+                        <div class="card-header"><div class="card-title"><i class="fa-solid fa-hourglass-half"></i> On-Hold — Awaiting Samples</div></div>
                         <div class="table-wrapper">
                             <table>
                                 <thead>
                                     <tr>
                                         <th>Ticket</th>
                                         <th>Customer</th>
-                                        <th>Parked At</th>
+                                        <th>On Hold Since</th>
                                         <th>Sample</th>
                                         <th></th>
                                     </tr>
                                 </thead>
-                                <tbody id="lab-parked-list"></tbody>
+                                <tbody id="lab-hold-list"></tbody>
                             </table>
                         </div>
                     </div>
