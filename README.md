@@ -12,17 +12,38 @@ Queue management app for a medical clinic: customers join queues or book appoint
 
 ## Setup
 
-1. Install **Node.js** and a local **MySQL** server (XAMPP/WAMP/MySQL Installer) running on port 3306.
-2. Copy `.env` (or create it) with:
+Two ways to run it. Docker needs neither Node nor MySQL installed and is what
+you want for deployment; the manual route is lighter for day-to-day development.
 
-   ```
-   PORT=3000
-   JWT_SECRET=<random long string>
-   GEMINI_API_KEY=   # optional
-   API_ALLAROUND=    # optional Hugging Face token
+### With Docker (recommended for deployment)
+
+```bash
+cp .env.example .env     # then set JWT_SECRET, DB_PASSWORD and DB_ROOT_PASSWORD
+docker compose up --build
+```
+
+That starts the app and its MySQL together and creates every table on first
+boot. Full walkthrough, including hosting platforms and backups, in
+[DOCKER.md](DOCKER.md).
+
+### Manually
+
+1. Install **Node.js 20 or newer** and a local **MySQL** server (XAMPP/WAMP/MySQL
+   Installer) running on port 3306.
+2. Create your environment file and fill it in:
+
+   ```bash
+   cp .env.example .env
    ```
 
-3. If your MySQL root user has a password, update `database.js` (`user`/`password`).
+   Only `JWT_SECRET` is genuinely required — generate one with
+   `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
+   Everything else has a working default or degrades gracefully. Every setting
+   is documented in [.env.example](.env.example).
+
+3. If your MySQL user is not `root` with an empty password, set `DB_USER` and
+   `DB_PASSWORD` in `.env` — the connection is read from the environment, so
+   there is nothing to edit in `database.js`.
 4. Install and run:
 
    ```bash
@@ -30,7 +51,8 @@ Queue management app for a medical clinic: customers join queues or book appoint
    npm start
    ```
 
-   The first run creates the `clinic_v2` database, all tables, and seed accounts automatically.
+   The first run creates the `clinic_v2` database, all tables, and seed accounts
+   automatically, and later runs auto-migrate any schema changes.
 
 ## Seed accounts (dev only — change before any real deployment)
 

@@ -34,11 +34,13 @@ Medical clinic queue management system: customers join queues or book appointmen
 npm install       # install dependencies
 npm start          # run the server (default port 3000; requires local MySQL on 3306)
 npm test           # syntax-check all backend files via `node --check` (no test runner/framework in this repo)
+
+docker compose up --build   # the app plus its own MySQL, no local Node or MySQL needed
 ```
 
 There is no linter or automated test suite — `npm test` only verifies each backend file parses. Manually exercise routes/pages after changes.
 
-Setup requires a local MySQL server and a `.env` with `PORT`, `JWT_SECRET`, and optional `GEMINI_API_KEY` / `API_ALLAROUND` / `NVIDIA_API_KEY`. The first server run auto-creates the `clinic_v2` database, all tables, seed accounts, seed labs/doctors, and default service packages — no manual migrations. Seed accounts are documented in [README.md](README.md).
+Setup requires a local MySQL server and a `.env` with `PORT`, `JWT_SECRET`, and optional `GEMINI_API_KEY` / `API_ALLAROUND` / `NVIDIA_API_KEY` - or Docker, which brings its own MySQL (`Dockerfile`, `docker-compose.yml`, and [DOCKER.md](DOCKER.md) for the reasoning). `dotenv.config()` runs *before* every local require in `server.js` and must stay there: `config.js` and `database.js` both read `process.env` at module scope, and when it ran after them the `JWT_SECRET` from `.env` was silently ignored in favour of the hardcoded development default. The first server run auto-creates the `clinic_v2` database, all tables, seed accounts, seed labs/doctors, and default service packages — no manual migrations. Seed accounts are documented in [README.md](README.md).
 
 ## Architecture
 

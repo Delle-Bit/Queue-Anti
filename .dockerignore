@@ -1,0 +1,44 @@
+# What never goes into the build context. This file is why `COPY . .` in the
+# Dockerfile is safe: without it, the secrets and the patient data below would
+# be baked into an image layer, where deleting them later does not remove them.
+
+# Reinstalled from package-lock.json inside the build stage. Copying a
+# Windows-built node_modules into a Linux image would also ship the wrong
+# native bcrypt binary.
+node_modules
+npm-debug.log*
+
+# History is not needed to run the app, and it is the bulk of the context.
+.git
+.gitignore
+
+# Secrets. In a container these arrive as real environment variables from the
+# platform or from docker-compose - never from a file in the image.
+.env
+.env.*
+!.env.example
+
+# Uploaded ID images. Deleted inside the request that reads them, so this is
+# normally empty; excluded so that a stray file can never be shipped.
+uploads
+
+*.log
+server_pid.txt
+
+# Dev-only artifacts.
+graphify-out
+.claude
+.agents
+*.tmp.js
+__pycache__
+
+# A scratchpad backup whose destination path was flattened into its filename.
+# It contains deleted customers' usernames, emails and full names.
+UserswendelleAppDataLocalTemp*
+
+# No point invalidating a layer over the build definition itself.
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml
+DOCKER.md

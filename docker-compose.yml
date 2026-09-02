@@ -1,0 +1,101 @@
+# ── Local / on-premise stack: the app plus its database ─────────────────────
+#
+#   docker compose up --build
+#
+# Reads .env from this directory for the ${...} values below. The three marked
+# `:?` have no sensible default and stop the stack with a named error rather
+# than booting something insecure - see DOCKER.md.
+#
+# For a hosting platform (Railway, Render, Fly) you generally use the Dockerfile
+# alone and attach that platform's own managed MySQL, setting the same DB_*
+# variables in its dashboard. This file is what you want for a clinic running
+# the system on its own machine, and for testing the image locally.
+
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD in .env}
+      # The image creates this database and this user on first boot, granting
+      # the user everything on that one database. initDB() then builds the
+      # tables inside it, and tolerates having no server-wide CREATE grant.
+      MYSQL_DATABASE: ${DB_NAME:-clinic_v2}
+      MYSQL_USER: ${DB_USER:-clinic}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      TZ: ${TZ:-Asia/Manila}
+    command: >
+      --default-time-zone=${DB_TIME_ZONE:-+08:00}
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    volumes:
+      # The clinic's actual records. Named volume rather than a bind mount so it
+      # survives `docker compose down` - only `down -v` destroys it.
+      - db_data:/var/lib/mysql
+    healthcheck:
+      # CMD-SHELL because the password has to come from the container's own
+      # environment; the exec form does not expand variables. `$$` is how
+      # compose passes a literal `$` through to the shell.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      # A cold volume spends a while initialising before it answers at all.
+      start_period: 40s
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    # Reaps zombies and makes sure signals reach node, so the graceful shutdown
+    # in server.js actually runs on `docker compose stop`.
+    init: true
+    depends_on:
+      db:
+        # Waits for the healthcheck above, not merely for the container to
+        # exist. The app also retries the connection itself
+        # (DB_CONNECT_RETRIES), so a slow database delays the boot instead of
+        # failing it.
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      TZ: ${TZ:-Asia/Manila}
+
+      # REQUIRED. Signs the 8-hour session tokens. Generate one with:
+      #   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env - do not deploy without it}
+
+      # `db` is the service name above, which is the hostname on the compose
+      # network. Not localhost: inside a container that means the container.
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-clinic_v2}
+      DB_USER: ${DB_USER:-clinic}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+
+      # Optional. All of these degrade to local logic or mock behaviour when
+      # unset, so the stack is fully usable without any of them.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_OCR_MODEL: ${GEMINI_OCR_MODEL:-}
+      API_ALLAROUND: ${API_ALLAROUND:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      EMAILJS_SERVICE_ID: ${EMAILJS_SERVICE_ID:-}
+      EMAILJS_TEMPLATE_ID: ${EMAILJS_TEMPLATE_ID:-}
+      EMAILJS_PUBLIC_KEY: ${EMAILJS_PUBLIC_KEY:-}
+      EMAILJS_PRIVATE_KEY: ${EMAILJS_PRIVATE_KEY:-}
+      EMAILJS_OTP_SERVICE_ID: ${EMAILJS_OTP_SERVICE_ID:-}
+      EMAILJS_OTP_TEMPLATE_ID: ${EMAILJS_OTP_TEMPLATE_ID:-}
+      EMAILJS_OTP_PUBLIC_KEY: ${EMAILJS_OTP_PUBLIC_KEY:-}
+      EMAILJS_OTP_PRIVATE_KEY: ${EMAILJS_OTP_PRIVATE_KEY:-}
+
+      # Set LOG_SOCKETS=1 to log every socket connect/disconnect. Off by
+      # default: one socket per open page means ordinary use fills the log with
+      # pairs that say nothing.
+      LOG_SOCKETS: ${LOG_SOCKETS:-}
+    ports:
+      # Host:container. Change APP_PORT if 3000 is taken on the host machine;
+      # the container always listens on 3000.
+      - "${APP_PORT:-3000}:3000"
+
+volumes:
+  db_data:

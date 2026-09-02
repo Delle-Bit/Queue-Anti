@@ -1,7 +1,20 @@
+// Loaded before every local require, because several of them read process.env
+// at module scope: config.js captures JWT_SECRET, database.js builds its
+// connection config and its TLS option. With dotenv.config() below the
+// requires - where it used to sit - config.js had already fallen back to its
+// hardcoded development secret by the time .env was read, so the JWT_SECRET in
+// .env was silently ignored and every session token in every environment was
+// signed with a default that is published in this repository.
+//
+// In a container this was masked: real environment variables are set by the
+// runtime, so process.env is already populated and dotenv has nothing to do.
+// That is exactly what made it dangerous - it worked in production and lied
+// locally, which is the wrong way round for a secret.
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const dotenv = require('dotenv');
 const { pool, initDB, DEFAULT_SERVICES, DEFAULT_TEST_STRUCTURES, STAFF_SEEDS, LAB_SEEDS, DOCTOR_SEEDS, SERVICE_STEPS } = require('./database.js');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -15,8 +28,6 @@ const sessionActivity = require('./session_activity');
 
 // Shown when someone tries to check in against a slot the sweep already closed.
 const MISSED_APPOINTMENT_MESSAGE = 'This appointment was marked as "Did Not Arrive" because its scheduled time passed without a check-in. Please approach the front desk to be assisted.';
-
-dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
@@ -486,5 +497,51 @@ async function startServer() {
     server.listen(port, () => console.log(`Server running at http://localhost:${port}`));
 }
 
-startServer();
+// ── SHUTDOWN ────────────────────────────────────────────────────────────────
+// A container is stopped by SIGTERM, and Node's default response is to exit
+// immediately - mid-request, mid-transaction, with every socket dropped. On a
+// redeploy that shows up as a patient's dashboard erroring at the moment the
+// desk was calling them. Closing the HTTP server first lets in-flight requests
+// finish, then the pool is drained so MySQL is not left holding connections.
+let shuttingDown = false;
+
+function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[Server] ${signal} received - closing down.`);
+
+    // Stops accepting new connections; the callback fires once the open ones
+    // have drained. io.close() ends the socket sessions the browsers hold open,
+    // which would otherwise keep the server alive well past the grace period.
+    io.close();
+    server.close(async () => {
+        try {
+            await pool.end();
+            console.log('[Server] Closed cleanly.');
+        } catch (err) {
+            console.error('[Server] Error closing the database pool:', err.message);
+        }
+        process.exit(0);
+    });
+
+    // Docker sends SIGKILL ten seconds after SIGTERM by default. Exiting at
+    // eight leaves the clean path a chance to win, and guarantees the process
+    // is gone either way rather than being killed halfway through.
+    setTimeout(() => {
+        console.warn('[Server] Shutdown timed out - exiting anyway.');
+        process.exit(1);
+    }, 8000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+// A boot that cannot reach its database exits non-zero instead of listening.
+// Docker's restart policy and every hosting platform's health check treat an
+// exited container as something to retry; they treat an open port as success.
+startServer().catch((err) => {
+    console.error('[Server] Startup failed:', err.message);
+    console.error('[Server] Check DB_HOST / DB_USER / DB_PASSWORD / DB_NAME, and that the database is reachable.');
+    process.exit(1);
+});
 

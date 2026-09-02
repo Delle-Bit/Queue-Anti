@@ -4,12 +4,29 @@ const mysql = require('mysql2/promise');
 // real database server on deployment. The defaults are the local XAMPP/MySQL
 // install a developer gets out of the box, so an existing .env-less checkout
 // keeps working unchanged.
+// Most managed MySQL providers require TLS and refuse a plaintext connection.
+// DB_SSL=true is the usual case; DB_SSL_CA carries a provider's CA certificate
+// inline when it issues one; DB_SSL=skip-verify is the escape hatch for a
+// self-signed server certificate and should not be used over the open internet.
+function dbSslOption() {
+    if (process.env.DB_SSL_CA) {
+        return { ca: process.env.DB_SSL_CA, rejectUnauthorized: true };
+    }
+    const flag = String(process.env.DB_SSL || '').trim().toLowerCase();
+    if (flag === 'true' || flag === '1' || flag === 'required') return { rejectUnauthorized: true };
+    if (flag === 'skip-verify') return { rejectUnauthorized: false };
+    return null;
+}
+
+const DB_SSL = dbSslOption();
+
 const DB_CONFIG = {
     host: process.env.DB_HOST || 'localhost',
     port: Number(process.env.DB_PORT) || 3306,
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'clinic_v2'
+    database: process.env.DB_NAME || 'clinic_v2',
+    ...(DB_SSL ? { ssl: DB_SSL } : {})
 };
 
 const pool = mysql.createPool({
@@ -18,6 +35,34 @@ const pool = mysql.createPool({
     connectionLimit: Number(process.env.DB_CONNECTION_LIMIT) || 10,
     queueLimit: 0
 });
+
+// How long to keep trying before giving up on the database at boot. This is
+// here for containers: `docker compose up` starts the app and MySQL together,
+// and MySQL takes several seconds to become reachable on a cold volume. The
+// same patience covers a managed database that is briefly unavailable while a
+// platform restarts the app around it.
+const DB_CONNECT_RETRIES = Number(process.env.DB_CONNECT_RETRIES) || 15;
+const DB_CONNECT_DELAY_MS = Number(process.env.DB_CONNECT_DELAY_MS) || 2000;
+
+// Codes that mean "not up yet" rather than "wrong". Retrying a bad password or
+// an unresolvable hostname only delays a failure that will never resolve, and
+// hides the real cause behind thirty seconds of waiting.
+const DB_TRANSIENT_CODES = new Set([
+    'ECONNREFUSED', 'ETIMEDOUT', 'ECONNRESET', 'EHOSTUNREACH', 'EPIPE',
+    'PROTOCOL_CONNECTION_LOST', 'ER_CON_COUNT_ERROR', 'ER_SERVER_SHUTDOWN'
+]);
+
+async function connectWithRetry(config) {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return await mysql.createConnection(config);
+        } catch (err) {
+            if (!DB_TRANSIENT_CODES.has(err.code) || attempt >= DB_CONNECT_RETRIES) throw err;
+            console.log(`[DB] ${config.host}:${config.port} not ready yet (${err.code}) - retrying in ${DB_CONNECT_DELAY_MS / 1000}s [${attempt}/${DB_CONNECT_RETRIES}]`);
+            await new Promise(resolve => setTimeout(resolve, DB_CONNECT_DELAY_MS));
+        }
+    }
+}
 
 // The result forms that used to live as a `testTemplates` object inside
 // public/laboratory.js, plus the three that had no structured fields at all and
@@ -244,17 +289,31 @@ async function addIndexIfMissing(table, indexName, definition) {
 async function initDB() {
     try {
         // Connects without a database selected so the schema can be created on a
-        // fresh server. A managed/hosted MySQL where the user cannot CREATE
-        // DATABASE will fail here, which is why the error is reported rather
-        // than swallowed - create the database by hand and re-run.
-        const connection = await mysql.createConnection({
+        // fresh server, and waits for the server to come up - see
+        // connectWithRetry above for why that matters in a container.
+        const connection = await connectWithRetry({
             host: DB_CONFIG.host, port: DB_CONFIG.port,
-            user: DB_CONFIG.user, password: DB_CONFIG.password
+            user: DB_CONFIG.user, password: DB_CONFIG.password,
+            ...(DB_SSL ? { ssl: DB_SSL } : {})
         });
 
-        // Backtick-quoted: a database name from the environment may contain
-        // characters that need quoting, and it never comes from user input.
-        await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_CONFIG.database}\`;`);
+        try {
+            // Backtick-quoted: a database name from the environment may contain
+            // characters that need quoting, and it never comes from user input.
+            await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_CONFIG.database}\`;`);
+        } catch (err) {
+            // A managed provider hands you one database and withholds CREATE.
+            // MySQL checks the privilege *before* it checks IF NOT EXISTS, so
+            // this throws even when the database is already there and every
+            // statement after it would have succeeded - which used to stop the
+            // app booting against a perfectly good hosted database.
+            if (err.errno === 1044 || err.errno === 1227) {
+                console.log(`[DB] No CREATE DATABASE grant - assuming "${DB_CONFIG.database}" already exists.`);
+            } else {
+                await connection.end().catch(() => {});
+                throw err;
+            }
+        }
         await connection.end();
 
         console.log(`[DB] Database ${DB_CONFIG.database} ready on ${DB_CONFIG.host}:${DB_CONFIG.port}.`);
@@ -897,7 +956,13 @@ async function initDB() {
 
         console.log('[DB] All tables created successfully.');
     } catch (err) {
+        // Rethrown rather than swallowed. Swallowing it meant server.listen()
+        // still ran, so the process came up healthy-looking and answered every
+        // request with a 500 - the worst possible outcome under a container
+        // restart policy or a platform health check, both of which would have
+        // been satisfied by a port that was open and an app that did nothing.
         console.error('[DB] Failed to initialize:', err.message);
+        throw err;
     }
 }
 
