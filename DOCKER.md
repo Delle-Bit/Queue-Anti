@@ -118,38 +118,151 @@ the clinic. The defaults are `Asia/Manila` and `+08:00`.
 
 ## Deploying to a hosting platform
 
-The `Dockerfile` alone is enough; `docker-compose.yml` is for running the
-database yourself. On a platform you use its managed MySQL instead.
+The `Dockerfile` alone is what a platform needs. `docker-compose.yml` is for
+running the database yourself; on a platform you attach its managed MySQL
+instead.
 
-Recommended: **Railway** or **Render** — both run a real container, support
-WebSockets, and offer managed MySQL. Avoid Render's free tier for this: free
-services sleep after ~15 minutes idle, and a lobby display that sleeps is worse
-than no lobby display.
+**Railway** is the recommended target: it runs a real container, supports the
+WebSockets Socket.IO needs, and offers MySQL in the same project so the two talk
+over a private network. **Render** works the same way — but not its free tier,
+which sleeps after ~15 minutes idle, and a lobby board that sleeps is worse than
+no lobby board.
 
-1. Push this repository to GitHub (already done) and point the platform at it.
-   It will detect the `Dockerfile` and build it — no build command to configure.
-2. Add a **MySQL** database in the same project.
-3. Set these environment variables in the platform's dashboard:
+### Before you deploy anything
+
+Three things, in order. The first is not optional.
+
+**1. Set `SEED_PASSWORD`.** The seed accounts' passwords are published in
+[example_accounts.md](example_accounts.md) in a public repository. On a fresh
+deployed database they are created with those exact passwords, so until you
+change them `owner1` / `owner123` is a working administrator login for anybody
+who finds the URL. `SEED_PASSWORD` replaces them at creation time. Generate one
+and keep it somewhere you can find it — it will be the password for *every*
+seeded account on first boot:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))"
+```
+
+**2. Generate a separate `JWT_SECRET`** for the deployment. Not the one from
+your laptop — a leaked development secret lets anyone mint an admin token.
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
+
+**3. Decide which branch deploys.** The platform watches one branch and rebuilds
+when you push to it. Merge to `main` and deploy `main`, or point it at the
+branch you actually work on — but know which, or you will push a fix and watch
+nothing happen.
+
+### Railway, step by step
+
+1. **Create the project.** Sign in at [railway.app](https://railway.app) with
+   GitHub → *New Project* → *Deploy from GitHub repo* → pick this repository.
+   It detects the `Dockerfile` and builds it. There is no build command, start
+   command or install step to configure; if it asks, leave them empty.
+
+2. **Add the database.** In the same project: *New* → *Database* → *Add MySQL*.
+   Keeping it in the same project is what puts it on the private network, so the
+   database is never exposed to the internet.
+
+3. **Set the app's variables.** Open the app service → *Variables*. Railway's
+   MySQL publishes its own connection details under different names, so these
+   are mapped with variable references — type them exactly, including the double
+   braces:
 
    | Variable | Value |
    | --- | --- |
-   | `JWT_SECRET` | a fresh random string — **not** the one from your laptop |
-   | `DB_HOST` `DB_PORT` `DB_USER` `DB_PASSWORD` `DB_NAME` | from the managed database |
-   | `DB_SSL` | `true` if the provider requires TLS (most do) |
+   | `JWT_SECRET` | the one you generated above |
+   | `SEED_PASSWORD` | the one you generated above |
    | `TZ` | `Asia/Manila` |
-   | `PORT` | usually injected by the platform; leave it alone if so |
+   | `NODE_ENV` | `production` |
+   | `DB_HOST` | `${{MySQL.MYSQLHOST}}` |
+   | `DB_PORT` | `${{MySQL.MYSQLPORT}}` |
+   | `DB_USER` | `${{MySQL.MYSQLUSER}}` |
+   | `DB_PASSWORD` | `${{MySQL.MYSQLPASSWORD}}` |
+   | `DB_NAME` | `${{MySQL.MYSQLDATABASE}}` |
 
-   Optional AI/email keys are in [.env.example](.env.example). Without them the
-   app falls back to local logic and still works.
-4. Deploy. The app creates its own tables on first boot.
+   Leave `PORT` alone — Railway injects it, and the app reads it.
+
+   Do **not** set `DB_SSL`: the database is reached over the private network,
+   where TLS would encrypt a hop that never leaves Railway. Set it to `true`
+   only if you point at a database somewhere else.
+
+   Optional AI and email keys are listed in [.env.example](.env.example).
+   Without them the app falls back to local logic and still works.
+
+4. **Generate the public URL.** App service → *Settings* → *Networking* →
+   *Generate Domain*. That is the address the clinic uses.
+
+5. **Watch the first boot.** Open the *Deploy Logs*. You want, in order:
+
+   ```
+   [DB] Database ... ready on ...
+   [DB] All tables created successfully.
+   [Seed] SEED_PASSWORD is set - new seed accounts will use it ...
+   [Server] Seed data created.
+   Server running at http://localhost:3000
+   ```
+
+   The app creates every table itself on first boot — there is nothing to
+   import. If instead it exits with `[Server] Startup failed:`, the message
+   names what to check; see [Troubleshooting](#troubleshooting).
+
+6. **Sign in and lock it down.** Go to `https://<your-domain>/index.html` and
+   sign in as `owner1` with your `SEED_PASSWORD`. Then, before telling anyone
+   the URL:
+   - change the password on every account you intend to keep, from
+     *Manage Accounts*
+   - delete or archive the demo customer accounts you do not need
+   - open `/display.html` on the lobby screen and press **Enable sound** once
+
+### What to check once it is up
+
+| Check | How |
+| --- | --- |
+| App and database both healthy | the public URL loads and you can sign in |
+| Live updates work | open the front desk and `/display.html` side by side, call a ticket, and watch the board change |
+| The right timezone | register a walk-in and confirm the ticket resets at midnight local, not 08:00 |
+| Sessions survive a redeploy | push a change; you should stay signed in, because `JWT_SECRET` is stable |
+
+### Deploying updates afterwards
+
+Push to the branch the platform watches. It rebuilds the image and restarts the
+container. Schema changes apply themselves on boot — see
+[Changing the database schema](#changing-the-database-schema).
+
+Your data is in the managed database, not the container, so redeploys never
+touch it. Take backups from the platform's own database tools.
 
 ### If the database user has no `CREATE DATABASE` permission
 
 Common on managed MySQL: you are given one database and cannot make more. The
-app handles this — it notices, logs
+app handles it — it logs
 `[DB] No CREATE DATABASE grant - assuming "..." already exists.` and builds its
 tables inside the database you were given. Just make sure `DB_NAME` matches
-that database's actual name.
+that database's real name.
+
+### The other option: a VPS you control
+
+If you would rather run the whole thing yourself — or the clinic wants it on its
+own machine — the compose file already does this. On any Linux box with Docker
+installed:
+
+```bash
+git clone https://github.com/Delle-Bit/Queue-Anti.git
+cd Queue-Anti
+cp .env.example .env      # then fill in JWT_SECRET, DB_PASSWORD, DB_ROOT_PASSWORD, SEED_PASSWORD
+docker compose up -d
+```
+
+That is the entire deployment. You are then responsible for the things a
+platform does for you: a domain, HTTPS (put Caddy or nginx in front — browsers
+block the microphone the virtual assistant uses on plain HTTP), backups, and
+keeping the host patched. For a clinic that wants the system to keep working
+when the internet does not, this is the right answer and the cloud copy is the
+demo.
 
 ## How the image is built
 

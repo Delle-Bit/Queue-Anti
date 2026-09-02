@@ -386,12 +386,29 @@ async function startServer() {
 
     // Seed one account per clinic position - see STAFF_SEEDS in database.js for
     // the roster and the job title behind each account.
+    // The password every seeded account is created with, when set. The
+    // per-account defaults in STAFF_SEEDS are published - they are in
+    // example_accounts.md and README.md, in a public repository - which is fine
+    // for a machine on your desk and not fine for anything with a URL: between
+    // first boot and the moment somebody remembers to change them, "owner1" /
+    // "owner123" is a valid administrator login for whoever finds the site.
+    //
+    // Set SEED_PASSWORD in any deployed environment. It applies only at
+    // creation: the loop below never rewrites an existing account's password,
+    // so changing one from the admin UI afterwards survives every redeploy.
+    const seedPasswordOverride = process.env.SEED_PASSWORD || null;
+    if (seedPasswordOverride) {
+        console.log('[Seed] SEED_PASSWORD is set - new seed accounts will use it instead of their documented defaults.');
+    } else if (process.env.NODE_ENV === 'production') {
+        console.warn('[Seed] WARNING: NODE_ENV=production but SEED_PASSWORD is not set. Any account created now uses the password published in example_accounts.md. Change them immediately, or set SEED_PASSWORD and start from a clean database.');
+    }
+
     for (const s of STAFF_SEEDS) {
         const fullName = composeFullName(s);
         const [rows] = await pool.query('SELECT id, full_name, customer_uid FROM users WHERE username=?', [s.username]);
 
         if (rows.length === 0) {
-            const hash = await bcrypt.hash(s.password, 10);
+            const hash = await bcrypt.hash(seedPasswordOverride || s.password, 10);
             const [result] = await pool.query(
                 `INSERT INTO users (username, password_hash, role, customer_category, full_name, first_name, middle_name, surname)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,

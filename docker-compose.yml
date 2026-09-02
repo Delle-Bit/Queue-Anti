@@ -90,6 +90,13 @@ services:
       # platform's dashboard when pointing at a managed database instead.
       DB_SSL: ""
 
+      # Set this in any environment that has a URL. The seed accounts' default
+      # passwords are published in example_accounts.md, so on a fresh database
+      # without this, "owner1" / "owner123" is a working administrator login for
+      # anyone who finds the site. Applies at account creation only - a password
+      # changed afterwards is never overwritten.
+      SEED_PASSWORD: ${SEED_PASSWORD:-}
+
     ports:
       # Host:container. Change APP_PORT if 3000 is taken on the host machine;
       # the container always listens on 3000.
