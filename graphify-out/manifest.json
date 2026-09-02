@@ -35,23 +35,23 @@
     "semantic_hash": ""
   },
   "public/admintechnical.js": {
-    "mtime": 1788332129.468921,
-    "ast_hash": "942d725d1ced7c8949217c02b278ba0e",
+    "mtime": 1788348125.7472494,
+    "ast_hash": "b0534f91636e2612c8446d0b0ab70df7",
     "semantic_hash": ""
   },
   "public/customer.js": {
-    "mtime": 1788332976.0723493,
-    "ast_hash": "0516ba194bfe1fc28a26bf1659f2c6b4",
+    "mtime": 1788348471.2871394,
+    "ast_hash": "95cb5986b5f96010b45998bec841fcb7",
     "semantic_hash": ""
   },
   "public/doctor.js": {
-    "mtime": 1788331891.1148186,
-    "ast_hash": "175550f38d5b488acf3b3ebec6355fe8",
+    "mtime": 1788347856.0388746,
+    "ast_hash": "da1e7f868d65fcb23755e3067b3cb35d",
     "semantic_hash": ""
   },
   "public/frontdesk.js": {
-    "mtime": 1788331809.2931411,
-    "ast_hash": "3bc19795ceea0a7ceb14134120e6f632",
+    "mtime": 1788348471.2327628,
+    "ast_hash": "08a69cc2ed8563252cb9f711dc9206d6",
     "semantic_hash": ""
   },
   "public/index.js": {
@@ -60,18 +60,18 @@
     "semantic_hash": ""
   },
   "public/laboratory.js": {
-    "mtime": 1788331851.9877448,
-    "ast_hash": "111be052801b7147073e59cdbe56c956",
+    "mtime": 1788347856.0378761,
+    "ast_hash": "eae58ea6386255273d5f73383250181c",
     "semantic_hash": ""
   },
   "public/owner.js": {
-    "mtime": 1788332146.7823453,
-    "ast_hash": "b7bdefbaba29fb1f98df6e9d6c0e556e",
+    "mtime": 1788347278.0703716,
+    "ast_hash": "8073c988905b310bf95c9d53819035da",
     "semantic_hash": ""
   },
   "public/shared.js": {
-    "mtime": 1788331592.4944224,
-    "ast_hash": "c6234e4109f5b1381269f2df40a1fd90",
+    "mtime": 1788348276.8286254,
+    "ast_hash": "4704a4a86bfbd5346e27a2189fd10b2f",
     "semantic_hash": ""
   },
   "public/va.js": {
@@ -225,8 +225,8 @@
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1788333322.9377213,
-    "ast_hash": "0852eb8d9249aea2004fbd1d84aa4e3d",
+    "mtime": 1788348961.1621594,
+    "ast_hash": "ca7048ba33ac8663154fccab01dd6b39",
     "semantic_hash": ""
   },
   "GEMINI.md": {
@@ -235,8 +235,8 @@
     "semantic_hash": ""
   },
   "INSTRUCTIONS.md": {
-    "mtime": 1788333352.490473,
-    "ast_hash": "f5f0e4f98871d9696abb51c6c4027a94",
+    "mtime": 1788348961.2133284,
+    "ast_hash": "6f82978035ebaa5f50b3b0107cb39804",
     "semantic_hash": ""
   },
   "README.md": {
@@ -260,8 +260,8 @@
     "semantic_hash": ""
   },
   "public/customer.html": {
-    "mtime": 1788331943.8953004,
-    "ast_hash": "ea47e402ea9c97ede40804aaf600b8da",
+    "mtime": 1788348044.9508073,
+    "ast_hash": "c2e362abd92ceb613872b91b353caa84",
     "semantic_hash": ""
   },
   "public/doctor.html": {
@@ -323,11 +323,6 @@
     "mtime": 1787450197.6244533,
     "ast_hash": "b15886bd6259f11cd170e811d0c43c4f",
     "semantic_hash": "b15886bd6259f11cd170e811d0c43c4f"
-  },
-  "server_pid.txt": {
-    "mtime": 1787976728.0281768,
-    "ast_hash": "228cf1340d1a1e42490982b2ae3949f1",
-    "semantic_hash": ""
   },
   "email_service.js": {
     "mtime": 1787489616.327501,
@@ -712,11 +707,6 @@
   ".agents/rules/skills-resolution.md": {
     "mtime": 1787976728.1234815,
     "ast_hash": "7d0f0baba987e4c0e3b88a7317816469",
-    "semantic_hash": ""
-  },
-  ".claude/.claude/launch.json": {
-    "mtime": 1787976728.2085347,
-    "ast_hash": "439e2412cefc84e4368ccdca4cd200c0",
     "semantic_hash": ""
   },
   ".claude/launch.json": {
@@ -1175,8 +1165,8 @@
     "semantic_hash": ""
   },
   "public/admin-shared.js": {
-    "mtime": 1788332111.8585963,
-    "ast_hash": "91309b5e56350951d7320d11fd719a48",
+    "mtime": 1788348471.176237,
+    "ast_hash": "37577e654cfb248aa666105923282ff3",
     "semantic_hash": ""
   },
   "session_activity.js": {
