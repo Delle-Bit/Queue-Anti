@@ -47,6 +47,11 @@ function populateRoleSelect(selectId, selected) {
 
 // ── DASHBOARD ──
 async function loadOwnerDash() {
+    skeletonValue(['ow-revenue', 'ow-services']);
+    skeletonLines('ow-dist', { rows: 4 });
+    skeletonTable('ow-sessions', { rows: 4, cols: [
+        'skel-line skel-w-60', 'skel-pill skel-w-70', 'skel-line skel-w-80', 'skel-pill skel-w-60'
+    ] });
     try {
         const res = await fetch('/api/analytics/owner', { headers: authHeaders() });
         const data = await res.json();
@@ -66,6 +71,7 @@ async function loadOwnerDash() {
             <td>${s.logout_time ? formatDateTime(s.logout_time) : '<span class="badge badge-success">Active</span>'}</td></tr>`
         ).join('') || '<tr><td colspan="4" class="text-muted text-center">No sessions</td></tr>';
     } catch (err) { console.error(err); }
+    clearSkeleton('ow-revenue', 'ow-services', 'ow-dist', 'ow-sessions');
 }
 
 // ── REPORTS ──

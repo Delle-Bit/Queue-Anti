@@ -37,18 +37,27 @@ window.onQueueUpdate = () => {
 let lastQueueStatus = null; // tracks 'on-hold' -> active transitions for the chime/notification
 let allPackages = [];       // the Services catalogue, kept for client-side search
 
+// Removes the first-load placeholder. Called as soon as the status is known -
+// including on failure, or it would shimmer indefinitely over a page that is
+// not going to get an answer.
+function settleQueueSkeleton() {
+    document.getElementById('queue-status-skeleton')?.remove();
+}
+
 async function loadDashboard() {
     await checkMandatoryMedicalForm(false);
-    showSectionLoader('active-queue-panel', 'Updating queue status...');
+    // No loader on refresh. This runs every five seconds, and the old overlay
+    // put a blurred scrim over the patient's own ticket number twelve times a
+    // minute; the first load is covered by the placeholder in the markup.
     try {
         const res = await fetch('/api/queue/my-status', { headers: authHeaders() });
         const data = await res.json();
+        settleQueueSkeleton();
         if (!data.active) {
             document.getElementById('no-active-queue').style.display = 'block';
             document.getElementById('active-queue-panel').style.display = 'none';
             document.getElementById('hold-queue-panel').style.display = 'none';
             lastQueueStatus = null;
-            hideSectionLoader('active-queue-panel');
             return;
         }
         document.getElementById('no-active-queue').style.display = 'none';
@@ -69,7 +78,6 @@ async function loadDashboard() {
                 readyBtn.disabled = false;
                 readyBtn.innerHTML = '<i class="fa-solid fa-check"></i> I am Ready for Hand-off / Re-queue';
             }
-            hideSectionLoader('active-queue-panel');
             return;
         }
 
@@ -90,8 +98,13 @@ async function loadDashboard() {
             : 'Currently at: ' + stationLabel;
 
         document.getElementById('queue-stepper-container').innerHTML = renderQueueTrack(data.steps);
-    } catch (err) { console.error('Dashboard error:', err); }
-    hideSectionLoader('active-queue-panel');
+    } catch (err) {
+        console.error('Dashboard error:', err);
+        // Nothing to show: fall back to the empty state rather than leaving a
+        // placeholder shimmering over a panel that will never fill.
+        settleQueueSkeleton();
+        document.getElementById('no-active-queue').style.display = 'block';
+    }
 }
 
 // Detects the ON-HOLD -> active transition and fires the chime + browser notification.
@@ -216,15 +229,36 @@ function vaStartPackageFlow(packageId) {
 }
 
 // ── SERVICES ───────────────────────────────────────────────────
+// The inside of one placeholder service card. Every wrapper here is the class
+// the real card in renderServices() uses - badge, heading, tag row, blurb,
+// price footer, step count - so each placeholder line occupies exactly one line
+// box of the real element and the card lands at the height it will keep.
+const SERVICE_CARD_SKELETON = `
+    <div class="pkg-card-badge"><span class="skel skel-pill skel-badge"></span></div>
+    <h3 class="skel-box"><span class="skel skel-line skel-w-80"></span></h3>
+    <div class="pkg-card-tags">
+        <span class="skel skel-pill skel-w-50"></span>
+        <span class="skel skel-pill skel-w-30"></span>
+    </div>
+    <p class="skel-box"><span class="skel skel-line skel-w-90"></span></p>
+    <div class="pkg-card-footer">
+        <span class="skel skel-line pkg-price skel-w-40"></span>
+        <span class="skel skel-line pkg-time skel-w-30"></span>
+    </div>
+    <div class="mt-sm text-sm skel-box"><span class="skel skel-line skel-w-60"></span></div>`;
+
 async function loadServices() {
     try {
-        showSectionLoader('packages-grid', 'Loading services...');
+        // Six cards is what fills the grid above the fold at desktop width, so
+        // the placeholder occupies the space the catalogue is about to occupy
+        // instead of collapsing the section to nothing and pushing it open.
+        skeletonCards('packages-grid', { count: 6, cardClass: 'pkg-card', body: SERVICE_CARD_SKELETON });
         const res = await fetch('/api/packages');
         allPackages = await res.json();
         populateServiceCategories(allPackages);
         renderServices();
     } catch (err) { console.error(err); }
-    hideSectionLoader('packages-grid');
+    clearSkeleton('packages-grid');
 }
 
 // Only categories that actually have a service in them, so the filter never
@@ -402,11 +436,16 @@ async function cancelQueue() {
 async function loadAppointments() {
     try {
         const tbody = document.getElementById('appointments-list');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="6"><div class="medical-inline-loader"><span class="medical-loader-heart"></span> Loading appointments...</div></td></tr>';
+        // Status is a badge and the last column a button, so those two columns
+        // get pill-shaped placeholders rather than a full-width bar.
+        skeletonTable(tbody, { rows: 3, cols: [
+            'skel-line skel-w-70', 'skel-line skel-w-60', 'skel-line skel-w-50',
+            'skel-pill skel-w-60', 'skel-line skel-w-50', 'skel-btn'
+        ] });
         const res = await fetch('/api/appointments/my', { headers: authHeaders() });
         const appts = await res.json();
         if (appts.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted" style="padding:32px;">No appointments yet</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted" style="padding:32px;">No appointments yet</td></tr>';
         } else {
             // 'no-show' is set by the missed-appointment sweep. It stays in the
             // customer's own history (the staff lists drop it) so a slot they
@@ -451,6 +490,7 @@ async function loadAppointments() {
 
         renderAppointmentCalendar();
     } catch (err) { console.error(err); }
+    clearSkeleton('appointments-list');
 }
 
 async function bookAppointment() {
@@ -1100,7 +1140,7 @@ async function processCheckIn(qrData) {
 async function loadMyMedicalRecords() {
     try {
         const timelineEl = document.getElementById('my-history-timeline');
-        if (timelineEl) timelineEl.innerHTML = '<div class="medical-inline-loader"><span class="medical-loader-heart"></span> Loading records...</div>';
+        skeletonLines(timelineEl, { rows: 3, avatar: true });
         const [medRes, clinicalRes] = await Promise.all([
             fetch('/api/medical-records/my', { headers: authHeaders() }),
             fetch('/api/clinical-records/my', { headers: authHeaders() })
@@ -1232,6 +1272,7 @@ async function loadMyMedicalRecords() {
     } catch (err) {
         console.error('Error loading my medical records:', err);
     }
+    clearSkeleton('my-history-timeline');
 }
 
 // ── MEDICAL RECORD PDF EXPORT ────────────────────────────────────────

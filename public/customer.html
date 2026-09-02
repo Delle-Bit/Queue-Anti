@@ -27,7 +27,41 @@
                     <div class="page-subtitle">Your queue status at a glance</div>
                 </div>
             </div>
-            <div id="no-active-queue" class="card text-center" style="padding:48px;">
+            <!-- Until /api/queue/my-status answers, the page does not know whether
+                 this customer is in a queue at all - and "No Active Queue" below is
+                 a claim it cannot yet make. This placeholder holds the shape of the
+                 status panel instead and is removed on the first response. -->
+            <div id="queue-status-skeleton" aria-hidden="true">
+                <div class="queue-status-panel">
+                    <div class="queue-number-card primary">
+                        <div class="stat-label skel-box"><span class="skel skel-line skel-w-70"></span></div>
+                        <div class="queue-number"><span class="skel skel-number skel-w-50"></span></div>
+                    </div>
+                    <div class="queue-number-card">
+                        <div class="stat-label skel-box"><span class="skel skel-line skel-w-70"></span></div>
+                        <div class="queue-number"><span class="skel skel-number skel-w-50"></span></div>
+                    </div>
+                    <div class="queue-time-card">
+                        <span class="skel skel-icon"></span>
+                        <div style="flex:1 1 auto;">
+                            <div class="stat-label skel-box"><span class="skel skel-line skel-w-60"></span></div>
+                            <div class="queue-time"><span class="skel skel-number skel-w-40"></span></div>
+                            <div class="text-sm skel-box"><span class="skel skel-line skel-w-80"></span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title"><span class="skel skel-line skel-heading"></span></div>
+                    </div>
+                    <div class="skel-stack">
+                        <div class="skel-stack-row"><span class="skel skel-circle skel-avatar"></span><span class="skel skel-line"></span></div>
+                        <div class="skel-stack-row"><span class="skel skel-circle skel-avatar"></span><span class="skel skel-line"></span></div>
+                        <div class="skel-stack-row"><span class="skel skel-circle skel-avatar"></span><span class="skel skel-line"></span></div>
+                    </div>
+                </div>
+            </div>
+            <div id="no-active-queue" class="card text-center" style="display:none;padding:48px;">
                 <i class="fa-solid fa-inbox" style="font-size:3em;color:var(--text-muted);"></i>
                 <h3 class="mt-md">No Active Queue</h3>
                 <p class="text-muted">Select a service package to get started</p>

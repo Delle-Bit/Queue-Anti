@@ -51,6 +51,19 @@ async function loadDocQueue() {
     if (!myDoctorId) await findMyDoctor();
     if (!myDoctorId) return;
 
+    // First pass only - this polls every five seconds. Both tables here ship a
+    // static "nobody waiting" row in the markup, which is a guess rather than
+    // an answer until the fetch returns, so the placeholder replaces it.
+    if (skeletonFirstLoad('doc-dash')) {
+        skeletonValue(['doc-serving', 'doc-waiting']);
+        skeletonValue('doc-serving-name', { cls: 'skel-line skel-w-50' });
+        skeletonTable('doc-queue-list', { replace: true, rows: 4, cols: [
+            'skel-line skel-w-50', 'skel-pill skel-w-70',
+            'skel-line skel-w-80', 'skel-line skel-w-60'
+        ] });
+        skeletonTable('doc-logs', { replace: true, rows: 3, cols: 4 });
+    }
+
     try {
         const [qRes, aRes] = await Promise.all([
             fetch(`/api/queue/station?type=doctor&id=${myDoctorId}`, { headers: authHeaders() }),
@@ -116,6 +129,7 @@ async function loadDocQueue() {
     } catch (err) {
         console.error('Error loading doctor queue:', err);
     }
+    clearSkeleton('doc-serving', 'doc-serving-name', 'doc-waiting', 'doc-queue-list', 'doc-logs');
 }
 
 // Load Appointments

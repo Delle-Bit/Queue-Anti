@@ -43,6 +43,23 @@ window.onSectionLoad = {
 async function loadLabQueue() {
     if (!myLabId) await findMyLab();
     if (!myLabId) return;
+    // First pass only - this polls every five seconds.
+    if (skeletonFirstLoad('lab-dash')) {
+        skeletonValue(['lab-serving', 'lab-avg', 'lab-perhr', 'lab-finish', 'lab-waiting']);
+        // This one ships the sentence "No patient currently active" in the
+        // markup, which is not yet known to be true.
+        skeletonValue('lab-serving-name', { cls: 'skel-line skel-w-50', replace: true });
+        skeletonTable('lab-queue-list', { rows: 4, cols: [
+            'skel-line skel-w-20', 'skel-line skel-w-50', 'skel-pill skel-w-70',
+            'skel-line skel-w-80', 'skel-line skel-w-50'
+        ] });
+        skeletonTable('lab-hold-list', { rows: 2, cols: [
+            'skel-line skel-w-50', 'skel-line skel-w-80', 'skel-line skel-w-50',
+            'skel-pill skel-w-60', 'skel-pill skel-w-80'
+        ] });
+        skeletonLines('lab-dist', { rows: 4 });
+        skeletonTable('lab-logs', { rows: 4, cols: 6 });
+    }
     try {
         const [qRes, aRes] = await Promise.all([
             fetch(`/api/queue/station?type=laboratory&id=${myLabId}`, { headers: authHeaders() }),
@@ -94,6 +111,8 @@ async function loadLabQueue() {
         allLabLogs = analytics.logs || [];
         renderLabLogsList(allLabLogs);
     } catch (err) { console.error(err); }
+    clearSkeleton('lab-serving', 'lab-serving-name', 'lab-avg', 'lab-perhr', 'lab-finish', 'lab-waiting',
+        'lab-queue-list', 'lab-hold-list', 'lab-dist', 'lab-logs');
 }
 
 function renderLabLogsList(logs) {

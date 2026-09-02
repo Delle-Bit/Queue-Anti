@@ -30,6 +30,19 @@ fetchLabs();
 
 // ── QUEUE ──────────────────────────────────────────────────────
 async function loadFdQueue() {
+    // First pass only. This runs again every five seconds, and repainting
+    // placeholders over a queue the desk is working from would be worse than
+    // the blank cells it replaces.
+    if (skeletonFirstLoad('fd-dash')) {
+        skeletonValue(['fd-serving', 'fd-avg', 'fd-perhr', 'fd-fastest', 'fd-slowest']);
+        skeletonValue('fd-serving-name', { cls: 'skel-line skel-w-50' });
+        skeletonTable('fd-queue-list', { rows: 4, cols: [
+            'skel-line skel-w-20', 'skel-line skel-w-50', 'skel-pill skel-w-70',
+            'skel-line skel-w-80', 'skel-line skel-w-50'
+        ] });
+        skeletonLines('fd-dist-chart', { rows: 4 });
+        skeletonTable('fd-logs-list', { rows: 4, cols: 7 });
+    }
     try {
         const [qRes, aRes] = await Promise.all([
             fetch('/api/queue/station?type=frontdesk', { headers: authHeaders() }),
@@ -84,6 +97,8 @@ async function loadFdQueue() {
         allFdLogs = analytics.logs || [];
         renderFdLogs(allFdLogs);
     } catch (err) { console.error(err); }
+    clearSkeleton('fd-serving', 'fd-serving-name', 'fd-avg', 'fd-perhr', 'fd-fastest', 'fd-slowest',
+        'fd-queue-list', 'fd-dist-chart', 'fd-logs-list');
 }
 
 function renderFdLogs(logs) {
@@ -223,8 +238,12 @@ async function fdFinalize(outcome) {
 // ── RE-INSERTION (line cutting) ──────────────────────────────────────────
 async function openReinsertModal() {
     document.getElementById('reinsert-search').value = '';
-    document.getElementById('reinsert-list').innerHTML =
-        '<tr><td colspan="6" class="text-center text-muted">Loading...</td></tr>';
+    const reinsertList = document.getElementById('reinsert-list');
+    reinsertList.innerHTML = '';
+    skeletonTable(reinsertList, { rows: 4, cols: [
+        'skel-line skel-w-50', 'skel-line skel-w-80', 'skel-line skel-w-60',
+        'skel-pill skel-w-70', 'skel-line skel-w-50', 'skel-btn'
+    ] });
     openModal('reinsert-modal');
     try {
         const res = await fetch('/api/queue/reinsert-candidates', { headers: authHeaders() });
@@ -233,12 +252,14 @@ async function openReinsertModal() {
         reinsertCandidates = data;
         renderReinsertCandidates();
     } catch (err) {
+        clearSkeleton(reinsertList);
         document.getElementById('reinsert-list').innerHTML =
             `<tr><td colspan="6" class="text-center text-muted">${escapeHtml(err.message)}</td></tr>`;
     }
 }
 
 function renderReinsertCandidates() {
+    clearSkeleton('reinsert-list');
     const term = document.getElementById('reinsert-search').value;
     const rows = reinsertCandidates.filter(c =>
         matchesSearch(c, term, ['number', 'full_name', 'username', 'station_name', 'package_name', 'status']));

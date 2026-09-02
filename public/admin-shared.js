@@ -52,6 +52,18 @@ async function loadAccounts() {
     if (custTerm.trim()) custQuery.set('q', custTerm.trim());
     if (custCategory) custQuery.set('category', custCategory);
 
+    if (skeletonFirstLoad('admin-accounts')) {
+        // Role and category are badges; the last column is a pair of buttons.
+        skeletonTable('staff-table', { rows: 5, cols: [
+            'skel-line skel-w-30', 'skel-line skel-w-60', 'skel-line skel-w-80',
+            'skel-pill skel-w-60', 'skel-line skel-w-70', 'skel-btn'
+        ] });
+        skeletonTable('cust-table', { rows: 5, cols: [
+            'skel-line skel-w-30', 'skel-line skel-w-60', 'skel-line skel-w-80',
+            'skel-pill skel-w-60', 'skel-line skel-w-30', 'skel-line skel-w-50'
+        ] });
+    }
+
     try {
         const [staffRes, custRes] = await Promise.all([
             fetch(`/api/users/staff?${staffQuery}`, { headers: authHeaders() }),
@@ -61,10 +73,12 @@ async function loadAccounts() {
         customerCache = await custRes.json();
     } catch (err) {
         showToast('Failed to load accounts', 'error');
+        clearSkeleton('staff-table', 'cust-table');
         return;
     }
     renderStaffTable();
     renderCustomerTable();
+    clearSkeleton('staff-table', 'cust-table');
 }
 
 const searchAccounts = debounce(loadAccounts, 250);
@@ -213,6 +227,12 @@ function initCreateForm() {
 let labsCache = [];
 
 async function loadLabs() {
+    if (skeletonFirstLoad('admin-labs')) {
+        skeletonTable('labs-table', { rows: 4, cols: [
+            'skel-line skel-w-70', 'skel-line skel-w-60', 'skel-line skel-w-60',
+            'skel-pill skel-w-50', 'skel-btn'
+        ] });
+    }
     const res = await fetch('/api/laboratories', { headers: authHeaders() });
     labsCache = await res.json();
     const body = document.getElementById('labs-table');
@@ -340,6 +360,17 @@ async function fetchAllLabs() {
 }
 
 async function loadServiceMgmt() {
+    if (skeletonFirstLoad('admin-services')) {
+        // The station route column is the tall one - it lists every stop from
+        // the front desk and back, and wraps to about three lines.
+        skeletonTable('svc-list', { rows: 5, cols: [
+            'skel-line skel-w-30', 'skel-line skel-w-80', 'skel-pill skel-w-60',
+            'skel-line skel-w-50', 'skel-line skel-w-40',
+            ['skel-line skel-w-90', 'skel-line skel-w-80', 'skel-line skel-w-50',
+             'skel-line skel-w-40 skel-sm'],
+            'skel-pill skel-w-50', 'skel-btn'
+        ] });
+    }
     await fetchAllLabs();
     const res = await fetch('/api/packages');
     allServices = await res.json();
@@ -365,6 +396,7 @@ function populateCategoryControls(services) {
 function renderServiceList() {
     const body = document.getElementById('svc-list');
     if (!body) return;
+    clearSkeleton(body);
     const term = document.getElementById('svc-search')?.value || '';
     const category = document.getElementById('svc-category-filter')?.value || '';
     const rows = allServices.filter(p =>
@@ -563,6 +595,16 @@ async function loadAuditLogs() {
     const entity = document.getElementById('audit-entity-filter')?.value;
     if (entity) query.set('entity_type', entity);
 
+    if (skeletonFirstLoad('admin-audit')) {
+        skeletonTable('audit-table', { rows: 6, cols: [
+            'skel-line skel-w-70',
+            ['skel-line skel-w-60', 'skel-line skel-w-50'],   // who over role
+            'skel-pill skel-w-60',
+            ['skel-line skel-w-90', 'skel-line skel-w-60'],   // what over record id
+            'skel-line skel-w-70', 'skel-btn'
+        ] });
+    }
+
     try {
         const res = await fetch(`/api/audit-logs?${query}`, { headers: authHeaders() });
         auditCache = await res.json();
@@ -572,6 +614,7 @@ async function loadAuditLogs() {
     } catch (err) {
         showToast('Failed to load audit logs', 'error');
     }
+    clearSkeleton('audit-table');
 }
 
 const searchAuditLogs = debounce(loadAuditLogs, 250);
@@ -674,6 +717,15 @@ async function loadArchives() {
     const type = document.getElementById('archive-type-filter')?.value;
     if (type) query.set('type', type);
 
+    if (skeletonFirstLoad('admin-archives')) {
+        skeletonTable('archive-table', { rows: 5, cols: [
+            'skel-line skel-w-70', 'skel-pill skel-w-60',
+            ['skel-line skel-w-80', 'skel-line skel-w-30'],   // label over #id
+            'skel-line skel-w-60', 'skel-line skel-w-70', 'skel-btn'
+        ] });
+        skeletonTable('deletion-logs-table', { rows: 3, cols: 4 });
+    }
+
     try {
         const res = await fetch(`/api/archives?${query}`, { headers: authHeaders() });
         archiveCache = await res.json();
@@ -683,6 +735,7 @@ async function loadArchives() {
     } catch (err) {
         showToast('Failed to load archives', 'error');
     }
+    clearSkeleton('archive-table');
     loadDeletionLogs();
 }
 
@@ -740,6 +793,7 @@ async function loadDeletionLogs() {
                 <td>${formatDateTime(l.deleted_at)}</td>
             </tr>`).join('');
     } catch (err) { /* leave the previous content in place */ }
+    clearSkeleton(body);
 }
 
 async function restoreArchive(id) {

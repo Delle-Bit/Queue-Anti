@@ -32,6 +32,19 @@ window.onSectionLoad = {
 
 // ── DASHBOARD ──
 async function loadAdminDash() {
+    // The stat strip has no markup of its own - without a placeholder the row
+    // is zero-height and everything below it jumps down when the cards arrive.
+    //
+    // One card, not a guess at several: the strip is one card for the front
+    // desk plus one per laboratory that saw a patient today, so the count is
+    // not known until the fetch lands. One is the number that is always there,
+    // and at a narrow viewport this strip is a single column - every extra
+    // placeholder card would be another 110px of shift when it turns out not
+    // to exist. Measured with real data: three placeholders for one real card
+    // moved everything below down by 220px.
+    skeletonStats('admin-stats', { count: 1 });
+    skeletonLines('admin-role-dist', { rows: 4 });
+    skeletonTable('admin-sessions', { rows: 4, cols: 3 });
     try {
         const res = await fetch('/api/analytics/admin', { headers: authHeaders() });
         const data = await res.json();
@@ -49,6 +62,7 @@ async function loadAdminDash() {
             `<tr><td>${s.username}</td><td>${formatDateTime(s.login_time)}</td><td>${s.logout_time ? formatDateTime(s.logout_time) : '<span class="badge badge-success">Active</span>'}</td></tr>`
         ).join('');
     } catch (err) { console.error(err); }
+    clearSkeleton('admin-stats', 'admin-role-dist', 'admin-sessions');
 }
 
 // ── ROLES THIS PAGE MAY ASSIGN ──

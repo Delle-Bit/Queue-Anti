@@ -1250,6 +1250,170 @@ function debounce(fn, wait = 250) {
     };
 }
 
+// ── SKELETON LOADING ───────────────────────────────
+// Placeholder geometry to show while a section's first fetch is in flight,
+// in place of a spinner. The measurements live in the SKELETON LOADING block
+// of shared.css and are chosen so that swapping a placeholder for the real
+// content changes no height - see the comment there.
+//
+// Every painter here refuses to overwrite anything real. That is not a nicety:
+// the staff dashboards re-fetch their queue every five seconds, and a skeleton
+// flashing over a list somebody is reading would be worse than the spinner it
+// replaced.
+
+const SKEL_MARK = 'data-skeleton';
+
+// Ragged edges, but reproducible ones - a cycle rather than Math.random(), so
+// the same table always renders the same placeholder.
+const SKEL_WIDTHS = ['skel-w-70', 'skel-w-50', 'skel-w-80', 'skel-w-60'];
+
+// Text a page ships in the markup as a stand-in for a number it has not
+// fetched yet. Painting over one of these is safe; anything else is real data
+// and must be left alone.
+const SKEL_PLACEHOLDER = /^(--|-|0|0m|0%|₱0|₱0\.00)?$/;
+
+function skeletonTarget(target) {
+    return typeof target === 'string' ? document.getElementById(target) : target;
+}
+
+// Paintable means: holds nothing, or holds nothing but a previous skeleton.
+function skeletonSafe(el) {
+    if (!el) return false;
+    const children = Array.from(el.children);
+    if (children.length === 0) return el.textContent.trim() === '';
+    return children.every(c => c.hasAttribute(SKEL_MARK));
+}
+
+// `replace` is for the few tables that ship a static stand-in row in the HTML
+// ("No patients waiting in queue."), which is not real data but is not a
+// skeleton either. Only a first-load caller may pass it.
+function paintSkeleton(target, html, replace = false) {
+    const el = skeletonTarget(target);
+    if (!el) return false;
+    if (!replace && !skeletonSafe(el)) return false;
+    el.innerHTML = html;
+    // The host is busy; its children are decorative. Without this a screen
+    // reader would read out a table of empty cells as though it were data.
+    el.setAttribute('aria-busy', 'true');
+    return true;
+}
+
+// Placeholder rows for a real <table>. They are real <tr>/<td>, so they take
+// the table's own cell padding and column widths and the columns do not jump
+// when the data arrives.
+//
+// `cols` is a column count, or an array of shapes - one per column - where a
+// shape is either a class string, or a list of class strings for a cell that
+// holds more than one line. That second form matters more than it looks: most
+// tables here have one column with a value and a <small> line under it, and
+// that column alone sets the row height. Measured on the audit log: uniform
+// one-line cells came out 23px short of every real row.
+function skeletonTable(target, { rows = 5, cols = 5, replace = false } = {}) {
+    const shapes = Array.isArray(cols) ? cols : null;
+    const width = (r, c) => SKEL_WIDTHS[(r + c) % SKEL_WIDTHS.length];
+    const bars = (shape) => (Array.isArray(shape) ? shape : [shape])
+        .map(cls => `<span class="skel ${cls}"></span>`).join('');
+    const html = Array.from({ length: rows }, (_, r) => {
+        const count = shapes ? shapes.length : cols;
+        const cells = Array.from({ length: count }, (_, c) =>
+            `<td>${bars(shapes ? shapes[c] : 'skel-line ' + width(r, c))}</td>`).join('');
+        return `<tr class="skel-row" ${SKEL_MARK} aria-hidden="true">${cells}</tr>`;
+    }).join('');
+    return paintSkeleton(target, html, replace);
+}
+
+// Placeholder cards for a grid. `cardClass` is the page's real card class, so
+// the grid tracks, padding and border radius are the ones the content will use.
+//
+// `body` is the inside of one card, and the reason it is a parameter is worth
+// stating: the accurate way to build one is to reuse the real card's own inner
+// element classes (`<h3>`, `.pkg-card-footer`, and so on) with a `.skel` span
+// inside each. `.skel-line` is sized in em, so it collapses to exactly one
+// line box of whatever element contains it - the heights then come from the
+// page's existing CSS instead of from numbers copied into this file, and they
+// stay correct when that CSS changes. Guessing at generic bars instead cost
+// 90px per card when this was measured against the real thing.
+function skeletonCards(target, { count = 6, cardClass = 'pkg-card', body = null, replace = false } = {}) {
+    const inner = body || `
+            <span class="skel skel-title skel-w-70"></span>
+            <span class="skel skel-pill skel-w-30"></span>
+            <span class="skel skel-line skel-w-full"></span>
+            <span class="skel skel-line skel-w-80"></span>
+            <span class="skel skel-line skel-w-40 skel-spaced"></span>`;
+    const card = `<div class="${cardClass} skel-card" ${SKEL_MARK} aria-hidden="true">${inner}</div>`;
+    return paintSkeleton(target, card.repeat(count), replace);
+}
+
+// Placeholder stat cards, for a strip of figures the page builds from a fetch
+// rather than shipping in the markup.
+function skeletonStats(target, { count = 4, replace = false } = {}) {
+    // .stat-label and .stat-value carry the font sizes that set this card's
+    // height, so the placeholder lines sit inside them rather than beside them.
+    const card = `
+        <div class="stat-card skel-card" ${SKEL_MARK} aria-hidden="true">
+            <span class="skel skel-icon"></span>
+            <div class="stat-info">
+                <div class="stat-label skel-box"><span class="skel skel-line skel-w-60"></span></div>
+                <div class="stat-value"><span class="skel skel-value"></span></div>
+            </div>
+        </div>`;
+    return paintSkeleton(target, card.repeat(count), replace);
+}
+
+// A stack of lines, for a panel that is neither a table nor a card grid -
+// a distribution list, a timeline, a notes column. `avatar` adds the leading
+// circle those lists usually start with.
+function skeletonLines(target, { rows = 4, avatar = false, replace = false } = {}) {
+    const row = `
+        <div class="skel-stack-row">
+            ${avatar ? '<span class="skel skel-circle skel-avatar"></span>' : ''}
+            <span class="skel skel-line"></span>
+            <span class="skel skel-line skel-w-20"></span>
+        </div>`;
+    return paintSkeleton(target,
+        `<div class="skel-stack" ${SKEL_MARK} aria-hidden="true">${row.repeat(rows)}</div>`, replace);
+}
+
+// A single figure inside a .stat-value (or any element whose text is replaced
+// wholesale). Accepts one id or several. The markup for these ships with "0"
+// or "--" in place, which reads as real data until it is corrected a moment
+// later; a placeholder is the more honest thing to show. `cls` swaps the
+// placeholder shape - a name line wants a line, not a figure-sized block - and
+// `replace` covers the elements whose markup ships a whole sentence ("No
+// patient currently active"), which is an answer the page does not have yet.
+function skeletonValue(targets, { cls = 'skel-value', replace = false } = {}) {
+    (Array.isArray(targets) ? targets : [targets]).forEach(t => {
+        const el = skeletonTarget(t);
+        if (!el) return;
+        if (!replace && !skeletonSafe(el) && !SKEL_PLACEHOLDER.test(el.textContent.trim())) return;
+        el.innerHTML = `<span class="skel ${cls}" ${SKEL_MARK} aria-hidden="true"></span>`;
+        el.setAttribute('aria-busy', 'true');
+    });
+}
+
+// Drop the busy flag, and any placeholder the render did not overwrite - a
+// failed fetch would otherwise leave the section shimmering for good.
+function clearSkeleton(...targets) {
+    targets.flat().forEach(t => {
+        const el = skeletonTarget(t);
+        if (!el) return;
+        el.removeAttribute('aria-busy');
+        Array.from(el.children)
+            .filter(c => c.hasAttribute(SKEL_MARK))
+            .forEach(c => c.remove());
+    });
+}
+
+// True the first time it is asked about a section, false forever after. The
+// station dashboards poll, and a figure that legitimately reads "0" would
+// otherwise be treated as a placeholder and re-skeletoned every five seconds.
+const skelLoaded = new Set();
+function skeletonFirstLoad(key) {
+    if (skelLoaded.has(key)) return false;
+    skelLoaded.add(key);
+    return true;
+}
+
 // ── INIT ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     initSocket();
