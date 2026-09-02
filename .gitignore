@@ -14,3 +14,6 @@ uploads/
 
 # Environment secrets
 .env
+
+# Runtime artifacts (written by hand when starting the server detached)
+server_pid.txt
