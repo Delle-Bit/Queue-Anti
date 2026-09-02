@@ -397,6 +397,7 @@ function switchAuthTab(tab) {
         fullNameManuallyEdited = false;
         // Ensure forms are reset
         document.getElementById('reg-step1-form').reset();
+    syncTermsGate();
         document.getElementById('reg-step2-form').reset();
         document.getElementById('reg-step3-form').reset();
         document.getElementById('preview-front').innerHTML = '<i class="fa-solid fa-address-card"></i>';
@@ -503,6 +504,21 @@ function goToStep(step) {
     showRegStep(step);
 }
 
+// Keeps the step 1 Continue button in step with the consent box, so an
+// unticked box reads as "you cannot proceed yet" rather than as a button that
+// fails when pressed. Re-applied after the form is reset, which unticks it.
+function syncTermsGate() {
+    const box = document.getElementById('reg-terms-accept');
+    const next = document.getElementById('reg-step1-next');
+    if (!box || !next) return;
+    next.disabled = !box.checked;
+    next.classList.toggle('btn-disabled', !box.checked);
+    if (box.checked) {
+        const hint = document.getElementById('reg-terms-hint');
+        if (hint) hint.textContent = '';
+    }
+}
+
 function validateCurrentStep() {
     const step = registrationState.step;
     const errEl = document.getElementById('reg-error');
@@ -529,6 +545,17 @@ function validateCurrentStep() {
                 errEl.classList.add('show');
                 return false;
             }
+        }
+        // Consent before anything is submitted. The Continue button is disabled
+        // until the box is ticked (syncTermsGate), so this is the backstop for a
+        // form submitted by keyboard or with the button re-enabled by hand.
+        const termsHint = document.getElementById('reg-terms-hint');
+        if (termsHint) termsHint.textContent = '';
+        if (!document.getElementById('reg-terms-accept').checked) {
+            if (termsHint) termsHint.textContent = 'You must agree to the Terms and Conditions to continue.';
+            errEl.textContent = 'You must agree to the Terms and Conditions to continue.';
+            errEl.classList.add('show');
+            return false;
         }
         // Submit step 1
         submitStep1();
@@ -559,17 +586,11 @@ function validateCurrentStep() {
     }
     
     if (step === 3) {
+        // The terms were agreed to in step 1 - there is no way to reach this
+        // step without it - so the only thing left to check here is the code.
         const otp = document.getElementById('reg-otp').value.trim();
-        const termsHint = document.getElementById('reg-terms-hint');
-        if (termsHint) termsHint.textContent = '';
         if (!otp || otp.length !== 6) {
             errEl.textContent = 'Enter the 6-digit verification code.';
-            errEl.classList.add('show');
-            return false;
-        }
-        if (!document.getElementById('reg-terms-accept').checked) {
-            if (termsHint) termsHint.textContent = 'You must agree to the Terms and Conditions to create an account.';
-            errEl.textContent = 'You must agree to the Terms and Conditions to create an account.';
             errEl.classList.add('show');
             return false;
         }
@@ -781,6 +802,7 @@ function finishRegistration() {
     };
     // Reset forms
     document.getElementById('reg-step1-form').reset();
+    syncTermsGate();
     document.getElementById('reg-step2-form').reset();
     document.getElementById('reg-step3-form').reset();
     document.getElementById('preview-front').innerHTML = '<i class="fa-solid fa-address-card"></i>';
@@ -1050,6 +1072,10 @@ function setupRegisterHandlers() {
         e.preventDefault();
         validateCurrentStep(); // This will call submitStep1 if valid
     });
+
+    const termsBox = document.getElementById('reg-terms-accept');
+    if (termsBox) termsBox.addEventListener('change', syncTermsGate);
+    syncTermsGate();
     
     // Step 2 form
     document.getElementById('reg-step2-form').addEventListener('submit', (e) => {

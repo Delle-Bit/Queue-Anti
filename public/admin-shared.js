@@ -27,6 +27,8 @@ const REASON_PRESETS = {
     labUpdate: ['Reassigned to different staff', 'Renamed for clarity', 'Correcting the service type'],
     labCreate: ['New laboratory section opened'],
     labDelete: ['Section closed', 'Duplicate entry', 'Equipment retired'],
+    testStructure: ['New test offered', 'Reference range updated to current guidance',
+                    'Parameter renamed for clarity', 'Correcting a unit'],
     restore: ['Archived by mistake', 'Needed again', 'Reversing an incorrect deletion'],
     purge: ['Data retention period elapsed', 'Duplicate record confirmed', 'Requested by the data subject']
 };
@@ -372,7 +374,9 @@ async function loadServiceMgmt() {
         ] });
     }
     await fetchAllLabs();
-    const res = await fetch('/api/packages');
+    // include_inactive: this is the screen that switches a service back on, so
+    // it has to be able to see one that is switched off.
+    const res = await fetch('/api/packages?include_inactive=1', { headers: authHeaders() });
     allServices = await res.json();
     populateCategoryControls(allServices);
     renderServiceList();
@@ -401,7 +405,12 @@ function renderServiceList() {
     const category = document.getElementById('svc-category-filter')?.value || '';
     const rows = allServices.filter(p =>
         (!category || p.category === category) &&
-        matchesSearch({ ...p, id_text: String(p.id) }, term, ['id_text', 'name', 'category', 'description']));
+        matchesSearch({ ...p, id_text: String(p.id) }, term, ['id_text', 'name', 'category', 'description']))
+    // Sorted by ID for the management table. The API returns them grouped by
+    // category and name, which is right for the customer's catalogue but wrong
+    // for a register: an administrator looking for "#12" wants it between #11
+    // and #13.
+        .sort((a, b) => Number(a.id) - Number(b.id));
 
     const count = document.getElementById('svc-count');
     if (count) count.textContent = `${rows.length} of ${allServices.length} services`;
@@ -440,6 +449,7 @@ function editService(pkg) {
     document.getElementById('svc-doctor').value = pkg.doctor_id || '';
     document.getElementById('svc-modal-title').textContent = 'Edit Service Package';
     renderLabSequence(pkg.laboratories || []);
+    populateStructureSelect(pkg.test_structure_id);
     openModal('svc-modal');
 }
 
@@ -452,6 +462,7 @@ function prepareNewService() {
     document.getElementById('svc-doctor').value = '';
     document.getElementById('svc-modal-title').textContent = 'Add Service Package';
     renderLabSequence([]);
+    populateStructureSelect('');
     openModal('svc-modal');
 }
 
@@ -521,7 +532,8 @@ async function saveService() {
         category: document.getElementById('svc-category').value,
         est_time_minutes,
         laboratories: finalLabs,
-        doctor_id: document.getElementById('svc-doctor').value || null
+        doctor_id: document.getElementById('svc-doctor').value || null,
+        test_structure_id: document.getElementById('svc-test-structure')?.value || null
     };
 
     const existing = allServices.find(p => p.id == id);
@@ -850,4 +862,249 @@ async function purgeArchive(id) {
     const data = await res.json().catch(() => ({}));
     if (res.ok) { showToast('Permanently deleted', 'success'); loadArchives(); }
     else showToast(data.error || 'Failed to delete', 'error');
+}
+
+// ══ MEDICAL TEST STRUCTURES ═══════════════════════════
+// The result form for a kind of test: which parameters the laboratory types in,
+// what unit each is in and what counts as normal. These were hardcoded in
+// public/laboratory.js, so correcting a reference range needed a developer.
+//
+// A structure is either `structured` (a list of fields) or `freeform` - the
+// "Other Diagnostics" case, which gives the laboratory a rich text notepad
+// instead of fields, for findings that have no fixed shape.
+
+let structureCache = [];
+let structureFieldRows = [];
+
+async function loadTestStructureAdmin() {
+    if (skeletonFirstLoad('admin-structures')) {
+        skeletonTable('structure-table', { rows: 4, cols: [
+            'skel-line skel-w-70', 'skel-pill skel-w-60',
+            ['skel-line skel-w-80', 'skel-line skel-w-50'],
+            'skel-line skel-w-30', 'skel-btn'
+        ] });
+    }
+    try {
+        const res = await fetch('/api/test-structures?all=1', { headers: authHeaders() });
+        structureCache = await res.json();
+        if (!Array.isArray(structureCache)) throw new Error('Unexpected response');
+        renderStructureList();
+    } catch (err) {
+        showToast('Failed to load test structures', 'error');
+    }
+    clearSkeleton('structure-table');
+}
+
+const searchStructures = debounce(renderStructureList, 200);
+
+function renderStructureList() {
+    const body = document.getElementById('structure-table');
+    if (!body) return;
+    clearSkeleton(body);
+    const term = document.getElementById('structure-search')?.value || '';
+    const rows = structureCache.filter(st =>
+        matchesSearch({ ...st, id_text: String(st.id) }, term, ['id_text', 'name', 'description', 'input_mode']));
+
+    const count = document.getElementById('structure-count');
+    if (count) count.textContent = `${rows.length} of ${structureCache.length} result form(s)`;
+
+    body.innerHTML = rows.length === 0
+        ? '<tr><td colspan="5" class="text-center text-muted">No result forms match this search.</td></tr>'
+        : rows.map(st => {
+            const fields = st.fields || [];
+            const summary = st.input_mode === 'freeform'
+                ? '<span class="text-muted text-sm">Rich text notepad &mdash; no fixed fields</span>'
+                : (fields.length === 0
+                    ? '<span class="text-muted text-sm">No parameters defined yet</span>'
+                    : fields.slice(0, 4).map(f =>
+                        `<span class="badge badge-neutral">${escapeHtml(f.label)}</span>`).join(' ')
+                      + (fields.length > 4 ? ` <small class="text-muted">+${fields.length - 4} more</small>` : ''));
+            return `<tr>
+                <td><strong>${escapeHtml(st.name)}</strong><br><small class="text-muted">#${st.id}${st.description ? ' &middot; ' + escapeHtml(st.description) : ''}</small></td>
+                <td>${st.input_mode === 'freeform'
+                        ? '<span class="badge badge-warning">Freeform</span>'
+                        : '<span class="badge badge-primary">Structured</span>'}
+                    ${st.is_active ? '' : '<br><span class="badge badge-neutral">Inactive</span>'}</td>
+                <td>${summary}</td>
+                <td>${st.service_count > 0
+                        ? `<span class="badge badge-success">${st.service_count} service(s)</span>`
+                        : '<span class="text-muted text-sm">Not linked</span>'}</td>
+                <td>
+                    <button class="btn btn-sm btn-secondary" onclick="editStructure(${st.id})" title="Edit result form"><i class="fa-solid fa-pen"></i></button>
+                    <button class="btn btn-sm btn-danger" onclick="archiveStructure(${st.id})" title="Archive result form"><i class="fa-solid fa-box-archive"></i></button>
+                </td>
+            </tr>`;
+        }).join('');
+}
+
+function prepareNewStructure() {
+    document.getElementById('structure-edit-id').value = '';
+    document.getElementById('structure-modal-title').textContent = 'Add Result Form';
+    document.getElementById('structure-name').value = '';
+    document.getElementById('structure-desc').value = '';
+    document.getElementById('structure-mode').value = 'structured';
+    document.getElementById('structure-active').checked = true;
+    structureFieldRows = [blankStructureField()];
+    renderStructureFieldRows();
+    openModal('structure-modal');
+}
+
+function editStructure(id) {
+    const st = structureCache.find(x => String(x.id) === String(id));
+    if (!st) return;
+    document.getElementById('structure-edit-id').value = st.id;
+    document.getElementById('structure-modal-title').textContent = `Edit ${st.name}`;
+    document.getElementById('structure-name').value = st.name;
+    document.getElementById('structure-desc').value = st.description || '';
+    document.getElementById('structure-mode').value = st.input_mode;
+    document.getElementById('structure-active').checked = !!st.is_active;
+    structureFieldRows = (st.fields || []).map(f => ({
+        label: f.label || '', unit: f.unit || '', reference_range: f.reference_range || '',
+        field_type: f.field_type || 'number', options: f.options || '', default_value: f.default_value || ''
+    }));
+    if (structureFieldRows.length === 0) structureFieldRows.push(blankStructureField());
+    renderStructureFieldRows();
+    openModal('structure-modal');
+}
+
+function blankStructureField() {
+    return { label: '', unit: '', reference_range: '', field_type: 'number', options: '', default_value: '' };
+}
+
+// The field editor is re-rendered from `structureFieldRows` on every change, so
+// what is on screen and what will be saved cannot drift apart. Values are read
+// back into the array on input rather than only at save time, which is what
+// makes adding or removing a row mid-edit safe.
+function renderStructureFieldRows() {
+    const mode = document.getElementById('structure-mode').value;
+    const wrap = document.getElementById('structure-fields-section');
+    const list = document.getElementById('structure-fields-list');
+    if (!wrap || !list) return;
+
+    // A freeform form has no fields by definition, so the editor hides them
+    // rather than collecting values that would be discarded on save.
+    wrap.style.display = mode === 'freeform' ? 'none' : '';
+    if (mode === 'freeform') return;
+
+    list.innerHTML = structureFieldRows.map((f, i) => `
+        <div class="structure-field-row">
+            <input type="text" class="form-input" placeholder="Parameter (e.g. Hemoglobin)"
+                   value="${escapeHtml(f.label)}" oninput="updateStructureField(${i}, 'label', this.value)">
+            <input type="text" class="form-input" placeholder="Unit"
+                   value="${escapeHtml(f.unit)}" oninput="updateStructureField(${i}, 'unit', this.value)">
+            <input type="text" class="form-input" placeholder="Normal range"
+                   value="${escapeHtml(f.reference_range)}" oninput="updateStructureField(${i}, 'reference_range', this.value)">
+            <select class="form-select" onchange="updateStructureField(${i}, 'field_type', this.value)">
+                <option value="number" ${f.field_type === 'number' ? 'selected' : ''}>Number</option>
+                <option value="text" ${f.field_type === 'text' ? 'selected' : ''}>Text</option>
+                <option value="select" ${f.field_type === 'select' ? 'selected' : ''}>Choice</option>
+            </select>
+            <input type="text" class="form-input" placeholder="${f.field_type === 'select' ? 'Choices, comma separated' : 'Default'}"
+                   value="${escapeHtml(f.field_type === 'select' ? f.options : f.default_value)}"
+                   oninput="updateStructureField(${i}, '${f.field_type === 'select' ? 'options' : 'default_value'}', this.value)">
+            <button type="button" class="btn btn-sm btn-danger" onclick="removeStructureField(${i})"
+                    title="Remove this parameter" aria-label="Remove ${escapeHtml(f.label || 'parameter')}">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>`).join('');
+}
+
+function updateStructureField(index, key, value) {
+    if (!structureFieldRows[index]) return;
+    structureFieldRows[index][key] = value;
+    // Changing the type changes what the last box means, so that row is redrawn.
+    if (key === 'field_type') renderStructureFieldRows();
+}
+
+function addStructureField() {
+    structureFieldRows.push(blankStructureField());
+    renderStructureFieldRows();
+    const inputs = document.querySelectorAll('#structure-fields-list .structure-field-row input');
+    if (inputs.length) inputs[inputs.length - 6]?.focus();
+}
+
+function removeStructureField(index) {
+    structureFieldRows.splice(index, 1);
+    if (structureFieldRows.length === 0) structureFieldRows.push(blankStructureField());
+    renderStructureFieldRows();
+}
+
+async function saveStructure() {
+    const id = document.getElementById('structure-edit-id').value;
+    const name = document.getElementById('structure-name').value.trim();
+    const mode = document.getElementById('structure-mode').value;
+    if (!name) return showToast('Give the result form a name', 'warning');
+
+    const fields = structureFieldRows.filter(f => f.label.trim());
+    if (mode === 'structured' && fields.length === 0) {
+        return showToast('A structured form needs at least one parameter, or set it to freeform', 'warning');
+    }
+
+    const reason = await promptReason({
+        title: id ? `Save changes to ${name}` : `Add ${name}`,
+        message: mode === 'freeform'
+            ? 'This form gives the laboratory a rich text notepad instead of fields.'
+            : `${fields.length} parameter(s) will be recorded against this form.`,
+        placeholder: 'e.g. updated the haemoglobin reference range to the 2026 guidance',
+        confirmLabel: id ? 'Save result form' : 'Add result form',
+        presets: REASON_PRESETS.testStructure
+    });
+    if (!reason) return;
+
+    const body = {
+        name,
+        description: document.getElementById('structure-desc').value.trim(),
+        input_mode: mode,
+        is_active: document.getElementById('structure-active').checked,
+        fields,
+        reason
+    };
+
+    const res = await fetch(id ? `/api/test-structures/${id}` : '/api/test-structures', {
+        method: id ? 'PUT' : 'POST', headers: authHeaders(), body: JSON.stringify(body)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return showToast(data.error || 'Failed to save the result form', 'error');
+    showToast(id ? 'Result form updated' : 'Result form added', 'success');
+    closeModal('structure-modal');
+    loadTestStructureAdmin();
+}
+
+async function archiveStructure(id) {
+    const st = structureCache.find(x => String(x.id) === String(id));
+    if (!st) return;
+    const reason = await promptReason({
+        title: `Archive ${st.name}`,
+        message: 'The form is kept in Archives and can be restored. Results already recorded against it are untouched.',
+        placeholder: 'e.g. replaced by the combined panel form',
+        confirmLabel: 'Archive result form',
+        confirmClass: 'btn-danger',
+        presets: ['Replaced by another form', 'No longer offered', 'Created by mistake', 'Duplicate']
+    });
+    if (!reason) return;
+    const res = await fetch(`/api/test-structures/${id}`, {
+        method: 'DELETE', headers: authHeaders(), body: JSON.stringify({ reason })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return showToast(data.error || 'Failed to archive', 'error');
+    showToast('Result form archived', 'success');
+    loadTestStructureAdmin();
+}
+
+// Fills the service editor's result-form dropdown. Called when that modal opens
+// so a form added a moment ago is already on the list.
+async function populateStructureSelect(selected) {
+    const select = document.getElementById('svc-test-structure');
+    if (!select) return;
+    if (structureCache.length === 0) {
+        try {
+            const res = await fetch('/api/test-structures?all=1', { headers: authHeaders() });
+            const rows = await res.json();
+            if (Array.isArray(rows)) structureCache = rows;
+        } catch (err) { /* the dropdown falls back to "none" */ }
+    }
+    select.innerHTML = '<option value="">No test result recorded</option>' +
+        structureCache.filter(st => st.is_active).map(st =>
+            `<option value="${st.id}">${escapeHtml(st.name)}${st.input_mode === 'freeform' ? ' (notepad)' : ''}</option>`).join('');
+    select.value = selected ? String(selected) : '';
 }

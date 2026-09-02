@@ -1250,6 +1250,176 @@ function debounce(fn, wait = 250) {
     };
 }
 
+// ── RICH TEXT NOTEPAD ──────────────────────────────
+// The editor behind the "Other Diagnostics" result form: a formatting toolbar
+// over a contenteditable box, for the tests that have no fixed set of fields
+// and are written up as prose instead.
+//
+// It is built by hand rather than pulled from a library because this project has
+// no bundler and loads no third-party scripts. Formatting goes through
+// document.execCommand, which is deprecated but is the only dependency-free way
+// to apply inline formatting to a selection; every browser still implements it,
+// and the alternative is several hundred lines of Range surgery.
+//
+// What comes out is HTML, and HTML written by one user and shown to another has
+// to be sanitised. That happens server-side in rich_text.js, which is the
+// boundary; sanitizeRichHtml below is for rendering a stored note back into a
+// page, so a record written before a rule changed still cannot inject anything.
+
+const RICH_TEXT_TAGS = ['P', 'BR', 'DIV', 'B', 'STRONG', 'I', 'EM', 'U', 'UL', 'OL', 'LI', 'H3', 'H4', 'BLOCKQUOTE'];
+
+// Tags whose text goes with them. For most disallowed tags the wording is worth
+// keeping - a stripped <a> should still read as its label - but the body of a
+// <script> is code, not clinical content, and leaving it behind as text put
+// "alert(1)" in the record. Matches DROP_WITH_CONTENT in rich_text.js, which is
+// the server-side boundary.
+const RICH_TEXT_DROP_CONTENT = ['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'TEMPLATE', 'NOSCRIPT'];
+
+// Parses into an inert document and rebuilds from an allow-list, dropping every
+// attribute. Unlike a regex pass this cannot be fooled by odd nesting, because
+// the browser has already resolved the markup into a tree.
+function sanitizeRichHtml(html) {
+    const doc = new DOMParser().parseFromString(`<body>${html || ''}</body>`, 'text/html');
+    const walk = (source, target) => {
+        source.childNodes.forEach(node => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                target.appendChild(document.createTextNode(node.nodeValue));
+                return;
+            }
+            if (node.nodeType !== Node.ELEMENT_NODE) return;
+            if (RICH_TEXT_DROP_CONTENT.includes(node.tagName)) return;
+            if (!RICH_TEXT_TAGS.includes(node.tagName)) {
+                // Keep what it said, lose how it said it.
+                walk(node, target);
+                return;
+            }
+            const clean = document.createElement(node.tagName.toLowerCase());
+            walk(node, clean);
+            target.appendChild(clean);
+        });
+    };
+    const out = document.createElement('div');
+    walk(doc.body, out);
+    return out.innerHTML;
+}
+
+// Plain-text twin, for a preview line or a character count.
+function richTextToPlainText(html) {
+    const doc = new DOMParser().parseFromString(`<body>${html || ''}</body>`, 'text/html');
+    return (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
+}
+
+const RICH_TEXT_COMMANDS = [
+    { cmd: 'bold', icon: 'fa-bold', label: 'Bold', keys: 'Ctrl+B' },
+    { cmd: 'italic', icon: 'fa-italic', label: 'Italic', keys: 'Ctrl+I' },
+    { cmd: 'underline', icon: 'fa-underline', label: 'Underline', keys: 'Ctrl+U' },
+    { cmd: 'insertUnorderedList', icon: 'fa-list-ul', label: 'Bulleted list' },
+    { cmd: 'insertOrderedList', icon: 'fa-list-ol', label: 'Numbered list' },
+    { cmd: 'formatBlock', value: 'h3', icon: 'fa-heading', label: 'Heading' },
+    { cmd: 'removeFormat', icon: 'fa-eraser', label: 'Clear formatting' }
+];
+
+// Turns an empty container into an editor. Idempotent, so a page that re-renders
+// its workspace does not stack two toolbars on one box.
+function initRichTextEditor(target, { placeholder = 'Type your findings...' } = {}) {
+    const host = typeof target === 'string' ? document.getElementById(target) : target;
+    if (!host || host.querySelector(':scope > .rte')) return host && host.querySelector('.rte-body');
+
+    const buttons = RICH_TEXT_COMMANDS.map(c => `
+        <button type="button" class="rte-btn" data-cmd="${c.cmd}"
+                ${c.value ? `data-value="${c.value}"` : ''}
+                title="${escapeHtml(c.label + (c.keys ? ` (${c.keys})` : ''))}"
+                aria-label="${escapeHtml(c.label)}" aria-pressed="false">
+            <i class="fa-solid ${c.icon}"></i>
+        </button>`).join('');
+
+    host.innerHTML = `
+        <div class="rte">
+            <div class="rte-toolbar" role="toolbar" aria-label="Text formatting">${buttons}</div>
+            <div class="rte-body" contenteditable="true" role="textbox" aria-multiline="true"
+                 aria-label="${escapeHtml(placeholder)}" data-placeholder="${escapeHtml(placeholder)}"></div>
+        </div>`;
+
+    const body = host.querySelector('.rte-body');
+    const toolbar = host.querySelector('.rte-toolbar');
+
+    // mousedown, not click: the default action of pressing a button is to move
+    // focus out of the editable area, which collapses the selection the command
+    // is meant to act on.
+    toolbar.addEventListener('mousedown', (e) => {
+        const btn = e.target.closest('.rte-btn');
+        if (!btn) return;
+        e.preventDefault();
+        // Only focus when the caret is not already in the box. Calling focus()
+        // on a contenteditable that already holds the selection collapses it to
+        // the start in Chrome, so the command then applies to nothing - a
+        // selection made with the mouse and then bolded came out unformatted.
+        const selection = window.getSelection();
+        const alreadyInside = selection && selection.rangeCount > 0
+            && body.contains(selection.anchorNode);
+        if (!alreadyInside) body.focus();
+        const cmd = btn.getAttribute('data-cmd');
+        const value = btn.getAttribute('data-value');
+        if (cmd === 'formatBlock') {
+            // Second press on a heading takes it back to a paragraph, so the
+            // button reads as a toggle rather than a one-way trip.
+            const inHeading = /^h3$/i.test(document.queryCommandValue('formatBlock') || '');
+            document.execCommand('formatBlock', false, inHeading ? 'p' : value);
+        } else {
+            document.execCommand(cmd, false, null);
+        }
+        reflectRichTextState(host);
+    });
+
+    // Paste arrives as plain text on purpose. A paste out of Word or a browser
+    // carries fonts, colours and absolute sizes that have nothing to do with
+    // this page and would be stripped on save anyway - taking the text now is
+    // more honest than showing formatting that will not survive.
+    body.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+        document.execCommand('insertText', false, text);
+    });
+
+    ['keyup', 'mouseup', 'focus'].forEach(evt =>
+        body.addEventListener(evt, () => reflectRichTextState(host)));
+
+    return body;
+}
+
+// Lights the toolbar buttons that apply where the cursor is.
+function reflectRichTextState(host) {
+    const el = typeof host === 'string' ? document.getElementById(host) : host;
+    if (!el) return;
+    el.querySelectorAll('.rte-btn').forEach(btn => {
+        const cmd = btn.getAttribute('data-cmd');
+        let on = false;
+        try {
+            on = cmd === 'formatBlock'
+                ? /^h3$/i.test(document.queryCommandValue('formatBlock') || '')
+                : document.queryCommandState(cmd);
+        } catch (e) { on = false; }
+        btn.classList.toggle('rte-btn-active', !!on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+}
+
+function richTextValue(target) {
+    const host = typeof target === 'string' ? document.getElementById(target) : target;
+    const body = host && host.querySelector('.rte-body');
+    return body ? sanitizeRichHtml(body.innerHTML) : '';
+}
+
+function setRichTextValue(target, html) {
+    const host = typeof target === 'string' ? document.getElementById(target) : target;
+    const body = host && host.querySelector('.rte-body');
+    if (body) body.innerHTML = sanitizeRichHtml(html || '');
+}
+
+function richTextIsEmpty(target) {
+    return richTextToPlainText(richTextValue(target)).length === 0;
+}
+
 // ── SKELETON LOADING ───────────────────────────────
 // Placeholder geometry to show while a section's first fetch is in flight,
 // in place of a spinner. The measurements live in the SKELETON LOADING block

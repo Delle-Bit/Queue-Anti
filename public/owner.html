@@ -6,6 +6,8 @@
     <link rel="icon" href="/images/examplelogo.svg">
     <link rel="stylesheet" href="shared.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+    <script src="https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.js"></script>
 </head>
 <body>
     <button class="hamburger"><i class="fa-solid fa-bars"></i></button>
@@ -199,6 +201,48 @@
         </div>
 
         <!-- SERVICE MANAGEMENT -->
+
+        <!-- MEDICAL TEST STRUCTURES -->
+        <div id="section-structures" class="content-section" style="display:none;">
+            <div class="page-header">
+                <div>
+                    <div class="page-title"><i class="fa-solid fa-vials"></i> Medical Test Structures</div>
+                    <div class="page-subtitle">The result form for each kind of test: parameters, units and normal ranges</div>
+                </div>
+                <button class="btn btn-primary" onclick="prepareNewStructure()"><i class="fa-solid fa-plus"></i> Add Result Form</button>
+            </div>
+            <div class="card">
+                <div class="filter-bar">
+                    <div class="search-bar">
+                        <i class="fa-solid fa-search"></i>
+                        <input type="text" id="structure-search" placeholder="Search by form ID, name or type..."
+                               aria-label="Search result forms" oninput="searchStructures()">
+                    </div>
+                    <span class="filter-count" id="structure-count"></span>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Result Form</th>
+                                <th>Type</th>
+                                <th>Parameters</th>
+                                <th>Used By</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="structure-table"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- WALK-IN INTAKE -->
+        <!-- Markup is built by walkin-screen.js, which the front desk and both
+             admin dashboards share - see the comment at the top of that file. -->
+        <div id="section-walkin" class="content-section" style="display:none;"></div>
+
         <div id="section-services" class="content-section" style="display:none;">
             <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-box-open"></i> Service Management</div></div>
             <button class="btn btn-primary" onclick="prepareNewService()"><i class="fa-solid fa-plus"></i> Add Package</button></div>
@@ -306,6 +350,62 @@
     </div>
 
     <!-- Add/Edit Service Modal -->
+
+    <!-- Result form editor. A freeform form hides the parameter list entirely -
+         that is what makes it freeform: the laboratory gets a notepad instead. -->
+    <div id="structure-modal" class="modal-overlay">
+        <div class="modal-box" style="max-width:860px;">
+            <div class="modal-header">
+                <div class="modal-title"><i class="fa-solid fa-vials"></i> <span id="structure-modal-title">Add Result Form</span></div>
+                <button class="modal-close" onclick="closeModal('structure-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="structure-edit-id">
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label class="form-label" for="structure-name">Form Name</label>
+                        <input type="text" class="form-input" id="structure-name" placeholder="e.g. Complete Blood Count (CBC)">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="structure-mode">Input Type</label>
+                        <select class="form-select" id="structure-mode" onchange="renderStructureFieldRows()">
+                            <option value="structured">Structured &mdash; a list of parameters</option>
+                            <option value="freeform">Freeform &mdash; rich text notepad</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="structure-desc">Description</label>
+                    <input type="text" class="form-input" id="structure-desc" placeholder="Shown to the laboratory under the form name">
+                </div>
+                <div class="form-group">
+                    <label class="step-choice" style="cursor:pointer;">
+                        <input type="checkbox" id="structure-active" checked>
+                        <span class="step-choice-body">
+                            <strong>Available to the laboratory</strong>
+                            <small>Uncheck to keep the form without offering it for new results</small>
+                        </span>
+                    </label>
+                </div>
+
+                <div id="structure-fields-section">
+                    <label class="form-label">Parameters</label>
+                    <div class="structure-field-row structure-field-head">
+                        <div>Parameter</div><div>Unit</div><div>Normal range</div><div>Input</div><div>Default / choices</div><div></div>
+                    </div>
+                    <div id="structure-fields-list"></div>
+                    <button type="button" class="btn btn-sm btn-outline mt-sm" onclick="addStructureField()">
+                        <i class="fa-solid fa-plus"></i> Add parameter
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('structure-modal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveStructure()"><i class="fa-solid fa-floppy-disk"></i> Save Result Form</button>
+            </div>
+        </div>
+    </div>
+
     <div id="svc-modal" class="modal-overlay">
         <div class="modal-box" style="max-width:560px;">
             <div class="modal-header"><div class="modal-title"><i class="fa-solid fa-box-open"></i> <span id="svc-modal-title">Add Service Package</span></div><button class="modal-close" onclick="closeModal('svc-modal')">&times;</button></div>
@@ -320,7 +420,13 @@
                 <div class="form-group"><label class="form-label">Doctor Consultation</label><select class="form-select" id="svc-doctor"><option value="">No doctor consultation</option></select></div>
                 <div class="form-group"><label class="form-label">Station Sequence</label><div id="svc-lab-list"></div>
                 <button class="btn btn-sm btn-outline mt-sm" onclick="addLabToSequence()"><i class="fa-solid fa-plus"></i> Add Station Step</button></div>
+                <div class="form-group">
+                    <label class="form-label" for="svc-test-structure">Result Form</label>
+                    <select class="form-select" id="svc-test-structure"></select>
+                    <small class="text-muted">The form the laboratory opens on for this service. Manage the list under Medical Test Structures.</small>
+                </div>
             </div>
+
             <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('svc-modal')">Cancel</button><button class="btn btn-success" onclick="saveService()">Save</button></div>
         </div>
     </div>
@@ -338,6 +444,9 @@
     <script src="/socket.io/socket.io.js"></script>
     <script src="shared.js"></script>
     <script src="admin-shared.js"></script>
+    <script src="clinic-pdf.js"></script>
+    <script src="walkin-forms.js"></script>
+    <script src="walkin-screen.js"></script>
     <script src="owner.js"></script>
 </body>
 </html>

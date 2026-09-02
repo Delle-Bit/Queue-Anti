@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../database');
 const jwt = require('jsonwebtoken');
-const { JWT_SECRET, requireStaff } = require('../config');
+const { JWT_SECRET, requireStaff, STAFF_ROLES } = require('../config');
 const { composeServiceSteps } = require('../queue_automation');
 const { APPOINTMENT_SURCHARGE_PCT, appointmentPrice } = require('../appointment_automation');
 const { recordAudit, requireReason, snapshotRow } = require('../audit');
@@ -10,9 +10,31 @@ const { archiveRecord } = require('../archive');
 
 const DEFAULT_CATEGORY = 'General';
 
+// A result form id, or null. Checked against the table rather than trusted: a
+// service pointing at a form that does not exist would open the laboratory
+// workspace on nothing.
+async function resolveTestStructureId(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const id = Number(value);
+    if (!Number.isInteger(id) || id <= 0) return null;
+    const [rows] = await pool.query(
+        'SELECT id FROM test_structures WHERE id = ? AND archived = false LIMIT 1', [id]);
+    return rows.length > 0 ? id : null;
+}
+
 function normalizeCategory(value) {
     const category = String(value == null ? '' : value).trim().slice(0, 60);
     return category || DEFAULT_CATEGORY;
+}
+
+// True when the caller presents a valid staff token. Used for read options
+// that only make sense in a management screen; this endpoint is public, so it
+// asks rather than requires.
+function isStaffRequest(req) {
+    const token = (req.headers['authorization'] || '').split(' ')[1];
+    if (!token) return false;
+    try { return STAFF_ROLES.includes(jwt.verify(token, JWT_SECRET).role); }
+    catch (e) { return false; }
 }
 
 function authRequired(req, res, next) {
@@ -29,7 +51,15 @@ function authRequired(req, res, next) {
 router.get('/', async (req, res) => {
     try {
         const params = [];
-        const filters = ['sp.is_active = true', 'sp.archived = false'];
+        // A deactivated service is hidden from the customer's catalogue but has
+        // to stay visible in Service Management - otherwise the row an
+        // administrator just switched off disappears from the only screen that
+        // could switch it back on, and the ID column skips a number with no
+        // explanation. Staff-only: the flag is ignored without a staff token.
+        const includeInactive = (req.query.include_inactive === '1' || req.query.include_inactive === 'true')
+            && isStaffRequest(req);
+        const filters = ['sp.archived = false'];
+        if (!includeInactive) filters.push('sp.is_active = true');
         const term = String(req.query.q || '').trim();
         if (term) {
             filters.push('(CAST(sp.id AS CHAR) LIKE ? OR sp.name LIKE ? OR sp.description LIKE ? OR sp.category LIKE ?)');
@@ -146,13 +176,14 @@ async function rejectFrontDeskStations(laboratories) {
 
 // POST create package (frontdesk/admin)
 router.post('/', authRequired, requireStaff, requireReason, async (req, res) => {
-    const { name, description, price, est_time_minutes, laboratories, doctor_id, category } = req.body;
+    const { name, description, price, est_time_minutes, laboratories, doctor_id, category, test_structure_id } = req.body;
     try {
         const stationError = await rejectFrontDeskStations(laboratories);
         if (stationError) return res.status(400).json({ error: stationError });
         const [result] = await pool.query(
-            'INSERT INTO service_packages (name, description, price, est_time_minutes, category, doctor_id) VALUES (?, ?, ?, ?, ?, ?)',
-            [name, description || '', price, est_time_minutes || 15, normalizeCategory(category), doctor_id || null]
+            'INSERT INTO service_packages (name, description, price, est_time_minutes, category, doctor_id, test_structure_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [name, description || '', price, est_time_minutes || 15, normalizeCategory(category), doctor_id || null,
+             await resolveTestStructureId(test_structure_id)]
         );
         const pkgId = result.insertId;
         if (laboratories && laboratories.length > 0) {
@@ -177,7 +208,7 @@ router.post('/', authRequired, requireStaff, requireReason, async (req, res) => 
 
 // PUT update package
 router.put('/:id', authRequired, requireStaff, requireReason, async (req, res) => {
-    const { name, description, price, est_time_minutes, laboratories, is_active, doctor_id, category } = req.body;
+    const { name, description, price, est_time_minutes, laboratories, is_active, doctor_id, category, test_structure_id } = req.body;
     try {
         const stationError = await rejectFrontDeskStations(laboratories);
         if (stationError) return res.status(400).json({ error: stationError });
@@ -189,10 +220,18 @@ router.put('/:id', authRequired, requireStaff, requireReason, async (req, res) =
             [req.params.id]
         );
 
+        // Left alone when the caller does not mention it: the front desk's own
+        // service editor has no result-form field, and saving from there must
+        // not clear the one an administrator chose.
+        const structureId = test_structure_id === undefined
+            ? (before.test_structure_id || null)
+            : await resolveTestStructureId(test_structure_id);
+
         await pool.query(
-            'UPDATE service_packages SET name=?, description=?, price=?, est_time_minutes=?, category=?, doctor_id=?, is_active=? WHERE id=?',
+            `UPDATE service_packages SET name=?, description=?, price=?, est_time_minutes=?, category=?,
+                    doctor_id=?, is_active=?, test_structure_id=? WHERE id=?`,
             [name, description, price, est_time_minutes, normalizeCategory(category != null ? category : before.category),
-             doctor_id || null, is_active !== false, req.params.id]
+             doctor_id || null, is_active !== false, structureId, req.params.id]
         );
         if (laboratories) {
             await pool.query('UPDATE package_laboratories SET archived=true, archived_at=NOW() WHERE package_id = ?', [req.params.id]);

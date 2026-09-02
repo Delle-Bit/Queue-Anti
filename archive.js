@@ -29,6 +29,7 @@ const ARCHIVE_TABLE_MAP = {
     laboratory: ['laboratories', 'id'],
     doctor: ['doctors', 'id'],
     service_package: ['service_packages', 'id'],
+    test_structure: ['test_structures', 'id'],
     package_laboratory: ['package_laboratories', 'id'],
     appointment: ['appointments', 'id'],
     announcement: ['announcements', 'id'],

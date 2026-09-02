@@ -3,6 +3,7 @@ if (!requireAuth(['frontdesk','admin','admintechnical'])) throw new Error('Unaut
 renderSidebar([
     { section: 'OPERATIONS' },
     { id: 'queue', label: 'Payment Queue', icon: 'fa-solid fa-cash-register' },
+    { id: 'walkin', label: 'Walk-in Intake', icon: 'fa-solid fa-person-walking-arrow-right' },
     { id: 'services', label: 'Service Management', icon: 'fa-solid fa-box-open' },
     { id: 'appointments', label: 'Appointments', icon: 'fa-solid fa-calendar' }
 ], 'queue');
@@ -20,7 +21,10 @@ let allFdLogs = [];
 let allServices = [];
 let reinsertCandidates = [];
 
-window.onSectionLoad = { queue: loadFdQueue, services: loadServiceMgmt, appointments: loadFdAppointments };
+window.onSectionLoad = {
+    queue: loadFdQueue, walkin: loadWalkIns,
+    services: loadServiceMgmt, appointments: loadFdAppointments
+};
 
 async function fetchLabs() {
     const res = await fetch('/api/laboratories', { headers: authHeaders() });
@@ -242,7 +246,7 @@ async function openReinsertModal() {
     reinsertList.innerHTML = '';
     skeletonTable(reinsertList, { rows: 4, cols: [
         'skel-line skel-w-50', 'skel-line skel-w-80', 'skel-line skel-w-60',
-        'skel-pill skel-w-70', 'skel-line skel-w-50', 'skel-btn'
+        'skel-line skel-w-40', 'skel-pill skel-w-70', 'skel-line skel-w-50', 'skel-btn'
     ] });
     openModal('reinsert-modal');
     try {
@@ -254,9 +258,15 @@ async function openReinsertModal() {
     } catch (err) {
         clearSkeleton(reinsertList);
         document.getElementById('reinsert-list').innerHTML =
-            `<tr><td colspan="6" class="text-center text-muted">${escapeHtml(err.message)}</td></tr>`;
+            `<tr><td colspan="7" class="text-center text-muted">${escapeHtml(err.message)}</td></tr>`;
     }
 }
+
+const REINSERT_STATUS_BADGE = {
+    'on-hold': '<span class="badge badge-warning">On-Hold</span>',
+    serving: '<span class="badge badge-primary">Being served</span>',
+    waiting: '<span class="badge badge-neutral">Waiting</span>'
+};
 
 function renderReinsertCandidates() {
     clearSkeleton('reinsert-list');
@@ -266,45 +276,141 @@ function renderReinsertCandidates() {
     document.getElementById('reinsert-count').textContent =
         `${rows.length} of ${reinsertCandidates.length} in the queues`;
     document.getElementById('reinsert-list').innerHTML = rows.length === 0
-        ? '<tr><td colspan="6" class="text-center text-muted">Nobody is waiting or On-Hold right now.</td></tr>'
-        : rows.map(c => `<tr class="${c.reinsert_slot ? 'queue-row-reinserted' : ''}">
+        ? '<tr><td colspan="7" class="text-center text-muted">Nobody is in a queue right now.</td></tr>'
+        : rows.map(c => {
+            const total = (c.steps || []).length;
+            const stepLabel = total
+                ? `${(c.current_step_index || 0) + 1} of ${total}<br><small class="text-muted">${escapeHtml(c.steps[c.current_step_index]?.name || '')}</small>`
+                : '--';
+            return `<tr class="${c.reinsert_slot ? 'queue-row-reinserted' : ''}">
             <td><strong>${c.number}</strong></td>
             <td>${escapeHtml(c.full_name || c.username || '--')}<br><small class="text-muted">${escapeHtml(c.package_name || '')}</small></td>
             <td>${escapeHtml(c.station_name || c.station_type)}</td>
-            <td>${c.status === 'on-hold'
-                    ? '<span class="badge badge-warning">On-Hold</span>'
-                    : '<span class="badge badge-neutral">Waiting</span>'}
+            <td>${stepLabel}</td>
+            <td>${REINSERT_STATUS_BADGE[c.status] || REINSERT_STATUS_BADGE.waiting}
                 ${c.reinsert_slot ? '<br><span class="badge badge-reinserted">already re-inserted</span>' : ''}</td>
             <td>${formatTime(c.hold_at || c.timestamp)}</td>
-            <td><button class="btn btn-sm btn-primary" onclick="doReinsert('${c.id}', '${escapeHtml(c.number)}')">
+            <td><button class="btn btn-sm btn-primary" onclick="openReinsertStepChooser('${c.id}')">
                 <i class="fa-solid fa-arrow-turn-up"></i> Re-insert</button></td>
-        </tr>`).join('');
+        </tr>`;
+        }).join('');
 }
 
-async function doReinsert(queueId, ticket) {
+// ---- Step picker ---------------------------------------------------------
+// Which patient the desk picked. Held so the step list can be rebuilt without
+// another round trip, and so submitReinsert knows the ticket it is acting on.
+let reinsertTarget = null;
+
+function openReinsertStepChooser(queueId) {
+    reinsertTarget = reinsertCandidates.find(c => String(c.id) === String(queueId));
+    if (!reinsertTarget) return showToast('That ticket is no longer in the queue', 'error');
+    renderReinsertSteps();
+    openModal('reinsert-step-modal');
+}
+
+function renderReinsertSteps() {
+    const c = reinsertTarget;
+    document.getElementById('reinsert-step-title').textContent = `Re-insert ${c.number}`;
+    document.getElementById('reinsert-step-summary').innerHTML =
+        `${escapeHtml(c.full_name || c.username || 'This patient')} &middot; ${escapeHtml(c.package_name || 'no service recorded')}`;
+
+    // Only the steps on this patient's own service are listed, and only the
+    // ones behind them can be chosen - the route came from the server with the
+    // patient, so a step from somebody else's package cannot appear here.
+    const steps = c.steps || [];
+    const sameLineAllowed = c.status !== 'serving';
+    const options = [];
+
+    if (sameLineAllowed) {
+        options.push(`
+            <label class="step-choice">
+                <input type="radio" name="reinsert-step" value="" checked>
+                <span class="step-choice-body">
+                    <strong>Keep their place in this line</strong>
+                    <small>${escapeHtml(c.station_name || c.station_type)} &middot; called after the patient in process and one more</small>
+                </span>
+            </label>`);
+    }
+
+    steps.forEach(step => {
+        const disabled = !step.selectable;
+        let note;
+        if (step.is_current) note = 'They are here now';
+        else if (step.selectable) note = 'Already passed - can be returned to';
+        else note = 'Still ahead of them';
+        options.push(`
+            <label class="step-choice ${disabled ? 'step-choice-disabled' : ''}">
+                <input type="radio" name="reinsert-step" value="${step.index}" ${disabled ? 'disabled' : ''}>
+                <span class="step-choice-body">
+                    <strong>Step ${step.index + 1} &middot; ${escapeHtml(step.name)}</strong>
+                    <small>${note}</small>
+                </span>
+            </label>`);
+    });
+
+    const list = document.getElementById('reinsert-step-options');
+    list.innerHTML = options.join('') ||
+        '<p class="text-muted text-sm">This ticket has no recorded service route, so there is no earlier step to return to.</p>';
+
+    // A patient being served has no place in a line to keep, so the "keep their
+    // place" option is not offered to them and the first step they can go back
+    // to is preselected instead. Nothing selected at all means every step is
+    // ahead of them, which submitReinsert reports rather than posting.
+    if (!list.querySelector('input[name="reinsert-step"]:checked')) {
+        const first = list.querySelector('input[name="reinsert-step"]:not([disabled])');
+        if (first) first.checked = true;
+    }
+}
+
+async function submitReinsert() {
+    const c = reinsertTarget;
+    if (!c) return;
+    const chosen = document.querySelector('#reinsert-step-options input[name="reinsert-step"]:checked');
+    if (!chosen) {
+        return showToast('There is no earlier step to send this patient back to', 'warning');
+    }
+    const targetStepIndex = chosen.value === '' ? null : Number(chosen.value);
+    const step = targetStepIndex === null ? null : (c.steps || []).find(st => st.index === targetStepIndex);
+
     const reason = await promptReason({
-        title: `Re-insert ${ticket}`,
-        message: 'This patient will be called after the patient in process and one more regular patient.',
-        placeholder: 'e.g. stepped out and missed their number being called',
+        title: `Re-insert ${c.number}`,
+        message: step
+            ? `${c.number} will be sent back to "${step.name}" and called two positions behind the ticket in process there.`
+            : 'This patient will be called after the patient in process and one more regular patient.',
+        placeholder: step
+            ? 'e.g. blood chemistry result was never uploaded'
+            : 'e.g. stepped out and missed their number being called',
         confirmLabel: 'Re-insert patient',
-        presets: ['Missed their turn', 'Returned with an unfinished process', 'Sent back by another station']
+        presets: step
+            ? ['Result missing for this step', 'Sample was not usable', 'Step was skipped by mistake', 'Patient left before this step finished']
+            : ['Missed their turn', 'Returned with an unfinished process', 'Sent back by another station']
     });
     if (!reason) return;
 
+    const body = { queue_id: c.id, reason };
+    if (targetStepIndex !== null) body.target_step_index = targetStepIndex;
+
     const res = await fetch('/api/queue/reinsert', {
-        method: 'POST', headers: authHeaders(), body: JSON.stringify({ queue_id: queueId, reason })
+        method: 'POST', headers: authHeaders(), body: JSON.stringify(body)
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return showToast(data.error || 'Failed to re-insert', 'error');
-    showToast(`${data.ticket} re-inserted at position ${data.slot} of the line`, 'success');
+
+    showToast(data.step_name
+        ? `${data.ticket} sent back to ${data.step_name}, two behind the ticket in process`
+        : `${data.ticket} re-inserted at position ${data.slot} of the line`, 'success');
+    closeModal('reinsert-step-modal');
     closeModal('reinsert-modal');
+    reinsertTarget = null;
     loadFdQueue();
 }
 
 // ── SERVICE MANAGEMENT ─────────────────────────────────────────
 async function loadServiceMgmt() {
     await fetchLabs();
-    const res = await fetch('/api/packages');
+    // include_inactive: this is the screen that switches a service back on, so
+    // it has to be able to see one that is switched off.
+    const res = await fetch('/api/packages?include_inactive=1', { headers: authHeaders() });
     allServices = await res.json();
     populateCategoryControls(allServices);
     renderServiceList();
@@ -330,7 +436,11 @@ function renderServiceList() {
     const category = document.getElementById('svc-category-filter')?.value || '';
     const rows = allServices.filter(p =>
         (!category || p.category === category) &&
-        matchesSearch({ ...p, id_text: String(p.id) }, term, ['id_text', 'name', 'category', 'description']));
+        matchesSearch({ ...p, id_text: String(p.id) }, term, ['id_text', 'name', 'category', 'description']))
+    // By ID, matching the admin pages' Service Management table. The API
+    // returns them grouped by category and name, which suits the customer's
+    // catalogue but not a register keyed on the ID column.
+        .sort((a, b) => Number(a.id) - Number(b.id));
 
     const count = document.getElementById('svc-count');
     if (count) count.textContent = `${rows.length} of ${allServices.length} services`;
@@ -722,5 +832,19 @@ async function savePatientEdit() {
 }
 
 loadFdQueue();
-function onQueueUpdate() { loadFdQueue(); }
-setInterval(() => { if (document.getElementById('section-queue').style.display !== 'none') loadFdQueue(); }, 5000);
+
+// Anything that moves the queue moves the walk-in list too, so both refresh -
+// but only the section actually on screen, so a background poll never repaints
+// a table the desk is reading from.
+function sectionVisible(id) {
+    const el = document.getElementById('section-' + id);
+    return !!el && el.style.display !== 'none';
+}
+function onQueueUpdate() {
+    if (sectionVisible('queue')) loadFdQueue();
+    if (sectionVisible('walkin')) loadWalkIns();
+}
+setInterval(() => {
+    if (sectionVisible('queue')) loadFdQueue();
+    if (sectionVisible('walkin')) loadWalkIns();
+}, 5000);

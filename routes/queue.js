@@ -2,17 +2,13 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../database');
 const queueAutomation = require('../queue_automation');
+const { startPackageQueue, getPackageSteps, queueTypeForCategory } = require('../queue_start');
 const { requireStaff } = require('../config');
 const { recordAudit } = require('../audit');
 
 const { REINSERT_SLOT } = queueAutomation;
 
-function getQueueType(category) {
-    if (category === 'Senior') return 'S';
-    if (category === 'PWD') return 'D';
-    if (category === 'Pregnant') return 'P';
-    return 'Q';
-}
+const getQueueType = queueTypeForCategory;
 
 // A staff account may only act on its own station type. This is what actually
 // enforces "everyone passes through the front desk first": the queue row for a
@@ -99,6 +95,17 @@ async function resolveReinsertAnchor(stationType, stationId, excludeQueueId, slo
     return anchor ? anchor.id : null;
 }
 
+// Queue row ids are derived, not random: the opening front desk row is
+// cust_<customer>_<sequence> and every later step appends _s<index>. Deriving
+// it is what lets a step be revisited - re-insertion routes a patient back to
+// an earlier step and lands on that step's own row instead of inventing a
+// second row for the same stop.
+function stepRowId(customerId, sequenceId, stepIndex) {
+    return Number(stepIndex) > 0
+        ? `cust_${customerId}_${sequenceId}_s${stepIndex}`
+        : `cust_${customerId}_${sequenceId}`;
+}
+
 async function getServingRow(stationType, stationId) {
     let query = `SELECT * FROM queue WHERE station_type=? AND status='serving' AND archived=false`;
     const params = [stationType];
@@ -106,31 +113,6 @@ async function getServingRow(stationType, stationId) {
     query += ' ORDER BY timestamp ASC LIMIT 1';
     const [rows] = await pool.query(query, params);
     return rows[0] || null;
-}
-
-async function getPackageSteps(packageId) {
-    const [labs] = await pool.query(
-        `SELECT pl.*, l.name as lab_name, l.service_type
-         FROM package_laboratories pl
-         JOIN laboratories l ON pl.laboratory_id = l.id
-         WHERE pl.package_id = ? AND pl.archived=false AND l.archived=false
-         ORDER BY pl.sequence_order`,
-        [packageId]
-    );
-    const [pkgDoctor] = await pool.query(
-        `SELECT sp.doctor_id, d.name as doctor_name
-         FROM service_packages sp
-         JOIN doctors d ON sp.doctor_id = d.id
-         WHERE sp.id = ? AND sp.doctor_id IS NOT NULL AND d.archived = false`,
-        [packageId]
-    );
-    // Both front desk steps are added by composeServiceSteps - see
-    // queue_automation.js. The list it returns is the routing table for the
-    // whole visit: step_index on each queue row indexes straight into it.
-    return queueAutomation.composeServiceSteps(
-        labs,
-        pkgDoctor.length > 0 ? { id: pkgDoctor[0].doctor_id, name: pkgDoctor[0].doctor_name } : null
-    );
 }
 
 async function buildPackagePreview(packageId, category) {
@@ -203,39 +185,27 @@ router.post('/start-package', async (req, res) => {
         if (existing.length > 0) return res.status(400).json({ error: 'You already have an active queue. Please complete or cancel it first.' });
 
         const startPreview = await buildPackagePreview(package_id, req.user.category);
-        const steps = await getPackageSteps(package_id);
-        if (!queueAutomation.hasServiceStations(steps)) {
+
+        const started = await startPackageQueue({
+            customerId: req.user.id,
+            packageId: package_id,
+            category: req.user.category,
+            intakeChannel: 'online'
+        });
+        if (started.alreadyActive) {
+            return res.status(400).json({ error: 'You already have an active queue. Please complete or cancel it first.' });
+        }
+        if (started.unavailable) {
             return res.status(400).json({ error: 'This service is currently unavailable.' });
         }
-        const doctorStep = steps.find(step => step.type === 'doctor');
-        const totalSteps = steps.length;
-
-        const [seqResult] = await pool.query(
-            'INSERT INTO queue_sequences (customer_id, package_id, current_step, total_steps, has_doctor_step, doctor_id) VALUES (?, ?, 0, ?, ?, ?)',
-            [req.user.id, package_id, totalSteps, doctorStep ? 1 : 0, doctorStep ? doctorStep.station_id : null]
-        );
-        const seqId = seqResult.insertId;
-
-        const type = getQueueType(req.user.category);
-
-        // Generate ticket number for frontdesk (atomic counter)
-        const ticketNum = await queueAutomation.nextTicketNumber('frontdesk', null, type);
-        const queueId = `cust_${req.user.id}_${seqId}`;
-
-        // Insert into queue at frontdesk
-        await pool.query(
-            `INSERT INTO queue (id, station_type, station_id, number, type, status, customer_id, sequence_id, step_index)
-             VALUES (?, 'frontdesk', NULL, ?, ?, 'waiting', ?, ?, 0)`,
-            [queueId, ticketNum, type, req.user.id, seqId]
-        );
-        await pool.query(
-            `INSERT INTO queue_logs (station_type, station_id, ticket_number, type, customer_id, sequence_id, package_name, price, join_time)
-             VALUES ('frontdesk', NULL, ?, ?, ?, ?, ?, ?, NOW())`,
-            [ticketNum, type, req.user.id, seqId, pkgs[0].name, pkgs[0].price]
-        );
 
         if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
-        res.json({ success: true, ticket: ticketNum, sequence_id: seqId, estimated_total_time: startPreview?.estimated_total_time || 0 });
+        res.json({
+            success: true,
+            ticket: started.ticket,
+            sequence_id: started.sequence_id,
+            estimated_total_time: startPreview?.estimated_total_time || 0
+        });
     } catch (err) {
         console.error('Start package error:', err);
         res.status(500).json({ error: 'Failed to start queue' });
@@ -296,15 +266,27 @@ router.post('/complete-step', requireStaff, async (req, res) => {
             [q.sequence_id, q.station_type, q.station_id, q.number]
         );
 
-        // The front desk is the cashier, and an appointment is settled on site -
-        // so clearing the opening front desk step is when its payment is taken.
-        if (currentIndex === 0 && q.station_type === 'frontdesk' && seq.appointment_id) {
+        // The front desk is the cashier, so clearing the opening front desk step
+        // is when payment is taken. Stamped on the sequence for every visit, not
+        // just appointments: the walk-in Diagnosis Form is printed off the back of
+        // it, and it cannot be inferred from the step counter because a patient
+        // sent back to an earlier step rolls current_step backwards and has still
+        // paid. COALESCE keeps the first payment's time if they come past the
+        // cashier twice.
+        if (currentIndex === 0 && q.station_type === 'frontdesk') {
             await pool.query(
-                `UPDATE appointments SET payment_status='paid', payment_method='onsite',
-                        payment_ref=CONCAT('ONSITE-', ?)
-                 WHERE id=? AND payment_status='pending'`,
-                [seq.appointment_id, seq.appointment_id]
+                'UPDATE queue_sequences SET paid_at = COALESCE(paid_at, NOW()) WHERE id = ?',
+                [seq.id]
             );
+            // An appointment is settled on site, so the booking is marked paid too.
+            if (seq.appointment_id) {
+                await pool.query(
+                    `UPDATE appointments SET payment_status='paid', payment_method='onsite',
+                            payment_ref=CONCAT('ONSITE-', ?)
+                     WHERE id=? AND payment_status='pending'`,
+                    [seq.appointment_id, seq.appointment_id]
+                );
+            }
         }
 
         await pool.query('UPDATE queue_sequences SET current_step = ? WHERE id = ?', [nextIndex, seq.id]);
@@ -320,11 +302,22 @@ router.post('/complete-step', requireStaff, async (req, res) => {
         // as a different patient's ticket. It stays unique clinic-wide because
         // every visit starts at the front desk counter.
         const newTicket = q.number;
-        const newQueueId = `cust_${q.customer_id}_${seq.id}_s${nextIndex}`;
+        const newQueueId = stepRowId(q.customer_id, seq.id, nextIndex);
 
+        // Upsert rather than insert: a patient the front desk sent back to an
+        // earlier step walks the rest of the route a second time, and the row
+        // for each of those steps already exists from the first pass. A plain
+        // INSERT collided on the primary key and stranded them at the step
+        // they were sent back to.
         await pool.query(
             `INSERT INTO queue (id, station_type, station_id, number, type, status, customer_id, sequence_id, step_index, priority_boost)
-             VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                station_type=VALUES(station_type), station_id=VALUES(station_id),
+                number=VALUES(number), type=VALUES(type), status='waiting',
+                step_index=VALUES(step_index), priority_boost=VALUES(priority_boost),
+                reinsert_slot=NULL, reinsert_after=NULL, reinserted_at=NULL, reinserted_by=NULL,
+                hold_reason=NULL, hold_at=NULL, sample_ready_at=NULL, timestamp=NOW()`,
             [newQueueId, nextStep.type, nextStep.station_id || null, newTicket, q.type,
              q.customer_id, seq.id, nextIndex, seqBoost]
         );
@@ -464,6 +457,39 @@ router.post('/finalize', requireStaff, async (req, res) => {
 
 // Shared "call the next waiting patient at a station" logic — used by /next and
 // by the auto-call-next that fires when a patient is put On-Hold.
+// The name a station is called by out loud, and on the public board. The
+// bookend front desk steps are not stored stations at all (see
+// composeServiceSteps), so they have no row to read a name from.
+async function stationDisplayName(stationType, stationId) {
+    if (stationType === 'frontdesk') return 'Front Desk';
+    if (stationType === 'laboratory' && stationId) {
+        const [rows] = await pool.query('SELECT name FROM laboratories WHERE id=?', [stationId]);
+        if (rows.length) return rows[0].name;
+    }
+    if (stationType === 'doctor' && stationId) {
+        const [rows] = await pool.query('SELECT name FROM doctors WHERE id=?', [stationId]);
+        if (rows.length) return rows[0].name;
+    }
+    return stationType === 'laboratory' ? 'Laboratory' : stationType === 'doctor' ? 'Doctor' : 'Front Desk';
+}
+
+// Broadcast a call so the lobby display can put it up and read it out.
+//
+// Deliberately a separate event from queueUpdate: queueUpdate fires on every
+// mutation and every dashboard re-fetches on it, and a board that spoke on each
+// of those would talk over itself continuously. This one is emitted only where a
+// patient is actually being summoned to a counter.
+async function announceCall(io, row) {
+    if (!io || !row) return;
+    io.emit('queueAnnounce', {
+        ticket: row.number,
+        station_type: row.station_type,
+        station_id: row.station_id || null,
+        station_name: await stationDisplayName(row.station_type, row.station_id),
+        called_at: new Date().toISOString()
+    });
+}
+
 async function callNextAtStation(stationType, stationId) {
     const ordered = await getOrderedWaiting(stationType, stationId);
     const next = ordered[0];
@@ -510,6 +536,7 @@ router.post('/next', requireStaff, async (req, res) => {
         const next = await callNextAtStation(station_type, station_id);
         if (!next) return res.json({ success: false, message: 'Queue is empty' });
         if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
+        await announceCall(req.app.get('io'), next);
         res.json({ success: true, next: next.number, queue_id: next.id });
     } catch (err) {
         console.error('Call next error:', err);
@@ -654,6 +681,7 @@ router.post('/call-back', requireStaff, async (req, res) => {
         });
 
         if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
+        await announceCall(req.app.get('io'), previous);
         res.json({
             success: true,
             recalled: previous.number,
@@ -676,7 +704,7 @@ router.post('/call-back', requireStaff, async (req, res) => {
 // lands behind precisely one ordinary patient. See orderWaitingList in
 // queue_automation.js.
 router.post('/reinsert', requireStaff, async (req, res) => {
-    const { queue_id, reason } = req.body;
+    const { queue_id, reason, target_step_index } = req.body;
     try {
         if (!hasFrontDeskAuthority(req.user)) {
             return res.status(403).json({ error: 'Only the front desk can re-insert a patient into a queue.' });
@@ -689,29 +717,168 @@ router.post('/reinsert', requireStaff, async (req, res) => {
         );
         if (qRows.length === 0) return res.status(404).json({ error: 'Queue entry not found' });
         const q = qRows[0];
-        if (!['waiting', 'on-hold'].includes(q.status)) {
+        const patient = q.full_name || q.username || null;
+
+        // Two shapes of the same action. Without a target step this is the
+        // original move - hold the patient's place in the line they are already
+        // in. With one, the desk is routing them back to an earlier step of
+        // their own service, which means leaving the station they are at.
+        const routeToStep = target_step_index !== undefined
+            && target_step_index !== null && target_step_index !== '';
+
+        if (!routeToStep) {
+            if (!['waiting', 'on-hold'].includes(q.status)) {
+                return res.status(400).json({
+                    error: `Only a waiting or On-Hold ticket can be re-inserted (this one is "${q.status}").`
+                });
+            }
+
+            const anchorId = await resolveReinsertAnchor(q.station_type, q.station_id, queue_id, REINSERT_SLOT);
+            await pool.query(
+                `UPDATE queue SET status='waiting', reinsert_slot=?, reinsert_after=?,
+                        reinserted_at=NOW(), reinserted_by=?, hold_reason=NULL, sample_ready_at=NULL
+                 WHERE id=?`,
+                [REINSERT_SLOT, anchorId, req.user.id, queue_id]
+            );
+
+            await recordAudit({
+                req,
+                action: 'reinsert',
+                entityType: 'queue',
+                entityId: q.sequence_id,
+                summary: `Re-inserted ${q.number} at slot ${REINSERT_SLOT} of the ${q.station_type} queue`,
+                reason: String(reason || '').trim() || 'Patient returned to the queue after missing their turn',
+                details: {
+                    ticket: q.number, station_type: q.station_type, station_id: q.station_id,
+                    slot: REINSERT_SLOT, placed_after: anchorId
+                }
+            });
+
+            if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
+            return res.json({ success: true, ticket: q.number, slot: REINSERT_SLOT, patient });
+        }
+
+        // -- Routing back to a specific step -------------------------------
+        // A patient standing at the closing front desk step with a laboratory
+        // result missing does not need their whole visit restarted; they need
+        // that one station again. The desk sends them straight there and the
+        // rest of the route replays from that point.
+        //
+        // `serving` is allowed here where the plain re-insert refuses it: the
+        // patient is at the counter being dealt with, which is exactly when the
+        // desk discovers the gap.
+        if (!['waiting', 'serving', 'on-hold'].includes(q.status)) {
             return res.status(400).json({
-                error: `Only a waiting or On-Hold ticket can be re-inserted (this one is "${q.status}").`
+                error: `A "${q.status}" ticket cannot be routed back to an earlier step.`
+            });
+        }
+        if (!q.sequence_id) {
+            return res.status(400).json({
+                error: 'This ticket is not part of a multi-step service, so it has no steps to return to.'
             });
         }
 
-        const anchorId = await resolveReinsertAnchor(q.station_type, q.station_id, queue_id, REINSERT_SLOT);
-        await pool.query(
-            `UPDATE queue SET status='waiting', reinsert_slot=?, reinsert_after=?,
-                    reinserted_at=NOW(), reinserted_by=?, hold_reason=NULL, sample_ready_at=NULL
-             WHERE id=?`,
-            [REINSERT_SLOT, anchorId, req.user.id, queue_id]
+        const [seqs] = await pool.query(
+            'SELECT * FROM queue_sequences WHERE id = ? AND archived = false', [q.sequence_id]
         );
+        if (seqs.length === 0) return res.status(404).json({ error: 'Visit not found' });
+        const seq = seqs[0];
+        if (seq.status !== 'in_progress') {
+            return res.status(400).json({
+                error: `This visit is already marked "${seq.status}". Only a visit still in progress can be re-routed.`
+            });
+        }
+
+        // The patient's own route, and nothing else: composeServiceSteps builds
+        // it from the stations on their availed package, so a step that is not
+        // in this list cannot be selected however the request was made.
+        const steps = await getPackageSteps(seq.package_id);
+        const targetIndex = Number(target_step_index);
+        if (!Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= steps.length) {
+            return res.status(400).json({
+                error: `Step ${target_step_index} is not part of this patient's service.`,
+                available_steps: steps.map((st, i) => ({ index: i, name: st.name }))
+            });
+        }
+
+        const currentIndex = q.step_index != null ? q.step_index : seq.current_step;
+        if (targetIndex === currentIndex) {
+            return res.status(400).json({
+                error: `${q.number} is already at "${steps[targetIndex].name}".`
+            });
+        }
+        // Backwards only. Skipping a patient forward past steps they have not
+        // had would roll the sequence counter over those stations and they
+        // would never be called for them - a silently unfinished visit instead
+        // of a visible one.
+        if (targetIndex > currentIndex) {
+            return res.status(400).json({
+                error: `Re-insertion sends a patient back to a step they have already passed. "${steps[targetIndex].name}" is still ahead of them - use the station's own "Done" button to move them forward.`
+            });
+        }
+
+        const targetStep = steps[targetIndex];
+        const targetRowId = stepRowId(q.customer_id, seq.id, targetIndex);
+        const anchorId = await resolveReinsertAnchor(
+            targetStep.type, targetStep.station_id, targetRowId, REINSERT_SLOT
+        );
+
+        // The row they are standing at is abandoned, not completed - they did
+        // not finish that step. Its open log row is closed off so the station's
+        // analytics do not carry an entry that never ends.
+        await pool.query(`UPDATE queue SET status='cancelled' WHERE id=?`, [queue_id]);
+        await pool.query(
+            `UPDATE queue_logs SET complete_time = NOW()
+             WHERE sequence_id = ? AND station_type = ? AND station_id <=> ? AND ticket_number = ? AND complete_time IS NULL
+             ORDER BY id DESC LIMIT 1`,
+            [seq.id, q.station_type, q.station_id, q.number]
+        );
+
+        // The target step's row already exists from the first pass, so this is
+        // an upsert. The ticket number is unchanged: one ticket per visit.
+        await pool.query(
+            `INSERT INTO queue (id, station_type, station_id, number, type, status, customer_id,
+                                sequence_id, step_index, priority_boost, reinsert_slot, reinsert_after,
+                                reinserted_at, reinserted_by)
+             VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?, ?, ?, NOW(), ?)
+             ON DUPLICATE KEY UPDATE
+                station_type=VALUES(station_type), station_id=VALUES(station_id),
+                number=VALUES(number), type=VALUES(type), status='waiting',
+                step_index=VALUES(step_index), priority_boost=VALUES(priority_boost),
+                reinsert_slot=VALUES(reinsert_slot), reinsert_after=VALUES(reinsert_after),
+                reinserted_at=NOW(), reinserted_by=VALUES(reinserted_by),
+                hold_reason=NULL, hold_at=NULL, sample_ready_at=NULL, timestamp=NOW()`,
+            [targetRowId, targetStep.type, targetStep.station_id || null, q.number, q.type,
+             q.customer_id, seq.id, targetIndex, seq.priority_boost || 0,
+             REINSERT_SLOT, anchorId, req.user.id]
+        );
+
+        // A fresh log row: this is a second visit to that station, and the
+        // station's throughput should count it as one.
+        await pool.query(
+            `INSERT INTO queue_logs (station_type, station_id, ticket_number, type, customer_id,
+                                     sequence_id, package_name, price, join_time)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, NOW())`,
+            [targetStep.type, targetStep.station_id || null, q.number, q.type,
+             q.customer_id, seq.id, targetStep.name]
+        );
+
+        await pool.query('UPDATE queue_sequences SET current_step = ? WHERE id = ?', [targetIndex, seq.id]);
 
         await recordAudit({
             req,
             action: 'reinsert',
             entityType: 'queue',
-            entityId: q.sequence_id,
-            summary: `Re-inserted ${q.number} at slot ${REINSERT_SLOT} of the ${q.station_type} queue`,
-            reason: String(reason || '').trim() || 'Patient returned to the queue after missing their turn',
+            entityId: seq.id,
+            summary: `Routed ${q.number} back to step ${targetIndex + 1} (${targetStep.name}) at slot ${REINSERT_SLOT}`,
+            reason: String(reason || '').trim() || 'Patient returned to an earlier step with an incomplete result',
             details: {
-                ticket: q.number, station_type: q.station_type, station_id: q.station_id,
+                ticket: q.number,
+                from_step: { index: currentIndex, station_type: q.station_type, station_id: q.station_id },
+                to_step: {
+                    index: targetIndex, name: targetStep.name,
+                    station_type: targetStep.type, station_id: targetStep.station_id || null
+                },
                 slot: REINSERT_SLOT, placed_after: anchorId
             }
         });
@@ -720,8 +887,12 @@ router.post('/reinsert', requireStaff, async (req, res) => {
         res.json({
             success: true,
             ticket: q.number,
+            patient,
             slot: REINSERT_SLOT,
-            patient: q.full_name || q.username || null
+            step_index: targetIndex,
+            step_name: targetStep.name,
+            station_type: targetStep.type,
+            placed_after: anchorId
         });
     } catch (err) {
         console.error('Reinsert error:', err);
@@ -729,9 +900,13 @@ router.post('/reinsert', requireStaff, async (req, res) => {
     }
 });
 
-// Everyone the front desk could re-insert: waiting or On-Hold tickets across
-// every station, so the desk can find a returning patient without knowing which
-// line they were in.
+// Everyone the front desk could re-insert: waiting, being served, or On-Hold
+// across every station, so the desk can find a returning patient without
+// knowing which line they were in. `serving` is in the list because the patient
+// at the counter is the one whose missing result the desk is looking at.
+//
+// Each candidate carries its own route, so the step picker can offer exactly
+// the steps on that patient's availed service and nothing else.
 router.get('/reinsert-candidates', requireStaff, async (req, res) => {
     try {
         if (!hasFrontDeskAuthority(req.user)) {
@@ -741,6 +916,7 @@ router.get('/reinsert-candidates', requireStaff, async (req, res) => {
             `SELECT q.id, q.number, q.type, q.status, q.station_type, q.station_id, q.step_index,
                     q.reinsert_slot, q.hold_reason, q.hold_at, q.timestamp,
                     u.full_name, u.username, u.customer_category,
+                    qs.package_id, qs.current_step, qs.total_steps,
                     sp.name AS package_name,
                     COALESCE(l.name, d.name, 'Front Desk') AS station_name
              FROM queue q
@@ -749,10 +925,35 @@ router.get('/reinsert-candidates', requireStaff, async (req, res) => {
              LEFT JOIN service_packages sp ON qs.package_id = sp.id
              LEFT JOIN laboratories l ON q.station_type='laboratory' AND q.station_id = l.id
              LEFT JOIN doctors d ON q.station_type='doctor' AND q.station_id = d.id
-             WHERE q.archived = false AND q.status IN ('waiting','on-hold')
+             WHERE q.archived = false AND q.status IN ('waiting','serving','on-hold')
                AND qs.status = 'in_progress'
              ORDER BY q.timestamp ASC`
         );
+
+        // One route lookup per distinct package rather than per patient - the
+        // desk's list is short but several patients usually share a service.
+        const routes = new Map();
+        for (const row of rows) {
+            if (!row.package_id) { row.steps = []; row.current_step_index = 0; continue; }
+            if (!routes.has(row.package_id)) {
+                routes.set(row.package_id, await getPackageSteps(row.package_id));
+            }
+            const steps = routes.get(row.package_id);
+            const currentIndex = row.step_index != null ? row.step_index : (row.current_step || 0);
+            row.current_step_index = currentIndex;
+            row.steps = steps.map((st, i) => ({
+                index: i,
+                name: st.name,
+                type: st.type,
+                station_id: st.station_id || null,
+                is_final: !!st.is_final,
+                is_current: i === currentIndex,
+                // Only a step already passed can be returned to; see the
+                // backwards-only rule in POST /reinsert.
+                selectable: i < currentIndex
+            }));
+        }
+
         res.json(rows);
     } catch (err) {
         console.error('Reinsert candidates error:', err);
@@ -984,8 +1185,15 @@ router.post('/cancel', async (req, res) => {
 router.get('/station', requireStaff, async (req, res) => {
     const { type, id } = req.query;
     try {
-        let query = `SELECT q.*, u.username, u.full_name, u.customer_category
-                     FROM queue q LEFT JOIN users u ON q.customer_id = u.id
+        // sp.test_structure_id rides along so the laboratory workspace can open
+        // on the result form the patient's own service expects, instead of
+        // whatever the dropdown happened to be left on.
+        let query = `SELECT q.*, u.username, u.full_name, u.customer_category,
+                            sp.test_structure_id, sp.name AS package_name
+                     FROM queue q
+                     LEFT JOIN users u ON q.customer_id = u.id
+                     LEFT JOIN queue_sequences qs ON q.sequence_id = qs.id
+                     LEFT JOIN service_packages sp ON qs.package_id = sp.id
                      WHERE q.station_type=? AND q.status IN ('waiting','serving','on-hold') AND q.archived=false`;
         const params = [type];
         if (id) { query += ' AND q.station_id=?'; params.push(id); }
@@ -1050,6 +1258,7 @@ router.get('/booked-dates', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.stationDisplayName = stationDisplayName;
 // Exposed for the Virtual Assistant dialogue controller (routes/assistant.js),
 // which grounds its answers in the same live queue state the dashboard renders.
 module.exports.buildCustomerStatus = buildCustomerStatus;

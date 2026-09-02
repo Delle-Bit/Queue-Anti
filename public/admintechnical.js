@@ -11,7 +11,9 @@ renderSidebar([
     { id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-chart-line' },
     { id: 'accounts', label: 'Manage Accounts', icon: 'fa-solid fa-users-gear' },
     { id: 'labs', label: 'Manage Laboratories', icon: 'fa-solid fa-flask-vial' },
+    { id: 'walkin', label: 'Walk-in Intake', icon: 'fa-solid fa-person-walking-arrow-right' },
     { id: 'services', label: 'Service Management', icon: 'fa-solid fa-box-open' },
+    { id: 'structures', label: 'Test Structures', icon: 'fa-solid fa-vials' },
     { id: 'archives', label: 'Archives', icon: 'fa-solid fa-box-archive' },
     { id: 'create', label: 'Create Account', icon: 'fa-solid fa-user-plus' },
     { id: 'audit', label: 'Audit Logs', icon: 'fa-solid fa-history' },
@@ -20,6 +22,8 @@ renderSidebar([
 initDefaultSection();
 
 window.onSectionLoad = {
+    walkin: loadWalkIns,
+    structures: loadTestStructureAdmin,
     dashboard: loadAdminDash,
     accounts: loadAccounts,
     labs: loadLabs,

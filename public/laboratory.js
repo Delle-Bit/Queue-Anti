@@ -6,6 +6,7 @@ let currentLabQueueId = null;
 let currentServingUserId = null;
 let currentSequenceId = null;
 let currentServingTicket = null;
+let currentServingStructureId = null;
 let allLabLogs = [];
 
 async function findMyLab() {
@@ -76,6 +77,8 @@ async function loadLabQueue() {
         currentServingUserId = serving ? (serving.customer_id || serving.user_id) : null;
         currentSequenceId = serving ? serving.sequence_id : null;
         currentServingTicket = serving ? serving.number : null;
+        // The result form this patient's service expects, if it names one.
+        currentServingStructureId = serving ? (serving.test_structure_id || null) : null;
 
         // Server-ordered: the list is already in the order this station will call,
         // which is not join order once priority or a re-insertion is involved.
@@ -306,54 +309,114 @@ async function loadResultsWorkspace() {
             document.getElementById('res-lab-notes-list').innerHTML = '<span class="text-muted">No notes recorded.</span>';
         }
 
-        // 3. Load default template inputs
-        loadTestTemplate(document.getElementById('lab-test-type').value);
+        // 3. Open on the form this patient's service expects, falling back to
+        // whatever is selected when the service names none.
+        await loadTestStructures();
+        const preferred = currentServingStructureId;
+        const select = document.getElementById('lab-test-type');
+        if (preferred && testStructures.some(st => String(st.id) === String(preferred))) {
+            select.value = String(preferred);
+        }
+        loadTestTemplate(select.value);
 
     } catch(err) {
         console.error('Error loading results workspace patient file:', err);
     }
 }
 
-// Lab test templates definitions
-const testTemplates = {
-    'Complete Blood Count (CBC)': [
-        { name: 'White Blood Cell (WBC)', ref: '4.0 - 10.0 x10^9/L', defaultVal: '6.5' },
-        { name: 'Red Blood Cell (RBC)', ref: '4.5 - 5.9 x10^12/L', defaultVal: '5.0' },
-        { name: 'Hemoglobin', ref: '13.5 - 17.5 g/dL', defaultVal: '14.2' },
-        { name: 'Hematocrit', ref: '41 - 50 %', defaultVal: '43' },
-        { name: 'Platelet Count', ref: '150 - 450 x10^9/L', defaultVal: '280' }
-    ],
-    'Blood Chemistry': [
-        { name: 'Fasting Blood Sugar (FBS)', ref: '70 - 99 mg/dL', defaultVal: '88' },
-        { name: 'Blood Urea Nitrogen (BUN)', ref: '7 - 20 mg/dL', defaultVal: '12' },
-        { name: 'Creatinine', ref: '0.6 - 1.2 mg/dL', defaultVal: '0.9' },
-        { name: 'Total Cholesterol', ref: '< 200 mg/dL', defaultVal: '175' }
-    ],
-    'Urinalysis': [
-        { name: 'Color', ref: 'Pale Yellow - Straw', defaultVal: 'Yellow' },
-        { name: 'pH', ref: '4.5 - 8.0', defaultVal: '6.0' },
-        { name: 'Specific Gravity', ref: '1.005 - 1.030', defaultVal: '1.015' }
-    ]
-};
+// Result forms, loaded from the server. These were a hardcoded object here,
+// which meant only a developer could add a test or correct a reference range;
+// administrators own them now (see routes/test_structures.js).
+let testStructures = [];
 
-function loadTestTemplate(testType) {
+async function loadTestStructures() {
+    const select = document.getElementById('lab-test-type');
+    if (!select) return;
+    try {
+        const res = await fetch('/api/test-structures', { headers: authHeaders() });
+        testStructures = await res.json();
+        if (!Array.isArray(testStructures)) throw new Error('Unexpected response');
+    } catch (err) {
+        console.error('Error loading test structures:', err);
+        select.innerHTML = '<option value="">Could not load result forms</option>';
+        return;
+    }
+    if (testStructures.length === 0) {
+        select.innerHTML = '<option value="">No result forms configured</option>';
+        document.getElementById('lab-structure-hint').textContent =
+            'An administrator needs to add a result form before results can be recorded.';
+        return;
+    }
+    const current = select.value;
+    select.innerHTML = testStructures.map(st =>
+        `<option value="${st.id}">${escapeHtml(st.name)}</option>`).join('');
+    // Keep the staff member's own choice across a refresh.
+    if (current && testStructures.some(st => String(st.id) === String(current))) select.value = current;
+    loadTestTemplate(select.value);
+}
+
+function currentTestStructure() {
+    const id = document.getElementById('lab-test-type')?.value;
+    return testStructures.find(st => String(st.id) === String(id)) || null;
+}
+
+// Renders whichever form the selected structure calls for: a row per defined
+// parameter, or the notepad when the structure is freeform.
+function loadTestTemplate(structureId) {
+    const structured = document.getElementById('lab-parameters-section');
+    const freeform = document.getElementById('lab-freeform-section');
     const inputsContainer = document.getElementById('lab-parameters-inputs');
-    const templates = testTemplates[testType] || [];
+    const hint = document.getElementById('lab-structure-hint');
+    const structure = testStructures.find(st => String(st.id) === String(structureId));
 
-    if (templates.length === 0) {
-        inputsContainer.innerHTML = '<div class="text-muted text-sm" style="padding:10px 0;">No structured parameters needed for this test type. Use the findings area below.</div>';
+    if (hint) hint.textContent = structure?.description || '';
+
+    if (!structure) {
+        structured.style.display = '';
+        freeform.style.display = 'none';
+        inputsContainer.innerHTML = '<div class="text-muted text-sm" style="padding:10px 0;">Pick a result form to record against.</div>';
         return;
     }
 
-    inputsContainer.innerHTML = templates.map((t, idx) => `
+    if (structure.input_mode === 'freeform') {
+        structured.style.display = 'none';
+        freeform.style.display = '';
+        initRichTextEditor('lab-freeform-editor', {
+            placeholder: `Write up the ${structure.name.toLowerCase()} findings...`
+        });
+        return;
+    }
+
+    freeform.style.display = 'none';
+    structured.style.display = '';
+
+    const fields = structure.fields || [];
+    if (fields.length === 0) {
+        inputsContainer.innerHTML = '<div class="text-muted text-sm" style="padding:10px 0;">This form has no parameters defined yet. Use the findings area below.</div>';
+        return;
+    }
+
+    inputsContainer.innerHTML = fields.map(f => {
+        const range = [f.reference_range, f.unit].filter(Boolean).join(' ');
+        let input;
+        if (f.field_type === 'select') {
+            const options = String(f.options || '').split(',').map(o => o.trim()).filter(Boolean);
+            input = `<select class="form-select parameter-val-input" data-param="${escapeHtml(f.label)}"
+                             style="padding:6px 10px; font-size:0.85em;">
+                        ${options.map(o => `<option value="${escapeHtml(o)}" ${o === f.default_value ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('')}
+                     </select>`;
+        } else {
+            input = `<input type="${f.field_type === 'number' ? 'number' : 'text'}" step="any"
+                            class="form-input parameter-val-input" data-param="${escapeHtml(f.label)}"
+                            value="${escapeHtml(f.default_value || '')}" style="padding:6px 10px; font-size:0.85em;">`;
+        }
+        return `
         <div class="parameter-row" style="align-items:center;">
-            <div style="font-size:0.9em; font-weight:500;">${t.name}</div>
-            <div>
-                <input type="text" class="form-input parameter-val-input" data-param="${t.name}" value="${t.defaultVal}" style="padding:6px 10px; font-size:0.85em;">
-            </div>
-            <div class="text-muted text-sm">${t.ref}</div>
-        </div>
-    `).join('');
+            <div style="font-size:0.9em; font-weight:500;">${escapeHtml(f.label)}</div>
+            <div>${input}</div>
+            <div class="text-muted text-sm">${escapeHtml(range || '--')}</div>
+        </div>`;
+    }).join('');
 }
 
 // Add Workspace Lab Note
@@ -385,24 +448,39 @@ async function addWorkspaceLabNote() {
 async function saveLabResult() {
     const userId = document.getElementById('result-patient-id').value;
     const seqId = document.getElementById('result-sequence-id').value;
-    const testType = document.getElementById('lab-test-type').value;
+    const structure = currentTestStructure();
     const findings = document.getElementById('lab-findings-notes').value.trim();
 
-    if (!findings) {
+    if (!structure) {
+        return showToast('Pick a result form before uploading results', 'warning');
+    }
+
+    const freeform = structure.input_mode === 'freeform';
+    const richNotes = freeform ? richTextValue('lab-freeform-editor') : '';
+
+    // A freeform result lives in the notepad, so that is what has to be filled
+    // in; a structured one still wants the findings summary underneath.
+    if (freeform && richTextIsEmpty('lab-freeform-editor')) {
+        return showToast('Write the diagnostic notes before uploading results', 'warning');
+    }
+    if (!freeform && !findings) {
         return showToast('Findings / Observations is required to upload results', 'warning');
     }
 
-    // Collect parameters
     const params = {};
-    document.querySelectorAll('.parameter-val-input').forEach(input => {
-        const paramName = input.getAttribute('data-param');
-        params[paramName] = input.value;
-    });
+    if (!freeform) {
+        document.querySelectorAll('.parameter-val-input').forEach(input => {
+            params[input.getAttribute('data-param')] = input.value;
+        });
+    }
 
     const dataPayload = {
-        test_name: testType,
+        test_name: structure.name,
+        test_structure_id: structure.id,
+        input_mode: structure.input_mode,
         parameters: params
     };
+    if (freeform) dataPayload.rich_notes = richNotes;
 
     try {
         // 1. Post to clinical-records
@@ -414,7 +492,7 @@ async function saveLabResult() {
                 sequence_id: seqId || null,
                 record_type: 'lab_result',
                 data: dataPayload,
-                notes: findings
+                notes: findings || null
             })
         });
 

@@ -19,6 +19,57 @@ const pool = mysql.createPool({
     queueLimit: 0
 });
 
+// The result forms that used to live as a `testTemplates` object inside
+// public/laboratory.js, plus the three that had no structured fields at all and
+// fell through to a plain findings box. They are seeded once so an existing
+// deployment keeps the exact forms its staff already know; after that they are
+// the administrators' to change.
+const DEFAULT_TEST_STRUCTURES = [
+    {
+        name: 'Complete Blood Count (CBC)', input_mode: 'structured',
+        description: 'Standard haematology panel.',
+        fields: [
+            { label: 'White Blood Cell (WBC)', unit: 'x10^9/L', reference_range: '4.0 - 10.0', default_value: '6.5' },
+            { label: 'Red Blood Cell (RBC)', unit: 'x10^12/L', reference_range: '4.5 - 5.9', default_value: '5.0' },
+            { label: 'Hemoglobin', unit: 'g/dL', reference_range: '13.5 - 17.5', default_value: '14.2' },
+            { label: 'Hematocrit', unit: '%', reference_range: '41 - 50', default_value: '43' },
+            { label: 'Platelet Count', unit: 'x10^9/L', reference_range: '150 - 450', default_value: '280' }
+        ]
+    },
+    {
+        name: 'Blood Chemistry', input_mode: 'structured',
+        description: 'Fasting metabolic and lipid markers.',
+        fields: [
+            { label: 'Fasting Blood Sugar (FBS)', unit: 'mg/dL', reference_range: '70 - 99', default_value: '88' },
+            { label: 'Blood Urea Nitrogen (BUN)', unit: 'mg/dL', reference_range: '7 - 20', default_value: '12' },
+            { label: 'Creatinine', unit: 'mg/dL', reference_range: '0.6 - 1.2', default_value: '0.9' },
+            { label: 'Total Cholesterol', unit: 'mg/dL', reference_range: '< 200', default_value: '175' }
+        ]
+    },
+    {
+        name: 'Urinalysis', input_mode: 'structured',
+        description: 'Physical and chemical urine examination.',
+        fields: [
+            { label: 'Color', field_type: 'text', reference_range: 'Pale Yellow - Straw', default_value: 'Yellow' },
+            { label: 'pH', reference_range: '4.5 - 8.0', default_value: '6.0' },
+            { label: 'Specific Gravity', reference_range: '1.005 - 1.030', default_value: '1.015' }
+        ]
+    },
+    {
+        name: 'X-Ray Scan', input_mode: 'freeform',
+        description: 'Radiographic reading, written up as a report.', fields: []
+    },
+    {
+        name: 'Ultrasound', input_mode: 'freeform',
+        description: 'Sonographic findings, written up as a report.', fields: []
+    },
+    {
+        name: 'Other Diagnostics', input_mode: 'freeform',
+        description: 'Anything without a fixed form - notes, observations and unstructured findings.',
+        fields: []
+    }
+];
+
 const DEFAULT_SERVICES = [
     { name: 'Hematology (CBC)', price: 450, description: 'Complete blood count screening.', est_time_minutes: 15, category: 'Laboratory' },
     { name: 'Clinical Microscopy', price: 300, description: 'Routine clinical microscopy service.', est_time_minutes: 15, category: 'Laboratory' },
@@ -319,6 +370,44 @@ async function initDB() {
                 archived BOOLEAN DEFAULT false,
                 archived_at DATETIME DEFAULT NULL,
                 FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+        `);
+
+        // Medical test structures: the shape of the result form for a kind of
+        // test. These used to be a hardcoded object in public/laboratory.js,
+        // which meant only a developer could add a test or correct a reference
+        // range. input_mode 'freeform' is the "Other Diagnostics" case - no
+        // fields at all, just the rich text notepad.
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS test_structures (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(120) NOT NULL,
+                description VARCHAR(255) DEFAULT NULL,
+                input_mode ENUM('structured','freeform') NOT NULL DEFAULT 'structured',
+                is_active BOOLEAN DEFAULT true,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                archived BOOLEAN DEFAULT false,
+                archived_at DATETIME DEFAULT NULL,
+                UNIQUE KEY uniq_test_structure_name (name)
+            )
+        `);
+
+        // One measured parameter of a structured test: what to type in, what
+        // unit it is in, and what counts as normal.
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS test_structure_fields (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                structure_id INT NOT NULL,
+                label VARCHAR(120) NOT NULL,
+                unit VARCHAR(40) DEFAULT NULL,
+                reference_range VARCHAR(120) DEFAULT NULL,
+                field_type ENUM('number','text','select') NOT NULL DEFAULT 'number',
+                options VARCHAR(500) DEFAULT NULL,
+                default_value VARCHAR(120) DEFAULT NULL,
+                sort_order INT DEFAULT 0,
+                archived BOOLEAN DEFAULT false,
+                archived_at DATETIME DEFAULT NULL,
+                FOREIGN KEY (structure_id) REFERENCES test_structures(id) ON DELETE CASCADE
             )
         `);
 
@@ -648,6 +737,15 @@ async function initDB() {
         await addColumnIfMissing('users', 'reset_otp', 'VARCHAR(10) DEFAULT NULL');
         await addColumnIfMissing('users', 'reset_otp_attempts', 'INT DEFAULT 0');
         await addColumnIfMissing('users', 'terms_accepted_at', 'DATETIME DEFAULT NULL');
+        // A patient the front desk registered at the counter because they had no
+        // phone to register on. It is an ordinary customer row - that is the
+        // point, since queue_sequences.customer_id is a NOT NULL foreign key into
+        // this table and every queue mechanism keys off it - but it was created by
+        // staff rather than claimed by the person, so it has no usable password
+        // and login refuses it outright (see routes/auth.js).
+        await addColumnIfMissing('users', 'is_walk_in', 'BOOLEAN DEFAULT false');
+        await addColumnIfMissing('users', 'walk_in_created_by', 'INT DEFAULT NULL');
+        await addIndexIfMissing('users', 'idx_users_walk_in', '(is_walk_in, archived)');
         // Structured address parts. `medical_records.address` is kept as the
         // composed human-readable string every existing reader already uses
         // (profile card, PDF export, staff views); these columns store the
@@ -673,6 +771,12 @@ async function initDB() {
         // Which step of the visit a queue row belongs to. Previously this was only
         // encoded in the row's id suffix ("..._s2"), which made "is this the final
         // front desk step?" and the call-back rollback guesswork. Backfilled below.
+        // Which result form a service expects. The laboratory can still pick a
+        // different structure for an individual visit - this is the default the
+        // workspace opens on.
+        await addColumnIfMissing('service_packages', 'test_structure_id', 'INT DEFAULT NULL');
+        await addIndexIfMissing('test_structure_fields', 'idx_tsf_structure', '(structure_id, sort_order)');
+
         await addColumnIfMissing('queue', 'step_index', 'INT DEFAULT NULL');
         // Front desk re-insertion (line cutting): the 1-based slot this row should
         // occupy in its station's waiting list, overriding priority scoring for
@@ -756,6 +860,28 @@ async function initDB() {
         // carries the appointment's priority to every station in the sequence.
         await addColumnIfMissing('queue_sequences', 'appointment_id', 'INT DEFAULT NULL');
         await addColumnIfMissing('queue_sequences', 'priority_boost', 'INT DEFAULT 0');
+        // How the visit was started. 'online' is a customer who joined from their
+        // own phone, 'appointment' a booking that was checked in, 'walkin' a
+        // phone-less patient booked in at the counter. The queue engine treats all
+        // three identically - this only records where the row came from, which is
+        // what the walk-in dashboards filter on and what decides whether the desk
+        // is offered the printed forms.
+        await addColumnIfMissing('queue_sequences', 'intake_channel',
+            "ENUM('online','appointment','walkin') NOT NULL DEFAULT 'online'");
+        await addIndexIfMissing('queue_sequences', 'idx_seq_intake_channel', '(intake_channel, status)');
+        // Set when the front desk clears the opening (cashier) step, which is when
+        // payment is taken. The Diagnosis Form is printed off the back of it, so it
+        // needs a timestamp of its own rather than being inferred from the step
+        // counter: a patient sent back to an earlier step rolls current_step
+        // backwards, and they have still paid.
+        await addColumnIfMissing('queue_sequences', 'paid_at', 'DATETIME DEFAULT NULL');
+        // Backfills the channel for visits that predate the column - an
+        // appointment-linked sequence is an appointment, and everything else was
+        // online, since walk-ins did not exist before this.
+        await pool.query(
+            `UPDATE queue_sequences SET intake_channel='appointment'
+             WHERE appointment_id IS NOT NULL AND intake_channel='online'`
+        );
         // The sweep filters on status + date/time; the staff and customer lists
         // then filter on archived.
         await addIndexIfMissing('appointments', 'idx_appt_status_date', '(status, appointment_date)');
@@ -775,4 +901,4 @@ async function initDB() {
     }
 }
 
-module.exports = { pool, initDB, DEFAULT_SERVICES, STAFF_SEEDS, LAB_SEEDS, DOCTOR_SEEDS, SERVICE_STEPS };
+module.exports = { pool, initDB, DEFAULT_SERVICES, DEFAULT_TEST_STRUCTURES, STAFF_SEEDS, LAB_SEEDS, DOCTOR_SEEDS, SERVICE_STEPS };

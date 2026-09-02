@@ -124,6 +124,15 @@ router.post('/login', rateLimit(10, 60 * 1000), async (req, res) => {
         const [rows] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
         if (rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
         const user = rows[0];
+
+        // A walk-in was registered at the counter by staff, for somebody with no
+        // phone - nobody ever chose a password for it, so there is nothing to
+        // sign in with. Refused here rather than left to fail the hash compare,
+        // so a random password can never be walked into by accident. The wording
+        // matches a wrong password exactly: whether a given name is on file is
+        // not something an unauthenticated caller should be able to probe.
+        if (user.is_walk_in) return res.status(401).json({ error: 'Invalid credentials' });
+
         const match = await bcrypt.compare(password, user.password_hash);
         if (!match) return res.status(401).json({ error: 'Invalid credentials' });
 
@@ -238,21 +247,34 @@ router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ na
         // is authoritative (OCR name extraction is unreliable); OCR only fills in
         // gaps if the client somehow sent a blank name.
         let category = 'Regular', gender = null, birthday = null, detectedName = full_name.trim().slice(0, 255);
-        let frontIdPath = null, backIdPath = null;
+        // The ID images are read and discarded within this request - nothing
+        // about them is stored. They used to be kept on disk and their paths
+        // written to pending_registrations, but no screen ever displayed them:
+        // the paths existed only so the files could be deleted later, on
+        // completion or expiry. Retaining a customer's identity document for a
+        // deletion that may never run is the wrong default for a clinic, so the
+        // columns are now always written null and the file is gone before the
+        // response is sent.
+        const frontIdPath = null, backIdPath = null;
         if (!isUnderage) {
             const frontFile = req.files['frontId'][0];
             const backFile = req.files['backId'][0];
-            frontIdPath = frontFile.path;
-            backIdPath = backFile.path;
             const ocrData = await aiServices.ocrScan(frontFile.path);
             if (ocrData.idType === 'Senior' || ocrData.idType === 'Elderly') category = 'Senior';
             else if (ocrData.idType === 'PWD') category = 'PWD';
             if (!detectedName && ocrData.name) detectedName = ocrData.name;
-            if (ocrData.age) {
+            // The printed date when the reader could make it out; otherwise
+            // the year implied by the printed age, which is all the text-only
+            // fallbacks can offer. Deriving it from age when a real date was
+            // read put a patient's birthday a year out and on 1 January.
+            if (/^\d{4}-\d{2}-\d{2}$/.test(ocrData.birthdate || '')) {
+                birthday = ocrData.birthdate;
+            } else if (ocrData.age) {
                 const y = new Date().getFullYear() - ocrData.age;
                 birthday = `${y}-01-01`;
             }
             if (ocrData.gender) gender = ocrData.gender;
+            cleanupUpload(req.files);
         } else {
             cleanupUpload(req.files);
         }
@@ -465,7 +487,13 @@ router.post('/ocr', upload.single('idImage'), async (req, res) => {
         if (ocrData.idType === 'Senior' || ocrData.idType === 'Elderly') category = 'Senior';
         else if (ocrData.idType === 'PWD') category = 'PWD';
         if (ocrData.name) detectedName = ocrData.name;
-        if (ocrData.age) {
+        // The printed date when the reader could make it out; otherwise the
+        // year implied by the printed age, which is all the text-only fallbacks
+        // can offer. Deriving it from age when a real date was read put a
+        // patient's birthday a year out and on the 1st of January.
+        if (/^\d{4}-\d{2}-\d{2}$/.test(ocrData.birthdate || '')) {
+            birthday = ocrData.birthdate;
+        } else if (ocrData.age) {
             const y = new Date().getFullYear() - ocrData.age;
             birthday = `${y}-01-01`;
         }

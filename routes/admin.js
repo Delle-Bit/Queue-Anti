@@ -10,6 +10,7 @@ const appointmentAutomation = require('../appointment_automation');
 const sessionActivity = require('../session_activity');
 const { recordAudit, requireReason, snapshotRow } = require('../audit');
 const { archiveRecord, ARCHIVE_TABLE_MAP } = require('../archive');
+const { sanitizeRichText, richTextToPlain } = require('../rich_text');
 
 const ELEVATED_ROLES = ['admin', 'admintechnical', 'owner'];
 
@@ -796,13 +797,29 @@ router.post('/lab-notes', requireStaff, async (req, res) => {
 router.post('/clinical-records', requireStaff, async (req, res) => {
     const { customer_id, sequence_id, record_type, data, notes } = req.body;
     try {
+        // A freeform result ("Other Diagnostics") arrives as HTML from the
+        // laboratory's notepad and is rendered back to the patient as markup,
+        // so it is sanitised here rather than trusted from the browser. The
+        // flattened copy keeps `notes` plain text for everything that already
+        // reads it - the PDF export, the AI summaries, the assistant.
+        let payload = data || null;
+        let plainNotes = notes || null;
+        if (payload && payload.rich_notes) {
+            const clean = sanitizeRichText(payload.rich_notes);
+            payload = { ...payload, rich_notes: clean };
+            if (!plainNotes) plainNotes = richTextToPlain(clean);
+        }
+
         await pool.query(
             `INSERT INTO clinical_records (customer_id, sequence_id, record_type, data, notes, staff_id)
              VALUES (?, ?, ?, ?, ?, ?)`,
-            [customer_id, sequence_id || null, record_type, data ? JSON.stringify(data) : null, notes || null, req.user.id]
+            [customer_id, sequence_id || null, record_type, payload ? JSON.stringify(payload) : null, plainNotes, req.user.id]
         );
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to save clinical record' }); }
+    } catch (err) {
+        console.error('Clinical record save error:', err);
+        res.status(500).json({ error: 'Failed to save clinical record' });
+    }
 });
 
 router.get('/clinical-records/my', async (req, res) => {

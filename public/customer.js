@@ -1235,20 +1235,27 @@ async function loadMyMedicalRecords() {
                 else if (r.record_type === 'lab_result') { badgeCls = 'badge-danger'; typeLabel = 'Lab Result'; }
 
                 let detailsHtml = '';
+                // A freeform result ("Other Diagnostics") is written in the
+                // laboratory's notepad and stored as markup, so it is rendered
+                // as markup here rather than escaped into one flat line.
+                // Sanitised again on the way out: the record may have been
+                // written before the allow-list was what it is now.
+                let richHtml = '';
                 if (r.data) {
                     try {
                         const parsedData = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+                        if (parsedData.rich_notes) richHtml = sanitizeRichHtml(parsedData.rich_notes);
                         if (r.record_type === 'examination') {
                             detailsHtml = `<div style="font-size:0.85em;margin-top:4px;">BP: <strong>${parsedData.bp || '--'}</strong> | HR: <strong>${parsedData.pulse || '--'} bpm</strong> | Temp: <strong>${parsedData.temp || '--'} °C</strong></div>`;
                         } else if (r.record_type === 'prescription' && parsedData.items) {
                             detailsHtml = `<div style="font-size:0.85em;margin-top:4px;"><strong>Rx:</strong> ${parsedData.items.map(i => `${i.medicine} (${i.dosage})`).join(', ')}</div>`;
                         } else if (r.record_type === 'lab_result') {
                             let paramsHtml = '';
-                            if (parsedData.parameters) {
-                                paramsHtml = Object.entries(parsedData.parameters).map(([key, val]) => `<li>${key}: <strong>${val}</strong></li>`).join('');
+                            if (parsedData.parameters && Object.keys(parsedData.parameters).length > 0) {
+                                paramsHtml = Object.entries(parsedData.parameters).map(([key, val]) => `<li>${escapeHtml(key)}: <strong>${escapeHtml(String(val))}</strong></li>`).join('');
                                 paramsHtml = `<ul style="margin:4px 0 0 14px; padding:0; font-size:0.85em;">${paramsHtml}</ul>`;
                             }
-                            detailsHtml = `<div style="font-size:0.85em;margin-top:4px;"><strong>Test Type:</strong> ${parsedData.test_name || 'General'}${paramsHtml}</div>`;
+                            detailsHtml = `<div style="font-size:0.85em;margin-top:4px;"><strong>Test Type:</strong> ${escapeHtml(parsedData.test_name || 'General')}${paramsHtml}</div>`;
                         }
                     } catch(e) {}
                 }
@@ -1261,7 +1268,9 @@ async function loadMyMedicalRecords() {
                             <small class="text-muted">By: ${r.staff_full_name || r.staff_name || 'Clinic Staff'}</small>
                         </div>
                         <div class="timeline-desc">
-                            <div>${escapeHtml(r.notes || 'No comments.')}</div>
+                            ${richHtml
+                                ? `<div class="rich-note">${richHtml}</div>`
+                                : `<div>${escapeHtml(r.notes || 'No comments.')}</div>`}
                             ${detailsHtml}
                         </div>
                     </div>
@@ -1284,223 +1293,10 @@ async function loadMyMedicalRecords() {
 // letterhead, a titled document band, boxed demographics, ruled section
 // headers, and a repeating footer carrying the confidentiality notice and
 // page count.
-// Appears under the clinic name on the letterhead. Mirrors the landing
-// page hero copy — change both together.
-const CLINIC_MOTTO = 'Smart Healthcare, At Your Fingertips';
-
-const PDF = {
-    margin: 14,
-    pageW: 210,          // A4 portrait, millimetres
-    pageH: 297,
-    brand: [198, 40, 58],       // --primary #C6283A
-    ink: [26, 32, 44],          // near-black body text
-    muted: [113, 128, 150],     // secondary text
-    hairline: [203, 213, 224],  // rules and table borders
-    band: [244, 246, 248],      // section header / zebra fill
-    headerBottom: 46,           // y where page-1 content may begin
-    runningHeaderBottom: 26,    // y where content may begin on pages 2+
-    footerTop: 278
-};
-
-// jsPDF cannot place an SVG, so the clinic logo is rasterised through a
-// canvas first. Returns null on any failure — the letterhead falls back to
-// text rather than losing the whole export over a missing image.
-async function loadLogoDataUrl(src) {
-    try {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        await new Promise((resolve, reject) => {
-            img.onload = resolve;
-            img.onerror = reject;
-            img.src = src;
-        });
-        const px = 256;
-        const canvas = document.createElement('canvas');
-        canvas.width = px;
-        canvas.height = px;
-        canvas.getContext('2d').drawImage(img, 0, 0, px, px);
-        return canvas.toDataURL('image/png');
-    } catch (err) {
-        console.warn('Logo unavailable for PDF letterhead', err);
-        return null;
-    }
-}
-
-function pdfLetterhead(doc, clinic, logo) {
-    const { margin, pageW, brand, ink, muted, hairline } = PDF;
-    let textX = margin;
-
-    if (logo) {
-        doc.addImage(logo, 'PNG', margin, 12, 16, 16);
-        textX = margin + 21;
-    }
-
-    doc.setTextColor(ink[0], ink[1], ink[2]);
-    doc.setFont('times', 'bold');
-    doc.setFontSize(19);
-    doc.text(clinic.name, textX, 20);
-
-    // System motto — kept in sync with the landing page hero
-    // ("Smart Healthcare, At Your Fingertips" in public/index.html).
-    // Italic serif pairs with the serif clinic name above it.
-    doc.setFont('times', 'italic');
-    doc.setFontSize(9.5);
-    doc.setTextColor(muted[0], muted[1], muted[2]);
-    doc.text(CLINIC_MOTTO, textX, 25.5);
-
-    // "CONFIDENTIAL" marker, right-aligned against the letterhead.
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(brand[0], brand[1], brand[2]);
-    doc.text('CONFIDENTIAL', pageW - margin, 20, { align: 'right' });
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(muted[0], muted[1], muted[2]);
-    doc.text('Patient Health Information', pageW - margin, 24.5, { align: 'right' });
-
-    // Accent rule over a hairline — the standard letterhead divider.
-    doc.setFillColor(brand[0], brand[1], brand[2]);
-    doc.rect(margin, 31, pageW - margin * 2, 1.1, 'F');
-    doc.setDrawColor(hairline[0], hairline[1], hairline[2]);
-    doc.setLineWidth(0.2);
-    doc.line(margin, 32.9, pageW - margin, 32.9);
-
-    // Document title band.
-    doc.setFillColor(PDF.band[0], PDF.band[1], PDF.band[2]);
-    doc.rect(margin, 35.5, pageW - margin * 2, 8, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10.5);
-    doc.setTextColor(ink[0], ink[1], ink[2]);
-    doc.text('P A T I E N T   M E D I C A L   R E C O R D', pageW / 2, 41, { align: 'center' });
-}
-
-// Compact header for continuation pages, so every sheet is identifiable on
-// its own once the document is printed and the pages separated.
-function pdfRunningHeader(doc, clinic, patient) {
-    const { margin, pageW, muted, hairline } = PDF;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(muted[0], muted[1], muted[2]);
-    doc.text(clinic.name.toUpperCase(), margin, 14);
-    doc.setFont('helvetica', 'normal');
-    doc.text(patient.name + '  ·  ' + patient.id, pageW - margin, 14, { align: 'right' });
-    doc.setDrawColor(hairline[0], hairline[1], hairline[2]);
-    doc.setLineWidth(0.2);
-    doc.line(margin, 17, pageW - margin, 17);
-}
-
-function pdfFooter(doc, pageNum, generatedAt) {
-    const { margin, pageW, muted, hairline, footerTop } = PDF;
-    doc.setDrawColor(hairline[0], hairline[1], hairline[2]);
-    doc.setLineWidth(0.2);
-    doc.line(margin, footerTop, pageW - margin, footerTop);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.8);
-    doc.setTextColor(muted[0], muted[1], muted[2]);
-    doc.text('This record contains confidential patient health information. Handle and dispose of it accordingly.', margin, footerTop + 4.5);
-    doc.text('Computer-generated document — not a certified true copy. Request a certified copy from the clinic if one is required.', margin, footerTop + 8);
-    doc.text('Generated ' + generatedAt, margin, footerTop + 11.5);
-}
-
-// Ruled section heading, matching the document band styling.
-function pdfSectionHeading(doc, title, y) {
-    const { margin, pageW, ink, brand } = PDF;
-    doc.setFillColor(PDF.band[0], PDF.band[1], PDF.band[2]);
-    doc.rect(margin, y, pageW - margin * 2, 6.5, 'F');
-    doc.setFillColor(brand[0], brand[1], brand[2]);
-    doc.rect(margin, y, 1.6, 6.5, 'F');   // accent tab on the leading edge
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.8);
-    doc.setTextColor(ink[0], ink[1], ink[2]);
-    doc.text(title.toUpperCase(), margin + 4, y + 4.4);
-    return y + 6.5;
-}
-
-// Label/value grid, enclosed in a box with alternating row tints.
-//
-// Entries are [label, value] (half width, paired two per row) or
-// [label, value, 'full'] (its own full-width row). Row height is derived
-// from the wrapped line count — long values wrap instead of being clipped,
-// which matters most for addresses.
-function pdfFieldGrid(doc, entries, startY) {
-    const { margin, pageW, ink, muted, hairline } = PDF;
-    const usable = pageW - margin * 2;
-    const colW = usable / 2;
-    const labelH = 3;
-    const lineH = 3.9;
-    let y = startY;
-
-    // Group entries into visual rows: a 'full' entry claims a row alone,
-    // otherwise two half-width entries share one.
-    const visualRows = [];
-    for (let i = 0; i < entries.length;) {
-        const entry = entries[i];
-        if (entry[2] === 'full') {
-            visualRows.push([entry]);
-            i += 1;
-        } else {
-            const next = entries[i + 1];
-            if (next && next[2] !== 'full') { visualRows.push([entry, next]); i += 2; }
-            else { visualRows.push([entry]); i += 1; }
-        }
-    }
-
-    doc.setDrawColor(hairline[0], hairline[1], hairline[2]);
-    doc.setLineWidth(0.2);
-
-    visualRows.forEach((cells, rowIndex) => {
-        const isFull = cells.length === 1 && cells[0][2] === 'full';
-        // Measure first so the row is tall enough for its tallest cell.
-        const wrapped = cells.map(cell => {
-            const width = (isFull ? usable : colW) - 6;
-            return doc.splitTextToSize(String(cell[1] || '—') || '—', width);
-        });
-        const maxLines = Math.max(1, ...wrapped.map(w => w.length));
-        const rowH = labelH + maxLines * lineH + 2.4;
-
-        if (rowIndex % 2 === 0) {
-            doc.setFillColor(250, 251, 252);
-            doc.rect(margin, y, usable, rowH, 'F');
-        }
-
-        cells.forEach((cell, col) => {
-            const x = margin + (isFull ? 0 : col * colW);
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(7.4);
-            doc.setTextColor(muted[0], muted[1], muted[2]);
-            doc.text(String(cell[0]).toUpperCase(), x + 3, y + labelH);
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(9);
-            doc.setTextColor(ink[0], ink[1], ink[2]);
-            doc.text(wrapped[col], x + 3, y + labelH + 3.2);
-        });
-
-        // Column divider only where the row actually has two columns.
-        if (!isFull && cells.length === 2) {
-            doc.line(margin + colW, y, margin + colW, y + rowH);
-        }
-        y += rowH;
-        if (rowIndex < visualRows.length - 1) doc.line(margin, y, margin + usable, y);
-    });
-
-    doc.rect(margin, startY, usable, y - startY);   // enclose the block
-    return y;
-}
-
-// Free-text block that wraps and reports how far down the page it reached.
-function pdfTextBlock(doc, label, text, y) {
-    const { margin, pageW, ink, muted } = PDF;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.4);
-    doc.setTextColor(muted[0], muted[1], muted[2]);
-    doc.text(label.toUpperCase(), margin, y + 3);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.8);
-    doc.setTextColor(ink[0], ink[1], ink[2]);
-    const lines = doc.splitTextToSize(String(text || 'None reported'), pageW - margin * 2 - 40);
-    doc.text(lines, margin + 40, y + 3);
-    return y + Math.max(6, lines.length * 4 + 2.5);
-}
+// The letterhead, section headings, field grid and footer used below live in
+// clinic-pdf.js, which frontdesk.html loads too - the walk-in intake and
+// diagnosis forms are the same clinic's paperwork and print on the same
+// stationery. Loaded before this file; see customer.html.
 
 async function exportMedicalRecordPDF() {
     const btn = document.getElementById('export-med-pdf-btn');

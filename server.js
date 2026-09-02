@@ -2,13 +2,14 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const dotenv = require('dotenv');
-const { pool, initDB, DEFAULT_SERVICES, STAFF_SEEDS, LAB_SEEDS, DOCTOR_SEEDS, SERVICE_STEPS } = require('./database.js');
+const { pool, initDB, DEFAULT_SERVICES, DEFAULT_TEST_STRUCTURES, STAFF_SEEDS, LAB_SEEDS, DOCTOR_SEEDS, SERVICE_STEPS } = require('./database.js');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const http = require('http');
 const socketIo = require('socket.io');
 const { JWT_SECRET, requireAdmin } = require('./config');
-const { nextTicketNumber, APPOINTMENT_PRIORITY_BOOST, composeServiceSteps } = require('./queue_automation');
+const { APPOINTMENT_PRIORITY_BOOST } = require('./queue_automation');
+const { startPackageQueue } = require('./queue_start');
 const { startMissedAppointmentSweep } = require('./appointment_automation');
 const sessionActivity = require('./session_activity');
 
@@ -40,9 +41,23 @@ app.get('/api/settings', async (req, res) => {
 });
 
 // Socket.io
+// One socket per open page, so every navigation and every sign-in retires one
+// and opens another - a few minutes of ordinary use fills the terminal with
+// connect/disconnect pairs that say nothing. The per-client lines are opt-in
+// (LOG_SOCKETS=1) and carry the id, the reason and the live count when they are
+// on; "Client disconnected" on its own could not even be matched to the
+// connection it ended.
+const LOG_SOCKETS = process.env.LOG_SOCKETS === '1' || process.env.LOG_SOCKETS === 'true';
+
 io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
-    socket.on('disconnect', () => console.log('Client disconnected'));
+    if (LOG_SOCKETS) {
+        console.log(`[Socket] connected ${socket.id} (${io.engine.clientsCount} open)`);
+    }
+    socket.on('disconnect', (reason) => {
+        if (LOG_SOCKETS) {
+            console.log(`[Socket] disconnected ${socket.id} - ${reason} (${io.engine.clientsCount} open)`);
+        }
+    });
 });
 
 // Auth middleware
@@ -107,88 +122,63 @@ app.post('/api/session/timeout', authenticateToken, async (req, res) => {
 
 // Routes — order matters: specific routes before catch-all
 const queueRoutes = require('./routes/queue');
+const testStructureRoutes = require('./routes/test_structures');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const reportRoutes = require('./routes/reports');
 const packageRoutes = require('./routes/packages');
 const assistantRoutes = require('./routes/assistant');
+const walkinRoutes = require('./routes/walkin');
+const displayRoutes = require('./routes/display');
 
 const idleTimeout = sessionActivity.enforceIdleTimeout;
 
 app.use('/api/auth', authRoutes);
 app.use('/api/packages', packageRoutes);
+// The lobby board. Mounted before the authenticated routers on purpose: it runs
+// on a wall-mounted screen with nobody signed in to it, so it is public - and
+// therefore carries ticket numbers and station names only, never patient names.
+app.use('/api/display', displayRoutes);
+// Phone-less walk-in intake. The role check is inside the router (front desk
+// plus the elevated override), same as the other operational routers.
+app.use('/api/walkin', authenticateToken, idleTimeout, walkinRoutes);
 app.use('/api/queue', authenticateToken, idleTimeout, queueRoutes);
+// Result forms. Reads are staff-wide (the laboratory renders its form from
+// them), writes are administrator-only - both guarded inside the router.
+app.use('/api/test-structures', authenticateToken, idleTimeout, testStructureRoutes);
 app.use('/api/assistant', authenticateToken, idleTimeout, assistantRoutes);
 app.use('/api/reports', authenticateToken, idleTimeout, verifyRoles('owner'), reportRoutes);
 app.use('/api/admin', authenticateToken, idleTimeout, requireAdmin, adminRoutes);
 app.use('/api', authenticateToken, idleTimeout, adminRoutes);
 
 async function startQueueFromAppointment(appointment, io) {
-    const [existing] = await pool.query(
-        `SELECT id FROM queue_sequences WHERE customer_id = ? AND status = 'in_progress' AND archived = false`,
-        [appointment.customer_id]
-    );
-    if (existing.length > 0) return { alreadyActive: true };
-
-    const [labs] = await pool.query(
-        `SELECT pl.*, l.name AS lab_name FROM package_laboratories pl
-         JOIN laboratories l ON pl.laboratory_id = l.id
-         WHERE pl.package_id = ? AND pl.archived = false AND l.archived = false
-         ORDER BY pl.sequence_order`,
-        [appointment.package_id]
-    );
-    const [pkgDoctor] = await pool.query(
-        `SELECT sp.doctor_id, d.name AS doctor_name FROM service_packages sp
-         JOIN doctors d ON sp.doctor_id = d.id
-         WHERE sp.id = ? AND sp.doctor_id IS NOT NULL AND d.archived = false`,
-        [appointment.package_id]
-    );
-    const hasDoctorStep = pkgDoctor.length > 0;
-    if (labs.length === 0 && !hasDoctorStep) return { unavailable: true };
-    // Counted from the same step composer the queue engine routes with, rather
-    // than re-derived here - that arithmetic drifted the moment the closing front
-    // desk step was added, leaving appointment visits one step short.
-    const totalSteps = composeServiceSteps(
-        labs,
-        hasDoctorStep ? { id: pkgDoctor[0].doctor_id, name: pkgDoctor[0].doctor_name } : null
-    ).length;
     const [userRows] = await pool.query('SELECT customer_category FROM users WHERE id=?', [appointment.customer_id]);
-    const category = userRows[0]?.customer_category || 'Regular';
-    let type = 'Q';
-    if (category === 'Senior') type = 'S';
-    else if (category === 'PWD') type = 'D';
-    else if (category === 'Pregnant') type = 'P';
 
-    // An appointment holder reserved this slot, so they enter the queue with a
-    // head start over walk-ins. It is stored on the sequence, not just on the
-    // first queue row, so /complete-step can re-apply it at every station -
-    // otherwise the priority would evaporate the moment the front desk was done.
-    const priorityBoost = APPOINTMENT_PRIORITY_BOOST;
+    const started = await startPackageQueue({
+        customerId: appointment.customer_id,
+        packageId: appointment.package_id,
+        category: userRows[0]?.customer_category || 'Regular',
+        intakeChannel: 'appointment',
+        appointmentId: appointment.id,
+        // An appointment holder reserved this slot, so they enter the queue with
+        // a head start over walk-ins. It is stored on the sequence, not just on
+        // the first queue row, so /complete-step can re-apply it at every station
+        // - otherwise the priority would evaporate the moment the front desk was
+        // done with them.
+        priorityBoost: APPOINTMENT_PRIORITY_BOOST,
+        // The step-0 row has always been named after the appointment here, so it
+        // still is. From step 1 on, /complete-step derives the id from
+        // stepRowId() regardless of what this first row was called.
+        rowId: (seqId) => `appt_${appointment.id}_${seqId}`,
+        // The amount actually owed (package price plus the appointment surcharge)
+        // is what the front desk collects, so it is what the revenue log carries.
+        logPrice: appointment.amount_due != null ? appointment.amount_due : appointment.price
+    });
+    if (started.alreadyActive) return { alreadyActive: true };
+    if (started.unavailable || started.notFound) return { unavailable: true };
 
-    const [seqResult] = await pool.query(
-        `INSERT INTO queue_sequences (customer_id, package_id, current_step, total_steps, has_doctor_step, doctor_id, appointment_id, priority_boost)
-         VALUES (?, ?, 0, ?, ?, ?, ?, ?)`,
-        [appointment.customer_id, appointment.package_id, totalSteps, hasDoctorStep ? 1 : 0,
-         hasDoctorStep ? pkgDoctor[0].doctor_id : null, appointment.id, priorityBoost]
-    );
-    const seqId = seqResult.insertId;
-    const ticketNum = await nextTicketNumber('frontdesk', null, type);
-    const queueId = `appt_${appointment.id}_${seqId}`;
-    // The amount actually owed (package price plus the appointment surcharge) is
-    // what the front desk collects, so it is what the revenue logs should carry.
-    const amountDue = appointment.amount_due != null ? appointment.amount_due : appointment.price;
-    await pool.query(
-        `INSERT INTO queue (id, station_type, station_id, number, type, status, customer_id, sequence_id, step_index, priority_boost)
-         VALUES (?, 'frontdesk', NULL, ?, ?, 'waiting', ?, ?, 0, ?)`,
-        [queueId, ticketNum, type, appointment.customer_id, seqId, priorityBoost]
-    );
-    await pool.query(
-        `INSERT INTO queue_logs (station_type, station_id, ticket_number, type, customer_id, sequence_id, package_name, price, join_time)
-         VALUES ('frontdesk', NULL, ?, ?, ?, ?, ?, ?, NOW())`,
-        [ticketNum, type, appointment.customer_id, seqId, appointment.package_name, amountDue]
-    );
-    if (io) io.emit('queueUpdate', { appointment_id: appointment.id, queue_id: queueId });
-    return { ticket: ticketNum, sequence_id: seqId };
+    if (io) io.emit('queueUpdate', { appointment_id: appointment.id, queue_id: started.queue_id });
+    return { ticket: started.ticket, sequence_id: started.sequence_id };
 }
 
 function makeCustomerUid(insertId) {
@@ -295,6 +285,34 @@ app.get('/checkin/:token', async (req, res) => {
 // sequence someone edited in the admin UI is never reverted on the next reboot.
 // Without this, `package_laboratories` is empty and every service reports
 // "This service is currently unavailable."
+// Result forms are seeded once and then left alone. They are administrator-
+// owned data from that point: re-applying the defaults on every boot would
+// quietly undo a corrected reference range, which is exactly the kind of
+// change this feature exists to allow.
+async function seedTestStructures() {
+    for (const struct of DEFAULT_TEST_STRUCTURES) {
+        const [existing] = await pool.query('SELECT id FROM test_structures WHERE name=? LIMIT 1', [struct.name]);
+        if (existing.length > 0) continue;
+
+        const [result] = await pool.query(
+            'INSERT INTO test_structures (name, description, input_mode, is_active) VALUES (?, ?, ?, true)',
+            [struct.name, struct.description || null, struct.input_mode || 'structured']
+        );
+        const structureId = result.insertId;
+        let order = 0;
+        for (const field of struct.fields || []) {
+            await pool.query(
+                `INSERT INTO test_structure_fields
+                    (structure_id, label, unit, reference_range, field_type, options, default_value, sort_order)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [structureId, field.label, field.unit || null, field.reference_range || null,
+                 field.field_type || 'number', field.options || null, field.default_value || null, order++]
+            );
+        }
+        console.log(`[Seed] Result form "${struct.name}" (${struct.input_mode || 'structured'}, ${(struct.fields || []).length} field(s))`);
+    }
+}
+
 async function seedServiceSteps() {
     const [stationRows] = await pool.query('SELECT id, name FROM laboratories WHERE archived = false');
     const stationIdByName = new Map(stationRows.map(r => [r.name, r.id]));
@@ -455,6 +473,7 @@ async function startServer() {
         );
     }
     await seedServiceSteps();
+    await seedTestStructures();
 
     console.log('[Server] Seed data created.');
 

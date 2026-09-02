@@ -295,6 +295,7 @@
    and is inset by half a step so it runs from the first node centre to the last. */
 .queue-track-rail {
     position: absolute;
+    z-index: 0;
     top: 14px;
     left: calc(100% / var(--track-count, 4) / 2);
     right: calc(100% / var(--track-count, 4) / 2);
@@ -336,10 +337,19 @@
     display: grid;
     place-items: center;
     border-radius: 50%;
-    background: #fff;
+    /* Opaque, and card-coloured rather than #fff: the rail runs behind the
+       circle, so a transparent or wrongly-themed fill shows it straight
+       through the middle of the badge. #fff was also a white disc on the
+       dark theme. */
+    background: var(--bg-card);
     border: 3px solid var(--border);
     color: var(--text-muted);
     font-size: 0.8em;
+    /* Lifts the badge above the rail. Without this the node paints in the
+       non-positioned layer and the absolutely positioned rail lands on top
+       of it. */
+    position: relative;
+    z-index: 1;
     transition: var(--transition);
 }
 
