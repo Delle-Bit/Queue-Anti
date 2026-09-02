@@ -172,6 +172,89 @@ ID there, reads it for OCR, and deletes it inside the same request — mounting 
 would turn a directory that is empty by design into a store of identity
 documents.
 
+## Adding features once it is containerised
+
+Docker does not have to be in your edit loop, and mostly should not be.
+
+### Day-to-day: develop outside the container
+
+```bash
+npm run dev
+```
+
+That is `node --watch server.js` - Node's built-in watcher, no nodemon needed.
+It restarts the server when you change a backend file (measured at ~4 seconds
+to listening against an existing database), and frontend files need no restart
+at all: there is no bundler, so `express.static` re-reads `public/` on every
+request and a refresh shows your change.
+
+Keep using your local MySQL for this. It is the fastest loop available, and
+Docker's job is reproducible *deployment*, not authoring.
+
+### When you do want to work inside the container
+
+For anything environment-specific - a dependency that behaves differently on
+Linux, or checking something before you deploy it:
+
+```bash
+npm run docker:dev
+```
+
+That overlays [docker-compose.dev.yml](docker-compose.dev.yml), which mounts
+your working copy into the container so edits take effect without a rebuild.
+`node_modules` and `uploads/` are deliberately masked out of that mount - the
+first because your Windows-built `bcrypt` cannot load in Linux, the second
+because uploaded IDs should not touch your real disk even briefly.
+
+One caveat: on Windows and macOS, file-change events do not reliably cross a
+bind mount, so `--watch` may not notice a backend edit. `docker compose restart
+app` takes about two seconds and is the fallback. Frontend edits are unaffected.
+
+### Shipping an update
+
+Locally or on a clinic machine:
+
+```bash
+docker compose up -d --build app
+```
+
+Only the app is rebuilt; the database container and its volume are untouched,
+so no records are lost. On a hosting platform, push to the branch and it
+rebuilds the image itself.
+
+### Changing the database schema
+
+There are no migration files to write or order. `initDB()` runs on every boot
+and converges the schema, so you add a line and redeploy. Which line depends on
+what you are changing:
+
+| Change | What to add in `initDB()` |
+| --- | --- |
+| New column | `addColumnIfMissing('table', 'col', 'INT DEFAULT NULL')` |
+| New index | `addIndexIfMissing('table', 'idx_name', '(col)')` |
+| New value in an `ENUM` | `try { await pool.query('ALTER TABLE t MODIFY COLUMN c ENUM(...)') } catch(e) {}` - re-stating the whole list, as the existing ones do |
+| Whole new table | `CREATE TABLE IF NOT EXISTS ...` |
+
+**The one that catches people:** editing the body of an existing
+`CREATE TABLE IF NOT EXISTS` does nothing to a database that already has that
+table. It will work perfectly on a fresh volume and silently do nothing on the
+deployed clinic database. Any column added to a `CREATE TABLE` needs a matching
+`addColumnIfMissing` line, or it only exists on new installs.
+
+`addColumnIfMissing` is additive only - it cannot rename a column, change a
+type, or drop one. Those need an explicit `ALTER TABLE`, written to be safe to
+re-run, because it will run on every boot forever.
+
+### Before you deploy a change
+
+```bash
+npm test
+```
+
+That only syntax-checks every file (`node --check`) - there is no test runner in
+this project, so it catches typos, not broken logic. Anything behavioural still
+needs exercising by hand, or a throwaway script against a running server.
+
 ## Troubleshooting
 
 **`port is already allocated`** — something else is on 3000. Set `APP_PORT=3001`
