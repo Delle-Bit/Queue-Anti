@@ -20,28 +20,28 @@
     "semantic_hash": "99914b932bd37a50b983c5e7c90ae93b"
   },
   "ai_services.js": {
-    "mtime": 1788377073.229884,
-    "ast_hash": "2e687f524388d5ef3995b4115388de11",
+    "mtime": 1787976727.9899988,
+    "ast_hash": "6dde52de4d9ccab7e9229261038e605f",
     "semantic_hash": ""
   },
   "database.js": {
-    "mtime": 1788379264.263102,
-    "ast_hash": "e0793e6d56e7f6e4faedad8597c3cae7",
+    "mtime": 1788332621.338646,
+    "ast_hash": "e02217882097fc365f3836f58f1dada2",
     "semantic_hash": ""
   },
   "package.json": {
-    "mtime": 1788382161.9823308,
-    "ast_hash": "fc307c9dbb161eb2e66529ebdb6c8f56",
+    "mtime": 1788332297.6540809,
+    "ast_hash": "a47f05adf3b2ad471bb2f0d974d19425",
     "semantic_hash": ""
   },
   "public/admintechnical.js": {
-    "mtime": 1788382015.6280715,
-    "ast_hash": "e988f1fad6480354307b9f6c08b6685a",
+    "mtime": 1788348125.7472494,
+    "ast_hash": "b0534f91636e2612c8446d0b0ab70df7",
     "semantic_hash": ""
   },
   "public/customer.js": {
-    "mtime": 1788379860.4338586,
-    "ast_hash": "969b815959364755da29b9a761a3a94e",
+    "mtime": 1788348471.2871394,
+    "ast_hash": "95cb5986b5f96010b45998bec841fcb7",
     "semantic_hash": ""
   },
   "public/doctor.js": {
@@ -50,28 +50,28 @@
     "semantic_hash": ""
   },
   "public/frontdesk.js": {
-    "mtime": 1788382015.627056,
-    "ast_hash": "a15e144d429c070e0a32adc7108d4709",
+    "mtime": 1788348471.2327628,
+    "ast_hash": "08a69cc2ed8563252cb9f711dc9206d6",
     "semantic_hash": ""
   },
   "public/index.js": {
-    "mtime": 1788377129.5031776,
-    "ast_hash": "0868979e56367927d36c69bc6c2b8677",
+    "mtime": 1788331608.8482087,
+    "ast_hash": "dc79558f96bc856cdce5107f1fdcb0e7",
     "semantic_hash": ""
   },
   "public/laboratory.js": {
-    "mtime": 1788355729.304628,
-    "ast_hash": "25bb59e4e7c1bbf8abbef949474c44d1",
+    "mtime": 1788347856.0378761,
+    "ast_hash": "eae58ea6386255273d5f73383250181c",
     "semantic_hash": ""
   },
   "public/owner.js": {
-    "mtime": 1788382015.629071,
-    "ast_hash": "17dae4c7dfd57445ea9a636392c80917",
+    "mtime": 1788347278.0703716,
+    "ast_hash": "8073c988905b310bf95c9d53819035da",
     "semantic_hash": ""
   },
   "public/shared.js": {
-    "mtime": 1788364502.743698,
-    "ast_hash": "5bcd55d6f3a7c4b49f607c4e7b6f3edd",
+    "mtime": 1788348276.8286254,
+    "ast_hash": "4704a4a86bfbd5346e27a2189fd10b2f",
     "semantic_hash": ""
   },
   "public/va.js": {
@@ -85,23 +85,23 @@
     "semantic_hash": ""
   },
   "routes/admin.js": {
-    "mtime": 1788355568.2309237,
-    "ast_hash": "c91f435c08749f4fbe12028085df876f",
+    "mtime": 1788332290.5222213,
+    "ast_hash": "1638b91d45461e9cc1e61ac6c795b57f",
     "semantic_hash": ""
   },
   "routes/auth.js": {
-    "mtime": 1788379568.6859448,
-    "ast_hash": "156243c88c0d9f53edac1145d188d6ff",
+    "mtime": 1788331201.611082,
+    "ast_hash": "b33012ec7923ba5ad6a9100c7b9d2a76",
     "semantic_hash": ""
   },
   "routes/packages.js": {
-    "mtime": 1788374735.1994524,
-    "ast_hash": "90494520ed35f3ad4391e0926c704612",
+    "mtime": 1788331449.8371048,
+    "ast_hash": "ce4078400da70dde47dd811b329890cc",
     "semantic_hash": ""
   },
   "routes/queue.js": {
-    "mtime": 1788379430.7848172,
-    "ast_hash": "5a55db296c73b60066b1c146b39e90bc",
+    "mtime": 1788332695.8935883,
+    "ast_hash": "e65b15fd28b5c0e4e80fdda6f54b51ab",
     "semantic_hash": ""
   },
   "routes/reports.js": {
@@ -110,8 +110,8 @@
     "semantic_hash": "6ea7fd5f985a148ee75291adeac35834"
   },
   "server.js": {
-    "mtime": 1788379568.6884255,
-    "ast_hash": "a7f09de8e5a7eaf70da12945be873fe1",
+    "mtime": 1788332766.283113,
+    "ast_hash": "cf4a88747e781cb6306cf74bf6d18ebf",
     "semantic_hash": ""
   },
   ".agents/rules/graphify.md": {
@@ -225,8 +225,8 @@
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1788383292.1048844,
-    "ast_hash": "91aa4e184a93a2fa00f65b0f7ed88aa1",
+    "mtime": 1788348961.1621594,
+    "ast_hash": "ca7048ba33ac8663154fccab01dd6b39",
     "semantic_hash": ""
   },
   "GEMINI.md": {
@@ -235,8 +235,8 @@
     "semantic_hash": ""
   },
   "INSTRUCTIONS.md": {
-    "mtime": 1788383036.215002,
-    "ast_hash": "e502ffc26996190a4ca8c785ac26e09b",
+    "mtime": 1788348961.2133284,
+    "ast_hash": "6f82978035ebaa5f50b3b0107cb39804",
     "semantic_hash": ""
   },
   "README.md": {
@@ -245,9 +245,9 @@
     "semantic_hash": ""
   },
   "example_accounts.md": {
-    "mtime": 1788351749.675426,
-    "ast_hash": "77748ca5ebdadbac50b8b0f974f0bbe1",
-    "semantic_hash": ""
+    "mtime": 1779729906.5796013,
+    "ast_hash": "676f4978b9c3b4bea3f19cb700720a45",
+    "semantic_hash": "676f4978b9c3b4bea3f19cb700720a45"
   },
   "flowchart.md": {
     "mtime": 1787462014.4825873,
@@ -255,13 +255,13 @@
     "semantic_hash": "0f8f47a36c5af90d42b23d78308ab75d"
   },
   "public/admintechnical.html": {
-    "mtime": 1788382015.6315587,
-    "ast_hash": "86166f711314b61442fccc4fe1cb1dd4",
+    "mtime": 1788332198.2300735,
+    "ast_hash": "df2572a87352b964327e34aa951d7979",
     "semantic_hash": ""
   },
   "public/customer.html": {
-    "mtime": 1788379871.0087888,
-    "ast_hash": "212fb098fbc56bfff4f5b7edb8e6917b",
+    "mtime": 1788348044.9508073,
+    "ast_hash": "c2e362abd92ceb613872b91b353caa84",
     "semantic_hash": ""
   },
   "public/doctor.html": {
@@ -270,23 +270,23 @@
     "semantic_hash": ""
   },
   "public/frontdesk.html": {
-    "mtime": 1788382015.624694,
-    "ast_hash": "3c07b6663d6bed04043c6891f603eecf",
+    "mtime": 1788333125.0146801,
+    "ast_hash": "2983909f3652ed94ae93d84f5bfafc30",
     "semantic_hash": ""
   },
   "public/index.html": {
-    "mtime": 1788377129.5009565,
-    "ast_hash": "c881005c09afe7add13ac1458a53daf6",
+    "mtime": 1787986425.620195,
+    "ast_hash": "35b3748817a8fa0abed43c5628870961",
     "semantic_hash": ""
   },
   "public/laboratory.html": {
-    "mtime": 1788355696.0802674,
-    "ast_hash": "5386803ccc9b89949253b9be64005b43",
+    "mtime": 1788333125.0351322,
+    "ast_hash": "f7dae2ae1c3ad404ecb2043fa9a1851f",
     "semantic_hash": ""
   },
   "public/owner.html": {
-    "mtime": 1788382015.6366627,
-    "ast_hash": "ab3d9949182eb0099e06dcc14e945907",
+    "mtime": 1788332251.4995027,
+    "ast_hash": "0e5d81181113353d334d923e741bbf4d",
     "semantic_hash": ""
   },
   "images/examplelogo.svg": {
@@ -1155,8 +1155,8 @@
     "semantic_hash": ""
   },
   "archive.js": {
-    "mtime": 1788355568.2294858,
-    "ast_hash": "9e69c736817f37fa929c07d810d62533",
+    "mtime": 1788331389.807536,
+    "ast_hash": "841632b44de382a873d19315511e5daf",
     "semantic_hash": ""
   },
   "audit.js": {
@@ -1165,63 +1165,13 @@
     "semantic_hash": ""
   },
   "public/admin-shared.js": {
-    "mtime": 1788374735.2022104,
-    "ast_hash": "2205edaae0f76462f16510fa8afa381b",
+    "mtime": 1788348471.176237,
+    "ast_hash": "37577e654cfb248aa666105923282ff3",
     "semantic_hash": ""
   },
   "session_activity.js": {
     "mtime": 1788330895.9727302,
     "ast_hash": "f26daad44f3873033a340730bf0f7b5f",
-    "semantic_hash": ""
-  },
-  "public/clinic-pdf.js": {
-    "mtime": 1788382595.9450307,
-    "ast_hash": "cbb184fda18e5a8a643d13afaab2f0d7",
-    "semantic_hash": ""
-  },
-  "public/display.js": {
-    "mtime": 1788382908.5259662,
-    "ast_hash": "f2ca2f1e0b64b6aad0d0c1fb795b02fb",
-    "semantic_hash": ""
-  },
-  "public/walkin-forms.js": {
-    "mtime": 1788382596.104064,
-    "ast_hash": "c726880f09a88ab8cc6623e7661e211d",
-    "semantic_hash": ""
-  },
-  "public/walkin-screen.js": {
-    "mtime": 1788381961.4678862,
-    "ast_hash": "f221c45f87be9224c4e040a5ad46af4b",
-    "semantic_hash": ""
-  },
-  "queue_start.js": {
-    "mtime": 1788379369.697776,
-    "ast_hash": "261a29411b8b3b430ad9e49610285418",
-    "semantic_hash": ""
-  },
-  "rich_text.js": {
-    "mtime": 1788364556.466344,
-    "ast_hash": "83cd782d70a8081c6942c3c0a0f98781",
-    "semantic_hash": ""
-  },
-  "routes/display.js": {
-    "mtime": 1788379601.1427152,
-    "ast_hash": "0e6cd839901312944b9ab88866cd1f95",
-    "semantic_hash": ""
-  },
-  "routes/test_structures.js": {
-    "mtime": 1788355539.6997454,
-    "ast_hash": "fb8c7fd891cafc7fc3ad5d3820a68b1d",
-    "semantic_hash": ""
-  },
-  "routes/walkin.js": {
-    "mtime": 1788379553.9561942,
-    "ast_hash": "f3791547800da0a9c102d29e1a3ddaef",
-    "semantic_hash": ""
-  },
-  "public/display.html": {
-    "mtime": 1788382774.6837263,
-    "ast_hash": "b46f76ebd5813d157749d6e497129b0c",
     "semantic_hash": ""
   }
 }
