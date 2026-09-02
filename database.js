@@ -509,6 +509,14 @@ async function initDB() {
         `);
 
         // Appointments
+        //
+        // `notes` carries no DEFAULT on purpose. MySQL forbids a default on a
+        // TEXT column and rejects the entire CREATE TABLE for it under
+        // STRICT_TRANS_TABLES; MariaDB has allowed it since 10.2, which is why
+        // `notes TEXT DEFAULT ''` sat here unnoticed on the XAMPP install this
+        // was written against and then stopped the app booting the first time it
+        // met a real MySQL server. Nothing depended on the default - the only
+        // writer, POST /appointments in routes/admin.js, always passes a string.
         await pool.query(`
             CREATE TABLE IF NOT EXISTS appointments (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -520,7 +528,7 @@ async function initDB() {
                 payment_status ENUM('pending','paid','refunded') DEFAULT 'pending',
                 payment_method VARCHAR(50) DEFAULT 'mock',
                 payment_ref VARCHAR(100) DEFAULT '',
-                notes TEXT DEFAULT '',
+                notes TEXT,
                 qr_token VARCHAR(120) DEFAULT NULL,
                 checked_in_at DATETIME DEFAULT NULL,
                 archived BOOLEAN DEFAULT false,

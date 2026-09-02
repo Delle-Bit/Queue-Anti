@@ -255,6 +255,45 @@ That only syntax-checks every file (`node --check`) - there is no test runner in
 this project, so it catches typos, not broken logic. Anything behavioural still
 needs exercising by hand, or a throwaway script against a running server.
 
+## MariaDB locally, MySQL in the container
+
+Worth knowing, because it is the source of the only real bug the first build
+found. XAMPP ships **MariaDB**, not MySQL, and the two are no longer the same
+product:
+
+| | your XAMPP install | the container |
+| --- | --- | --- |
+| Product | MariaDB 10.4 | MySQL 8.4 |
+| `STRICT_TRANS_TABLES` | off | **on** |
+| `ONLY_FULL_GROUP_BY` | off | **on** |
+
+MariaDB has allowed a `DEFAULT` on a `TEXT` column since 10.2. MySQL never has,
+and under `STRICT_TRANS_TABLES` it rejects the whole `CREATE TABLE` rather than
+warning. `appointments.notes TEXT DEFAULT ''` therefore sat in `database.js`
+unnoticed for as long as the project only ever met MariaDB, and stopped the app
+booting the moment it met a real MySQL. It is fixed, and it would have broken
+any managed MySQL deployment in exactly the same way — Docker just found it
+first, on your machine, instead of in production.
+
+`ONLY_FULL_GROUP_BY` is the other difference and turned out to be harmless here:
+all 13 `GROUP BY` queries either aggregate properly or group by a primary key,
+which MySQL accepts because the remaining columns are functionally dependent on
+it. Worth re-checking if you add analytics.
+
+If you want to remove the mismatch entirely, you have two options:
+
+- **Develop against the container's MySQL.** Publish its port by adding a `db`
+  section to [docker-compose.dev.yml](docker-compose.dev.yml) with
+  `ports: ["3307:3306"]`, then point `.env` at `DB_HOST=127.0.0.1`,
+  `DB_PORT=3307` and keep using `npm run dev`. 3307 avoids clashing with
+  XAMPP's 3306.
+- **Run MariaDB in the container** instead, by changing the `db` image to
+  `mariadb:11`. Do this only if you also intend to deploy on MariaDB — most
+  managed providers offer MySQL, and matching production matters more than
+  matching your laptop.
+
+Either way, `mysql2` speaks to both, so no application code changes.
+
 ## Troubleshooting
 
 **`port is already allocated`** — something else is on 3000. Set `APP_PORT=3001`
