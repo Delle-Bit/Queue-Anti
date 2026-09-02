@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="shared.css">
     <link rel="stylesheet" href="frontdesk.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+    <script src="https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.js"></script>
 </head>
 <body>
     <button class="hamburger"><i class="fa-solid fa-bars"></i></button>
@@ -23,10 +25,31 @@
                             <div style="font-size:3em;font-weight:700;color:var(--primary);" id="fd-serving">--</div>
                             <div class="text-muted mt-sm" id="fd-serving-name"></div>
                         </div>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                            <button class="btn btn-success" style="flex:1" onclick="fdCallNext()"><i class="fa-solid fa-bell"></i> Call Next</button>
-                            <button class="btn btn-primary" style="flex:1" onclick="fdComplete()"><i class="fa-solid fa-check"></i> Complete</button>
+                        <div id="fd-step-label" class="text-center text-sm text-muted" style="margin-bottom:10px;"></div>
+                        <div class="queue-controls">
+                            <button class="btn btn-success" onclick="fdCallNext()"><i class="fa-solid fa-bell"></i> Call Next</button>
+                            <button class="btn btn-primary" onclick="fdAdvance()"><i class="fa-solid fa-arrow-right"></i> Done — Next Station</button>
                         </div>
+                        <div class="queue-controls">
+                            <button class="btn btn-outline" onclick="fdCallBack()" title="Undo the last Call Next and recall the previous ticket"><i class="fa-solid fa-rotate-left"></i> Call Back</button>
+                            <button class="btn btn-outline" onclick="openReinsertModal()" title="Put a patient who missed their turn back in the line"><i class="fa-solid fa-user-clock"></i> Re-insert Patient</button>
+                        </div>
+                        <!-- Separated from the queue controls above on purpose: this ends
+                             the patient's whole visit, and it used to sit beside Call Next
+                             as an equal-weight button. -->
+                        <details class="danger-zone mt-md">
+                            <summary><i class="fa-solid fa-triangle-exclamation"></i> Close transaction</summary>
+                            <div class="danger-zone-body">
+                                <p class="text-sm text-muted" style="margin:0 0 12px;">
+                                    The front desk is the final gatekeeper: closing a transaction removes the
+                                    patient from every active queue and records the official outcome.
+                                </p>
+                                <div class="danger-zone-actions">
+                                    <button class="btn btn-success" onclick="fdFinalize('completed')"><i class="fa-solid fa-circle-check"></i> Mark Completed</button>
+                                    <button class="btn btn-danger" onclick="fdFinalize('unfinished')"><i class="fa-solid fa-circle-xmark"></i> Mark Unfinished</button>
+                                </div>
+                            </div>
+                        </details>
                     </div>
                     <!-- Patient Info panel below Now Serving -->
                     <div class="card mt-md" id="fd-patient-panel" style="display:none;">
@@ -51,7 +74,7 @@
                     </div>
                     <div class="card mt-md">
                         <div class="card-header"><div class="card-title"><i class="fa-solid fa-list"></i> Waiting Queue</div></div>
-                        <div class="table-wrapper"><table><thead><tr><th>Ticket</th><th>Type</th><th>Customer</th><th>Time</th></tr></thead><tbody id="fd-queue-list"></tbody></table></div>
+                        <div class="table-wrapper"><table><thead><tr><th>#</th><th>Ticket</th><th>Type</th><th>Customer</th><th>Time</th></tr></thead><tbody id="fd-queue-list"></tbody></table></div>
                     </div>
                 </div>
                 <div>
@@ -82,14 +105,26 @@
         <!-- SERVICE MANAGEMENT -->
         <div id="section-services" class="content-section" style="display:none;">
             <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-box-open"></i> Service Management</div></div>
-            <button class="btn btn-primary" onclick="openModal('svc-modal')"><i class="fa-solid fa-plus"></i> Add Package</button></div>
-            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Name</th><th>Price</th><th>Est. Time</th><th>Labs</th><th>Active</th><th>Actions</th></tr></thead><tbody id="svc-list"></tbody></table></div></div>
+            <button class="btn btn-primary" onclick="prepareNewService()"><i class="fa-solid fa-plus"></i> Add Package</button></div>
+            <div class="filter-bar">
+                <div class="search-bar"><i class="fa-solid fa-search"></i>
+                    <input type="text" id="svc-search" placeholder="Search by ID, name or category..." oninput="renderServiceList()"></div>
+                <select class="form-select" id="svc-category-filter" onchange="renderServiceList()"><option value="">All categories</option></select>
+                <span class="filter-count" id="svc-count"></span>
+            </div>
+            <div class="card"><div class="table-wrapper"><table><thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Price</th><th>Est. Time</th><th>Station Route</th><th>Active</th><th>Actions</th></tr></thead><tbody id="svc-list"></tbody></table></div></div>
         </div>
+
+
+        <!-- WALK-IN INTAKE -->
+        <!-- Markup is built by walkin-screen.js, which the front desk and both
+             admin dashboards share - see the comment at the top of that file. -->
+        <div id="section-walkin" class="content-section" style="display:none;"></div>
 
         <!-- APPOINTMENTS -->
         <div id="section-appointments" class="content-section" style="display:none;">
             <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-calendar"></i> Appointments</div></div></div>
-            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Customer</th><th>Service</th><th>Date</th><th>Time</th><th>Status</th><th>Payment</th><th>QR</th></tr></thead><tbody id="fd-appt-list"></tbody></table></div></div>
+            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Customer</th><th>Service</th><th>Date</th><th>Time</th><th>Status</th><th>To Collect</th><th>Payment</th><th>QR</th></tr></thead><tbody id="fd-appt-list"></tbody></table></div></div>
         </div>
     </main>
 
@@ -102,8 +137,10 @@
                 <div class="form-group"><label class="form-label">Package Name</label><input type="text" class="form-input" id="svc-name"></div>
                 <div class="form-group"><label class="form-label">Description</label><input type="text" class="form-input" id="svc-desc"></div>
                 <div class="grid-2"><div class="form-group"><label class="form-label">Price (₱)</label><input type="number" class="form-input" id="svc-price" step="0.01"></div>
-                <div class="form-group"><label class="form-label">Est. Time (min)</label><input type="number" class="form-input" id="svc-time" disabled placeholder="AI Calculated"></div></div>
-                <div class="form-group"><label class="form-label">Laboratory Sequence</label><div id="svc-lab-list"></div>
+                <div class="form-group"><label class="form-label">Category</label><input type="text" class="form-input" id="svc-category" list="svc-category-options" placeholder="e.g. Laboratory">
+                <datalist id="svc-category-options"></datalist></div></div>
+                <div class="form-group"><label class="form-label">Est. Time (min)</label><input type="number" class="form-input" id="svc-time" disabled placeholder="AI Calculated"></div>
+                <div class="form-group"><label class="form-label">Station Sequence</label><div id="svc-lab-list"></div>
                 <button class="btn btn-sm btn-outline mt-sm" onclick="addLabToSequence()"><i class="fa-solid fa-plus"></i> Add Lab Step</button></div>
             </div>
             <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('svc-modal')">Cancel</button><button class="btn btn-success" onclick="saveService()">Save</button></div>
@@ -111,6 +148,62 @@
     </div>
 
     <!-- Select Lab Modal -->
+    <!-- Front-desk-only: a patient who missed their turn or came back with an
+         unfinished process is slotted back in behind exactly one other patient. -->
+    <div id="reinsert-modal" class="modal-overlay">
+        <div class="modal-box" style="max-width:720px;">
+            <div class="modal-header">
+                <div class="modal-title"><i class="fa-solid fa-user-clock"></i> Re-insert a patient</div>
+                <button class="modal-close" onclick="closeModal('reinsert-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-sm text-muted" style="margin:0 0 12px;">
+                    The patient is placed <strong>two positions behind the ticket now being served</strong>:
+                    the patient in process finishes, one more regular patient is called, then this one.
+                    Pick a patient to choose whether they keep their place in the current line or go back
+                    to an earlier step of their service.
+                </p>
+                <div class="filter-bar">
+                    <div class="search-bar">
+                        <i class="fa-solid fa-search"></i>
+                        <input type="text" id="reinsert-search" placeholder="Search ticket, name or station..." oninput="renderReinsertCandidates()">
+                    </div>
+                    <span class="filter-count" id="reinsert-count"></span>
+                </div>
+                <div class="table-wrapper" style="max-height:340px;overflow-y:auto;">
+                    <table>
+                        <thead><tr><th>Ticket</th><th>Patient</th><th>Station</th><th>Step</th><th>Status</th><th>Since</th><th></th></tr></thead>
+                        <tbody id="reinsert-list"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('reinsert-modal')">Close</button></div>
+        </div>
+    </div>
+
+    <!-- Step picker for a re-insertion. Stacked over the candidate list, so the
+         desk picks the patient first and the step second. Its options are built
+         from that patient's own route - see renderReinsertSteps().
+         z-index 210 is deliberate: above a plain modal overlay (200) so it
+         covers the candidate list, but below promptReason's dialog (400), which
+         opens on top of this one to collect the reason. -->
+    <div id="reinsert-step-modal" class="modal-overlay" style="z-index: 210;">
+        <div class="modal-box" style="max-width:560px;">
+            <div class="modal-header">
+                <div class="modal-title"><i class="fa-solid fa-arrow-turn-up"></i> <span id="reinsert-step-title">Send back to a step</span></div>
+                <button class="modal-close" onclick="closeModal('reinsert-step-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-sm text-muted" id="reinsert-step-summary" style="margin:0 0 12px;"></p>
+                <div id="reinsert-step-options" class="step-choice-list"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('reinsert-step-modal')">Cancel</button>
+                <button class="btn btn-primary" onclick="submitReinsert()"><i class="fa-solid fa-arrow-turn-up"></i> Re-insert patient</button>
+            </div>
+        </div>
+    </div>
+
     <div id="select-lab-modal" class="modal-overlay" style="z-index: 10000;">
         <div class="modal-box" style="max-width:400px;">
             <div class="modal-header"><div class="modal-title">Select Laboratory</div><button class="modal-close" onclick="closeModal('select-lab-modal')">&times;</button></div>
@@ -194,6 +287,9 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="shared.js"></script>
+    <script src="clinic-pdf.js"></script>
+    <script src="walkin-forms.js"></script>
+    <script src="walkin-screen.js"></script>
     <script src="frontdesk.js"></script>
 </body>
 </html>

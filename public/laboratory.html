@@ -57,14 +57,21 @@
                             <div style="font-size:3em;font-weight:700;color:var(--primary);" id="lab-serving">--</div>
                             <div class="text-muted mt-sm" id="lab-serving-name">No patient currently active</div>
                         </div>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                            <button class="btn btn-secondary" style="flex:1" onclick="navigateTo('results')"><i class="fa-solid fa-square-poll-vertical"></i> Enter Results</button>
-                            <button class="btn btn-success" style="flex:1" onclick="labCallNext()"><i class="fa-solid fa-bell"></i> Call Next</button>
-                            <button class="btn btn-primary" style="flex:1" onclick="labComplete()"><i class="fa-solid fa-check"></i> Complete</button>
+                        <div class="queue-controls">
+                            <button class="btn btn-success" onclick="labCallNext()"><i class="fa-solid fa-bell"></i> Call Next</button>
+                            <button class="btn btn-primary" onclick="labAdvance()"><i class="fa-solid fa-arrow-right"></i> Done — Next Station</button>
                         </div>
-                        <div style="margin-top:8px;">
-                            <button class="btn btn-outline" style="width:100%;" onclick="labPark()"><i class="fa-solid fa-hourglass-half"></i> Park / Wait for Sample</button>
+                        <div class="queue-controls">
+                            <button class="btn btn-secondary" onclick="navigateTo('results')"><i class="fa-solid fa-square-poll-vertical"></i> Enter Results</button>
+                            <button class="btn btn-outline" onclick="labCallBack()" title="Undo the last Call Next and recall the previous ticket"><i class="fa-solid fa-rotate-left"></i> Call Back</button>
                         </div>
+                        <div class="queue-controls queue-controls-full">
+                            <button class="btn btn-outline" onclick="labHold()"><i class="fa-solid fa-hourglass-half"></i> Put On-Hold / Wait for Sample</button>
+                        </div>
+                        <p class="text-sm text-muted" style="margin:10px 0 0;">
+                            <i class="fa-solid fa-circle-info"></i> Only the front desk can close a transaction.
+                            Send the patient on and they will be routed back to the desk.
+                        </p>
                     </div>
                     <div class="card mt-md">
                         <div class="card-header"><div class="card-title"><i class="fa-solid fa-list"></i> Waiting</div></div>
@@ -72,6 +79,7 @@
                             <table>
                                 <thead>
                                     <tr>
+                                        <th>#</th>
                                         <th>Ticket</th>
                                         <th>Category</th>
                                         <th>Customer</th>
@@ -83,19 +91,19 @@
                         </div>
                     </div>
                     <div class="card mt-md">
-                        <div class="card-header"><div class="card-title"><i class="fa-solid fa-hourglass-half"></i> Parked — Awaiting Samples</div></div>
+                        <div class="card-header"><div class="card-title"><i class="fa-solid fa-hourglass-half"></i> On-Hold — Awaiting Samples</div></div>
                         <div class="table-wrapper">
                             <table>
                                 <thead>
                                     <tr>
                                         <th>Ticket</th>
                                         <th>Customer</th>
-                                        <th>Parked At</th>
+                                        <th>On Hold Since</th>
                                         <th>Sample</th>
                                         <th></th>
                                     </tr>
                                 </thead>
-                                <tbody id="lab-parked-list"></tbody>
+                                <tbody id="lab-hold-list"></tbody>
                             </table>
                         </div>
                     </div>
@@ -201,18 +209,18 @@
                     <input type="hidden" id="result-sequence-id">
 
                     <div class="form-group">
-                        <label class="form-label">Test / Lab Type</label>
+                        <label class="form-label" for="lab-test-type">Test / Lab Type</label>
+                        <!-- Filled from /api/test-structures. The options used to be
+                             hardcoded here and their fields hardcoded in laboratory.js,
+                             so adding a test meant a code change. -->
                         <select class="form-select" id="lab-test-type" onchange="loadTestTemplate(this.value)">
-                            <option value="Complete Blood Count (CBC)">Complete Blood Count (CBC)</option>
-                            <option value="Blood Chemistry">Blood Chemistry</option>
-                            <option value="Urinalysis">Urinalysis</option>
-                            <option value="X-Ray Scan">X-Ray Scan</option>
-                            <option value="Ultrasound">Ultrasound</option>
-                            <option value="Other Diagnostic">Other Diagnostic</option>
+                            <option value="">Loading result forms...</option>
                         </select>
+                        <small class="text-muted" id="lab-structure-hint"></small>
                     </div>
 
-                    <!-- Structured Lab Parameters -->
+                    <!-- Structured parameters. Hidden for a freeform structure,
+                         which shows the notepad below instead. -->
                     <div id="lab-parameters-section">
                         <label class="form-label">Test Metrics / Parameters</label>
                         <div class="parameter-row" style="border-bottom:1.5px solid var(--border); font-weight:600; padding-bottom:4px; margin-bottom:8px;">
@@ -221,8 +229,17 @@
                             <div>Reference Range</div>
                         </div>
                         <div id="lab-parameters-inputs">
-                            <!-- Populated dynamically based on selected type -->
+                            <!-- Populated from the selected structure's fields -->
                         </div>
+                    </div>
+
+                    <!-- "Other Diagnostics" and the other freeform structures: a
+                         notepad in place of fields, for findings that have no
+                         fixed shape. -->
+                    <div id="lab-freeform-section" style="display:none;">
+                        <label class="form-label" for="lab-freeform-editor">Diagnostic Notes</label>
+                        <div id="lab-freeform-editor"></div>
+                        <small class="text-muted">Formatting is kept with the record. Pasted text arrives unformatted.</small>
                     </div>
 
                     <div class="form-group mt-md">

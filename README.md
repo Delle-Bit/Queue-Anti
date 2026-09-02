@@ -12,17 +12,38 @@ Queue management app for a medical clinic: customers join queues or book appoint
 
 ## Setup
 
-1. Install **Node.js** and a local **MySQL** server (XAMPP/WAMP/MySQL Installer) running on port 3306.
-2. Copy `.env` (or create it) with:
+Two ways to run it. Docker needs neither Node nor MySQL installed and is what
+you want for deployment; the manual route is lighter for day-to-day development.
 
-   ```
-   PORT=3000
-   JWT_SECRET=<random long string>
-   GEMINI_API_KEY=   # optional
-   API_ALLAROUND=    # optional Hugging Face token
+### With Docker (recommended for deployment)
+
+```bash
+cp .env.example .env     # then set JWT_SECRET, DB_PASSWORD and DB_ROOT_PASSWORD
+docker compose up --build
+```
+
+That starts the app and its MySQL together and creates every table on first
+boot. Full walkthrough, including hosting platforms and backups, in
+[DOCKER.md](DOCKER.md).
+
+### Manually
+
+1. Install **Node.js 20 or newer** and a local **MySQL** server (XAMPP/WAMP/MySQL
+   Installer) running on port 3306.
+2. Create your environment file and fill it in:
+
+   ```bash
+   cp .env.example .env
    ```
 
-3. If your MySQL root user has a password, update `database.js` (`user`/`password`).
+   Only `JWT_SECRET` is genuinely required — generate one with
+   `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
+   Everything else has a working default or degrades gracefully. Every setting
+   is documented in [.env.example](.env.example).
+
+3. If your MySQL user is not `root` with an empty password, set `DB_USER` and
+   `DB_PASSWORD` in `.env` — the connection is read from the environment, so
+   there is nothing to edit in `database.js`.
 4. Install and run:
 
    ```bash
@@ -30,23 +51,106 @@ Queue management app for a medical clinic: customers join queues or book appoint
    npm start
    ```
 
-   The first run creates the `clinic_v2` database, all tables, and seed accounts automatically.
+   The first run creates the `clinic_v2` database, all tables, and seed accounts
+   automatically, and later runs auto-migrate any schema changes.
 
 ## Seed accounts (dev only — change before any real deployment)
 
-| Username           | Password   | Role            |
-| ------------------ | ---------- | --------------- |
-| admin_tech         | admin123   | admintechnical  |
-| admin_regular      | admin123   | admin           |
-| frontdesk1         | pass123    | frontdesk       |
-| lab_xray           | pass123    | laboratory      |
-| lab_blood          | pass123    | laboratory      |
-| owner1             | owner123   | owner           |
-| doctor1            | pass123    | doctor          |
-| customer_regular   | pass123    | customer        |
-| customer_senior    | pass123    | customer        |
-| customer_pwd       | pass123    | customer        |
-| customer_pregnant  | pass123    | customer        |
+One account per clinic position. Names are sample data. Defined in `STAFF_SEEDS`
+(`database.js`); seeded on boot by `startServer()` in `server.js`.
+
+| Username        | Password | Role           | Position                                             | Name                           |
+| --------------- | -------- | -------------- | ---------------------------------------------------- | ------------------------------ |
+| owner1          | owner123 | owner          | Owner / Medical Director                             | Ramon Bautista Villanueva      |
+| admin_regular   | admin123 | admin          | Clinic Administrator                                 | Teresita Mendoza Rosales       |
+| admin_tech      | admin123 | admintechnical | Technical / IT Administrator                         | Joel Pascual Bautista          |
+| frontdesk1      | pass123  | frontdesk      | Front Desk Receptionist                              | Angeli Cruz Domingo            |
+| nurse_vitals    | pass123  | laboratory     | Staff Nurse (Vital Signs)                            | Grace Padilla Villamor         |
+| lab_blood       | pass123  | laboratory     | Medical Technologist — Hematology & Clinical Chemistry | Marites Lopez Saavedra       |
+| lab_micro       | pass123  | laboratory     | Medical Technologist — Clinical Microscopy           | Ferdinand Reyes Ocampo         |
+| lab_xray        | pass123  | laboratory     | Radiologic Technologist                              | Dennis Alonzo Fabregas         |
+| lab_ultrasound  | pass123  | laboratory     | Sonographer (Ultrasound & Duplex Scans)              | Katrina Jimenez Escuadro       |
+| lab_cardio      | pass123  | laboratory     | Cardiovascular Technologist                          | Alvin Molina Delos Reyes       |
+| lab_counselor   | pass123  | laboratory     | HIV Counsellor (RA 11166)                            | Rowena Fajardo Lacsamana       |
+| doctor1         | pass123  | doctor         | Physician — General / Family Medicine                | Alfredo Salazar Mercado        |
+| doctor_cardio   | pass123  | doctor         | Internist — Cardiology                               | Maria Cristina Herrera Aguilar |
+
+| Username          | Password | Role     | Category | Name                       |
+| ----------------- | -------- | -------- | -------- | -------------------------- |
+| customer_regular  | pass123  | customer | Regular  | Miguel Torres Panganiban   |
+| customer_senior   | pass123  | customer | Senior   | Rosario Guevarra Nazareno  |
+| customer_pwd      | pass123  | customer | PWD      | Elmer Dizon Cabrera        |
+| customer_pregnant | pass123  | customer | Pregnant | Jocelyn Ramos Enriquez     |
+
+Seeding never overwrites a name someone actually typed in: an account whose
+`full_name` still matches its username (or is blank) gets the seed name, and
+anything else is left alone with a `[Seed] Kept existing name …` line in the
+server log.
+
+## Stations & service steps
+
+Every ticket starts at the front desk, walks the stations its service is wired
+to (seeing a physician when the service calls for one), then **returns to the
+front desk**, which is the only station that can record the visit as officially
+Completed or Unfinished. Stations live in `laboratories`, the per-service order
+lives in `package_laboratories`, and the seeded plan is `SERVICE_STEPS` in
+`database.js`. Both front desk steps are added by `composeServiceSteps` in
+`queue_automation.js` and are never stored as station rows, so the tables below
+list only what happens between them.
+
+| Station             | Handles                                        | Staff          |
+| ------------------- | ---------------------------------------------- | -------------- |
+| Physical            | Vitals, height/weight/BMI                      | nurse_vitals   |
+| Blood Test Lab      | Blood extraction — CBC, chemistry, serology    | lab_blood      |
+| Specimen            | Urinalysis, fecalysis, urine drug test         | lab_micro      |
+| X-Ray Room          | Chest and other plain radiographs              | lab_xray       |
+| Ultrasound Room     | Ultrasound and the duplex scans                | lab_ultrasound |
+| Cardiac Diagnostics | ECG, 2D echo, Holter, 24-hour ABPM             | lab_cardio     |
+| Counseling Room     | HIV pre-test and post-test counselling         | lab_counselor  |
+
+Sequences follow the standard Philippine out-patient flow — register and pay at
+the desk, give specimens, get imaged, then see the physician who interprets the
+results:
+
+| Service                            | Between the two front desk steps                                                |
+| ---------------------------------- | ------------------------------------------------------------------------------- |
+| Hematology (CBC)                   | Blood Test Lab                                                                  |
+| Blood Chemistry                    | Blood Test Lab                                                                  |
+| Serology Exams                     | Blood Test Lab                                                                  |
+| Rapid Antibody Test                | Blood Test Lab                                                                  |
+| Clinical Microscopy                | Specimen                                                                        |
+| Drug Testing                       | Specimen                                                                        |
+| X-ray                              | X-Ray Room                                                                      |
+| Ultrasound                         | Ultrasound Room                                                                 |
+| ECG / FCG                          | Cardiac Diagnostics                                                             |
+| HIV Screening                      | Counseling Room → Blood Test Lab → Counseling Room                              |
+| 2D Echocardiography                | Cardiac Diagnostics → Cardiology                                                |
+| Holter Monitoring                  | Cardiac Diagnostics → Cardiology                                                |
+| 24-Hour Ambulatory BP Monitoring   | Cardiac Diagnostics → Cardiology                                                |
+| Venous / Arterial / Carotid Duplex | Ultrasound Room → Cardiology                                                    |
+| Annual Physical Exam               | Physical → Blood Test Lab → Specimen → X-Ray Room → Cardiac Diagnostics → GP    |
+| Pre-Employment Medical             | Physical → Blood Test Lab → Specimen → X-Ray Room → GP                          |
+
+Why these shapes:
+
+- A standalone diagnostic test ends at the station — the radiologist or
+  pathologist reads it offline and the result is released, which is why a ₱450
+  CBC carries no consultation.
+- DOH AO 2007-0027 files urinalysis and fecalysis under Clinical Microscopy, so
+  those (and urine drug testing) go to the specimen window rather than the blood
+  bench.
+- Tests a physician has to walk the patient through — echocardiography, duplex
+  scans, Holter, 24-hour ABPM — end at the cardiologist; the check-up packages
+  end at the general physician who signs the clearance.
+- HIV screening is bracketed by pre-test and post-test counselling, which
+  RA 11166 requires of every HIV testing facility.
+- PEME is the standard battery (physical exam, CBC, urinalysis/fecalysis, chest
+  X-ray, drug test) with no ECG; the APE adds one as comprehensive screening.
+
+A service is only wired if it has no stations **and** no doctor yet, so a
+sequence edited in the admin UI survives every reboot. Services with no steps at
+all report "This service is currently unavailable" and cannot be queued or
+booked.
 
 ## Roles & access
 

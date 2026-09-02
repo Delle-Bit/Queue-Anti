@@ -196,6 +196,20 @@ function updateActiveNav() {
 
 window.addEventListener('scroll', updateActiveNav, { passive: true });
 
+// ── Body scroll lock ─────────────────────────────────────────────
+// The mobile menu and the auth panel overlap: tapping Sign In inside the menu
+// opens the panel and closes the menu, in that order. With a single boolean the
+// menu's close would clear the lock the panel had just taken and the page would
+// scroll behind the modal, so locks are tracked per owner and the body only
+// unlocks once nothing holds it.
+const scrollLockOwners = new Set();
+
+function setScrollLock(owner, locked) {
+    if (locked) scrollLockOwners.add(owner);
+    else scrollLockOwners.delete(owner);
+    document.body.style.overflow = scrollLockOwners.size ? 'hidden' : '';
+}
+
 // ── Mobile Hamburger ─────────────────────────────────────────────
 const hamburgerBtn = document.getElementById('hamburger-btn');
 const navLinksEl = document.getElementById('nav-links');
@@ -206,7 +220,7 @@ function toggleMobileMenu() {
     hamburgerBtn.setAttribute('aria-expanded', String(isOpen));
     navLinksEl.classList.toggle('mobile-open', isOpen);
     mobileOverlay.classList.toggle('active', isOpen);
-    document.body.style.overflow = isOpen ? 'hidden' : '';
+    setScrollLock('mobile-menu', isOpen);
 }
 
 function closeMobileMenu() {
@@ -214,7 +228,7 @@ function closeMobileMenu() {
     hamburgerBtn.setAttribute('aria-expanded', 'false');
     navLinksEl.classList.remove('mobile-open');
     mobileOverlay.classList.remove('active');
-    document.body.style.overflow = '';
+    setScrollLock('mobile-menu', false);
 }
 
 hamburgerBtn.addEventListener('click', toggleMobileMenu);
@@ -222,6 +236,13 @@ mobileOverlay.addEventListener('click', closeMobileMenu);
 
 navLinksEl.querySelectorAll('.nav-link').forEach(link => {
     link.addEventListener('click', closeMobileMenu);
+});
+
+// The .mobile-open styling only exists below 768px, so a menu left open while
+// the device rotates into landscape would strand a dimmed overlay and a locked
+// page over the desktop nav.
+window.addEventListener('resize', () => {
+    if (window.innerWidth > 768 && navLinksEl.classList.contains('mobile-open')) closeMobileMenu();
 });
 
 // ── Smooth Scroll for nav links ──────────────────────────────────
@@ -322,7 +343,7 @@ const authOverlay = document.getElementById('auth-overlay');
 
 function openAuthPanel(tab = 'login') {
     authOverlay.classList.add('active');
-    document.body.style.overflow = 'hidden';
+    setScrollLock('auth-panel', true);
     switchAuthTab(tab);
     // Focus trap
     setTimeout(() => {
@@ -334,7 +355,7 @@ function openAuthPanel(tab = 'login') {
 function closeAuthPanel() {
     abandonPendingRegistration();
     authOverlay.classList.remove('active');
-    document.body.style.overflow = '';
+    setScrollLock('auth-panel', false);
 }
 
 // Voids an in-progress registration token server-side the moment the modal is
@@ -359,6 +380,7 @@ authOverlay.addEventListener('click', function (e) {
 document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
         if (authOverlay.classList.contains('active')) closeAuthPanel();
+        else if (navLinksEl.classList.contains('mobile-open')) closeMobileMenu();
     }
 });
 
@@ -372,8 +394,10 @@ function switchAuthTab(tab) {
         // Reset to step 1
         showRegStep(1);
         usernameManuallyEdited = false;
+        fullNameManuallyEdited = false;
         // Ensure forms are reset
         document.getElementById('reg-step1-form').reset();
+    syncTermsGate();
         document.getElementById('reg-step2-form').reset();
         document.getElementById('reg-step3-form').reset();
         document.getElementById('preview-front').innerHTML = '<i class="fa-solid fa-address-card"></i>';
@@ -385,6 +409,7 @@ function switchAuthTab(tab) {
 
 // ── Register State ─────────────────────────────────────────────────
 let usernameManuallyEdited = false;
+let fullNameManuallyEdited = false;
 let registrationState = {
     step: 1,
     token: null,
@@ -479,6 +504,21 @@ function goToStep(step) {
     showRegStep(step);
 }
 
+// Keeps the step 1 Continue button in step with the consent box, so an
+// unticked box reads as "you cannot proceed yet" rather than as a button that
+// fails when pressed. Re-applied after the form is reset, which unticks it.
+function syncTermsGate() {
+    const box = document.getElementById('reg-terms-accept');
+    const next = document.getElementById('reg-step1-next');
+    if (!box || !next) return;
+    next.disabled = !box.checked;
+    next.classList.toggle('btn-disabled', !box.checked);
+    if (box.checked) {
+        const hint = document.getElementById('reg-terms-hint');
+        if (hint) hint.textContent = '';
+    }
+}
+
 function validateCurrentStep() {
     const step = registrationState.step;
     const errEl = document.getElementById('reg-error');
@@ -505,6 +545,17 @@ function validateCurrentStep() {
                 errEl.classList.add('show');
                 return false;
             }
+        }
+        // Consent before anything is submitted. The Continue button is disabled
+        // until the box is ticked (syncTermsGate), so this is the backstop for a
+        // form submitted by keyboard or with the button re-enabled by hand.
+        const termsHint = document.getElementById('reg-terms-hint');
+        if (termsHint) termsHint.textContent = '';
+        if (!document.getElementById('reg-terms-accept').checked) {
+            if (termsHint) termsHint.textContent = 'You must agree to the Terms and Conditions to continue.';
+            errEl.textContent = 'You must agree to the Terms and Conditions to continue.';
+            errEl.classList.add('show');
+            return false;
         }
         // Submit step 1
         submitStep1();
@@ -535,6 +586,8 @@ function validateCurrentStep() {
     }
     
     if (step === 3) {
+        // The terms were agreed to in step 1 - there is no way to reach this
+        // step without it - so the only thing left to check here is the code.
         const otp = document.getElementById('reg-otp').value.trim();
         if (!otp || otp.length !== 6) {
             errEl.textContent = 'Enter the 6-digit verification code.';
@@ -621,7 +674,9 @@ async function submitStep2(password) {
         if (res.ok && data.success) {
             sucEl.textContent = data.message;
             sucEl.classList.add('show');
-            setTimeout(() => showRegStep(3), 1500);
+            // Step 3's UI claims a code was already sent, so it actually needs to be —
+            // nothing else in this flow ever calls send-verification automatically.
+            setTimeout(() => { showRegStep(3); sendOTP(); }, 1500);
         } else {
             errEl.textContent = data.error || 'Failed to set password';
             errEl.classList.add('show');
@@ -650,11 +705,16 @@ async function sendOTP() {
         });
         const data = await res.json();
         if (res.ok && data.success) {
+            // startOTPCountdown() owns the button's disabled state and label from here
+            // until the cooldown ends — falling through below would immediately replace
+            // its <span id="otp-countdown"> with a fresh detached one, orphaning the
+            // running interval (it'd keep ticking against a span no longer on screen)
+            // and re-enable Resend right away, defeating the cooldown entirely.
             startOTPCountdown();
-        } else {
-            errEl.textContent = data.error || 'Failed to send code';
-            errEl.classList.add('show');
+            return;
         }
+        errEl.textContent = data.error || 'Failed to send code';
+        errEl.classList.add('show');
     } catch (err) {
         errEl.textContent = 'Connection error. Please try again.';
         errEl.classList.add('show');
@@ -701,7 +761,7 @@ async function submitStep3(otp) {
         const res = await fetch('/api/auth/register/verify-otp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: registrationState.token, otp })
+            body: JSON.stringify({ token: registrationState.token, otp, terms_accepted: document.getElementById('reg-terms-accept').checked })
         });
         const data = await res.json();
         if (res.ok && data.success) {
@@ -742,6 +802,7 @@ function finishRegistration() {
     };
     // Reset forms
     document.getElementById('reg-step1-form').reset();
+    syncTermsGate();
     document.getElementById('reg-step2-form').reset();
     document.getElementById('reg-step3-form').reset();
     document.getElementById('preview-front').innerHTML = '<i class="fa-solid fa-address-card"></i>';
@@ -783,6 +844,42 @@ function handleFileUpload(e, side) {
     };
     reader.readAsDataURL(file);
     registrationState.blobs[side] = file;
+    runIdOcrPreview(file, side);
+}
+
+// Runs OCR on the front ID as soon as it's attached (upload or camera capture)
+// and prefills Full Name from it — previously the backend only OCR'd the ID
+// during the full step-1 submit, by which point the user had already had to
+// type their name manually to get that far, so nothing was ever actually
+// prefilled. /api/auth/ocr exists specifically for this early-preview use.
+async function runIdOcrPreview(blob, side) {
+    if (side !== 'front') return; // only the front ID carries name/category info anywhere else in the app
+    const status = document.getElementById('reg-camera-status');
+    if (status) status.textContent = 'Scanning ID...';
+    try {
+        const formData = new FormData();
+        formData.append('idImage', blob, 'front-id.jpg');
+        const res = await fetch('/api/auth/ocr', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            if (status) status.textContent = 'Front and Back ID images are required';
+            return;
+        }
+        registrationState.ocrResult = data;
+        const fullNameField = document.getElementById('reg-fullname');
+        if (data.name && !fullNameManuallyEdited) {
+            fullNameField.value = data.name;
+            fullNameField.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        if (status) {
+            const parts = [];
+            if (data.name) parts.push(data.name);
+            if (data.category && data.category !== 'Regular') parts.push(data.category);
+            status.textContent = parts.length ? `Detected: ${parts.join(' — ')}` : 'ID scanned — no details detected';
+        }
+    } catch (err) {
+        if (status) status.textContent = 'Front and Back ID images are required';
+    }
 }
 
 async function openRegCamera() {
@@ -826,6 +923,7 @@ async function captureRegID() {
         preview.innerHTML = `<img src="${dataUrl}" alt="${currentSide} id">`;
         status.textContent = `${currentSide.toUpperCase()} captured ✓`;
         stopRegCamera();
+        runIdOcrPreview(blob, currentSide);
     }, 'image/jpeg', 0.9);
 }
 
@@ -974,6 +1072,10 @@ function setupRegisterHandlers() {
         e.preventDefault();
         validateCurrentStep(); // This will call submitStep1 if valid
     });
+
+    const termsBox = document.getElementById('reg-terms-accept');
+    if (termsBox) termsBox.addEventListener('change', syncTermsGate);
+    syncTermsGate();
     
     // Step 2 form
     document.getElementById('reg-step2-form').addEventListener('submit', (e) => {
@@ -999,8 +1101,14 @@ function setupRegisterHandlers() {
     const usernameField = document.getElementById('reg-username');
     usernameField.addEventListener('input', () => { usernameManuallyEdited = true; });
 
+    // keydown (not input) so the OCR prefill below — which sets .value and
+    // dispatches a synthetic 'input' event to trigger the suggestion below —
+    // doesn't itself get mistaken for the user having typed their own name.
+    const fullNameField = document.getElementById('reg-fullname');
+    fullNameField.addEventListener('keydown', () => { fullNameManuallyEdited = true; });
+
     let suggestTimer = null;
-    document.getElementById('reg-fullname').addEventListener('input', (e) => {
+    fullNameField.addEventListener('input', (e) => {
         if (usernameManuallyEdited) return;
         clearTimeout(suggestTimer);
         const name = e.target.value.trim();
@@ -1018,18 +1126,78 @@ function setupRegisterHandlers() {
 }
 
 // Initialize register handlers on load
+// Staff sent here by the 15-minute inactivity timeout arrive with ?timeout=1
+// (see initIdleTimeout in shared.js). Saying why they are back at the sign-in
+// page is the difference between a security feature and an apparent bug.
+function announceSessionTimeout() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('timeout') !== '1') return;
+    showToast('You were signed out after 15 minutes of inactivity. Please sign in again.', 'warning', 8000);
+    // Cleared from the URL so a refresh or a bookmark does not repeat it.
+    params.delete('timeout');
+    const query = params.toString();
+    window.history.replaceState({}, '', window.location.pathname + (query ? '?' + query : ''));
+    if (typeof openAuthPanel === 'function') openAuthPanel('login');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     setupRegisterHandlers();
+    enhanceOtpInput('reg-otp');
+    enhanceOtpInput('login-otp');
+    enhanceOtpInput('forgot-otp');
+    announceSessionTimeout();
 });
 
 // ── Forgot Password Modal ────────────────────────────────────────
 function openModal(id) { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
-async function requestReset() {
+// ── Forgot Password: request code -> enter code -> new password ─────
+let forgotState = { step: 1, token: null };
+
+function openForgotModal() {
+    forgotState = { step: 1, token: null };
+    document.getElementById('forgot-username').value = '';
+    document.getElementById('forgot-otp').value = '';
+    document.getElementById('forgot-new-password').value = '';
+    document.getElementById('forgot-confirm-password').value = '';
+    showForgotStep(1);
+    openModal('forgot-modal');
+}
+
+function closeForgotModal() {
+    closeModal('forgot-modal');
+}
+
+function showForgotStep(step) {
+    forgotState.step = step;
+    [1, 2, 3, 4].forEach((s) => {
+        document.getElementById(`forgot-step-${s}`).style.display = s === step ? 'block' : 'none';
+    });
+    document.getElementById('forgot-error').classList.remove('show');
+    const btn = document.getElementById('forgot-action-btn');
+    const cancelBtn = document.getElementById('forgot-cancel-btn');
+    const labels = { 1: 'Send Code', 2: 'Verify Code', 3: 'Reset Password' };
+    btn.textContent = labels[step] || 'Continue';
+    btn.style.display = step === 4 ? 'none' : 'inline-flex';
+    cancelBtn.textContent = step === 4 ? 'Close' : 'Cancel';
+}
+
+function forgotStepAction() {
+    if (forgotState.step === 1) return requestResetCode();
+    if (forgotState.step === 2) return verifyResetOtp();
+    if (forgotState.step === 3) return submitNewPassword();
+}
+
+async function requestResetCode() {
     const username = document.getElementById('forgot-username').value.trim();
-    if (!username) return;
-    const btn = document.getElementById('forgot-send-btn');
+    const errEl = document.getElementById('forgot-error');
+    if (!username) {
+        errEl.textContent = 'Username is required.';
+        errEl.classList.add('show');
+        return;
+    }
+    const btn = document.getElementById('forgot-action-btn');
     btn.disabled = true;
     btn.textContent = 'Sending...';
     try {
@@ -1039,14 +1207,97 @@ async function requestReset() {
             body: JSON.stringify({ username })
         });
         const data = await res.json();
-        const msg = document.getElementById('forgot-msg');
-        msg.textContent = data.message;
-        msg.classList.add('show');
+        if (res.ok && data.success) {
+            forgotState.token = data.token;
+            showForgotStep(2);
+            btn.disabled = false;
+            return;
+        }
+        errEl.textContent = data.error || 'Failed to send code.';
+        errEl.classList.add('show');
     } catch (err) {
-        console.error(err);
+        errEl.textContent = 'Connection error. Please try again.';
+        errEl.classList.add('show');
     }
     btn.disabled = false;
-    btn.innerHTML = 'Send Reset';
+    btn.textContent = 'Send Code';
+}
+
+async function verifyResetOtp() {
+    const otp = document.getElementById('forgot-otp').value;
+    const errEl = document.getElementById('forgot-error');
+    if (!otp || otp.length !== 6) {
+        errEl.textContent = 'Enter the 6-digit code.';
+        errEl.classList.add('show');
+        return;
+    }
+    const btn = document.getElementById('forgot-action-btn');
+    btn.disabled = true;
+    btn.textContent = 'Verifying...';
+    try {
+        const res = await fetch('/api/auth/reset-password/verify-otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: forgotState.token, otp })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showForgotStep(3);
+            btn.disabled = false;
+            return;
+        }
+        errEl.textContent = data.error || 'Invalid code.';
+        errEl.classList.add('show');
+    } catch (err) {
+        errEl.textContent = 'Connection error. Please try again.';
+        errEl.classList.add('show');
+    }
+    btn.disabled = false;
+    btn.textContent = 'Verify Code';
+}
+
+async function submitNewPassword() {
+    const pwd = document.getElementById('forgot-new-password').value;
+    const confirm = document.getElementById('forgot-confirm-password').value;
+    const errEl = document.getElementById('forgot-error');
+    if (!pwd || !confirm) {
+        errEl.textContent = 'Both password fields are required.';
+        errEl.classList.add('show');
+        return;
+    }
+    if (pwd.length < 8) {
+        errEl.textContent = 'Password must be at least 8 characters.';
+        errEl.classList.add('show');
+        return;
+    }
+    if (pwd !== confirm) {
+        errEl.textContent = 'Passwords do not match.';
+        errEl.classList.add('show');
+        return;
+    }
+    const btn = document.getElementById('forgot-action-btn');
+    btn.disabled = true;
+    btn.textContent = 'Resetting...';
+    try {
+        const res = await fetch('/api/auth/reset-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: forgotState.token, newPassword: pwd })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showForgotStep(4);
+            btn.disabled = false;
+            return;
+        }
+        errEl.textContent = data.error || 'Failed to reset password.';
+        errEl.classList.add('show');
+    } catch (err) {
+        errEl.textContent = 'Connection error. Please try again.';
+        errEl.classList.add('show');
+    }
+    btn.disabled = false;
+    btn.textContent = 'Reset Password';
 }
 
 // ── Expose globals for inline HTML handlers ──────────────────────

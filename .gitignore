@@ -14,3 +14,10 @@ uploads/
 
 # Environment secrets
 .env
+
+# Runtime artifacts (written by hand when starting the server detached)
+server_pid.txt
+
+# The browser preview tool resolves .claude/launch.json against the working
+# directory, so running it from .claude/ makes a nested copy here.
+.claude/.claude/

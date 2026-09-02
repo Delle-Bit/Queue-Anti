@@ -1,12 +1,19 @@
 if (!requireAuth(['admintechnical','admin'])) throw new Error('Unauthorized');
 const myRole = getRole();
 
+// Manage Accounts, Manage Laboratories, Service Management, Audit Logs and
+// Archives are identical to the owner dashboard's and live in admin-shared.js.
+// What stays here is what is genuinely this page's: its sidebar, its dashboard,
+// and which roles it is allowed to create.
+
 renderSidebar([
     { section: 'ADMIN' },
     { id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-chart-line' },
     { id: 'accounts', label: 'Manage Accounts', icon: 'fa-solid fa-users-gear' },
     { id: 'labs', label: 'Manage Laboratories', icon: 'fa-solid fa-flask-vial' },
+    { id: 'walkin', label: 'Walk-in Intake', icon: 'fa-solid fa-person-walking-arrow-right' },
     { id: 'services', label: 'Service Management', icon: 'fa-solid fa-box-open' },
+    { id: 'structures', label: 'Test Structures', icon: 'fa-solid fa-vials' },
     { id: 'archives', label: 'Archives', icon: 'fa-solid fa-box-archive' },
     { id: 'create', label: 'Create Account', icon: 'fa-solid fa-user-plus' },
     { id: 'audit', label: 'Audit Logs', icon: 'fa-solid fa-history' },
@@ -15,6 +22,8 @@ renderSidebar([
 initDefaultSection();
 
 window.onSectionLoad = {
+    walkin: loadWalkIns,
+    structures: loadTestStructureAdmin,
     dashboard: loadAdminDash,
     accounts: loadAccounts,
     labs: loadLabs,
@@ -27,6 +36,19 @@ window.onSectionLoad = {
 
 // ── DASHBOARD ──
 async function loadAdminDash() {
+    // The stat strip has no markup of its own - without a placeholder the row
+    // is zero-height and everything below it jumps down when the cards arrive.
+    //
+    // One card, not a guess at several: the strip is one card for the front
+    // desk plus one per laboratory that saw a patient today, so the count is
+    // not known until the fetch lands. One is the number that is always there,
+    // and at a narrow viewport this strip is a single column - every extra
+    // placeholder card would be another 110px of shift when it turns out not
+    // to exist. Measured with real data: three placeholders for one real card
+    // moved everything below down by 220px.
+    skeletonStats('admin-stats', { count: 1 });
+    skeletonLines('admin-role-dist', { rows: 4 });
+    skeletonTable('admin-sessions', { rows: 4, cols: 3 });
     try {
         const res = await fetch('/api/analytics/admin', { headers: authHeaders() });
         const data = await res.json();
@@ -44,121 +66,13 @@ async function loadAdminDash() {
             `<tr><td>${s.username}</td><td>${formatDateTime(s.login_time)}</td><td>${s.logout_time ? formatDateTime(s.logout_time) : '<span class="badge badge-success">Active</span>'}</td></tr>`
         ).join('');
     } catch (err) { console.error(err); }
+    clearSkeleton('admin-stats', 'admin-role-dist', 'admin-sessions');
 }
 
-// ── ACCOUNTS ──
-async function loadAccounts() {
-    const [staffRes, custRes] = await Promise.all([
-        fetch('/api/users/staff', { headers: authHeaders() }),
-        fetch('/api/users/customers', { headers: authHeaders() })
-    ]);
-    const staff = await staffRes.json();
-    const customers = await custRes.json();
-
-    document.getElementById('staff-table').innerHTML = staff.map(s => `<tr>
-        <td>${s.id}</td><td>${s.username}</td><td>${s.full_name||'--'}</td>
-        <td><span class="badge badge-primary">${s.role}</span></td>
-        <td>${formatDateTime(s.created_at)}</td>
-        <td><button class="btn btn-sm btn-secondary" onclick="editUser(${s.id},'${s.username}','${s.role}')"><i class="fa-solid fa-pen"></i></button>
-        <button class="btn btn-sm btn-danger" onclick="deleteUser(${s.id})"><i class="fa-solid fa-trash"></i></button></td>
-    </tr>`).join('');
-
-    document.getElementById('cust-table').innerHTML = customers.map(c => {
-        const age = c.created_at ? Math.floor((Date.now() - new Date(c.created_at)) / 86400000) + 'd' : '--';
-        return `<tr><td>${c.username}</td><td>${c.full_name||'--'}</td><td>${categoryBadge(c.customer_category)}</td><td>${c.total_services}</td><td>${age}</td></tr>`;
-    }).join('');
-}
-
-function editUser(id, username, role) {
-    document.getElementById('edit-user-id').value = id;
-    document.getElementById('edit-username').value = username;
-    document.getElementById('edit-password').value = '';
-    populateRoleSelect('edit-role', role);
-    openModal('user-modal');
-}
-
-async function updateUser() {
-    const id = document.getElementById('edit-user-id').value;
-    const body = { password: document.getElementById('edit-password').value, role: document.getElementById('edit-role').value };
-    const res = await fetch(`/api/users/${id}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(body) });
-    if (res.ok) { closeModal('user-modal'); showToast('Updated!', 'success'); loadAccounts(); }
-    else showToast('Failed', 'error');
-}
-
-async function deleteUser(id) {
-    if (!confirm('Archive this user?')) return;
-    const res = await fetch(`/api/users/${id}`, { method: 'DELETE', headers: authHeaders() });
-    if (res.ok) { showToast('Archived', 'success'); loadAccounts(); }
-}
-
-// ── LABS ──
-let labsCache = [];
-async function loadLabs() {
-    const res = await fetch('/api/laboratories', { headers: authHeaders() });
-    labsCache = await res.json();
-    document.getElementById('labs-table').innerHTML = labsCache.map(l => `<tr>
-        <td><strong>${l.name}</strong></td><td>${l.service_type||'--'}</td><td>${l.staff_name||'Unassigned'}</td>
-        <td><span class="badge ${l.is_open?'badge-success':'badge-danger'}">${l.is_open?'Open':'Closed'}</span></td>
-        <td><button class="btn btn-sm btn-secondary" onclick="editLab(${l.id})"><i class="fa-solid fa-pen"></i></button>
-        <button class="btn btn-sm btn-danger" onclick="deleteLab(${l.id})"><i class="fa-solid fa-trash"></i></button></td>
-    </tr>`).join('');
-
-    // Populate staff select in modal
-    const staffRes = await fetch('/api/users/staff', { headers: authHeaders() });
-    const staff = await staffRes.json();
-    const labStaff = staff.filter(s => s.role === 'laboratory');
-    document.getElementById('lab-staff').innerHTML = '<option value="">Unassigned</option>' +
-        labStaff.map(s => `<option value="${s.id}">${s.username} (${s.full_name||''})</option>`).join('');
-}
-
-async function saveLab() {
-    const id = document.getElementById('lab-edit-id').value;
-    const existing = id ? labsCache.find(l => l.id == id) : null;
-    const body = {
-        name: document.getElementById('lab-name').value,
-        service_type: document.getElementById('lab-type').value,
-        assigned_staff_id: document.getElementById('lab-staff').value || null,
-        is_open: existing ? existing.is_open : true,
-        start_time: existing ? existing.start_time : null,
-        cutoff_time: existing ? existing.cutoff_time : null
-    };
-    const url = id ? `/api/laboratories/${id}` : '/api/laboratories';
-    const method = id ? 'PUT' : 'POST';
-    const res = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(body) });
-    if (res.ok) { closeModal('lab-modal'); showToast('Saved!', 'success'); loadLabs(); fetchAllLabs(); }
-}
-
-async function deleteLab(id) {
-    if (!confirm('Archive this laboratory?')) return;
-    await fetch(`/api/laboratories/${id}`, { method: 'DELETE', headers: authHeaders() });
-    showToast('Archived', 'success'); loadLabs(); fetchAllLabs();
-}
-
-function prepareNewLab() {
-    document.getElementById('lab-edit-id').value = '';
-    document.getElementById('lab-name').value = '';
-    document.getElementById('lab-type').value = '';
-    document.getElementById('lab-staff').value = '';
-    document.getElementById('lab-modal-title').textContent = 'Add Laboratory';
-    openModal('lab-modal');
-}
-
-function editLab(id) {
-    const lab = labsCache.find(l => l.id == id);
-    if (!lab) return;
-    document.getElementById('lab-edit-id').value = lab.id;
-    document.getElementById('lab-name').value = lab.name || '';
-    document.getElementById('lab-type').value = lab.service_type || '';
-    document.getElementById('lab-staff').value = lab.assigned_staff_id || '';
-    document.getElementById('lab-modal-title').textContent = 'Edit Laboratory';
-    openModal('lab-modal');
-}
-
-// ── CREATE ACCOUNT ──
-function initCreateForm() {
-    populateRoleSelect('new-role');
-}
-
+// ── ROLES THIS PAGE MAY ASSIGN ──
+// A plain admin cannot create or promote to admin; only admintechnical can.
+// The server enforces the same rule (ELEVATED_ROLES in routes/admin.js) - this
+// is only about not offering a choice that would be rejected.
 function populateRoleSelect(selectId, selected) {
     let roles = [
         { value: 'laboratory', label: 'Laboratory' },
@@ -169,231 +83,9 @@ function populateRoleSelect(selectId, selected) {
         roles.push({ value: 'admin', label: 'Admin' });
     }
     const sel = document.getElementById(selectId);
-    sel.innerHTML = roles.map(r => `<option value="${r.value}" ${selected===r.value?'selected':''}>${r.label}</option>`).join('');
+    if (sel) sel.innerHTML = roles.map(r => `<option value="${r.value}" ${selected===r.value?'selected':''}>${r.label}</option>`).join('');
 }
 
-async function createAccount() {
-    const body = {
-        username: document.getElementById('new-username').value,
-        full_name: document.getElementById('new-fullname').value,
-        email: document.getElementById('new-email').value,
-        password: document.getElementById('new-password').value,
-        role: document.getElementById('new-role').value
-    };
-    if (!body.username || !body.password) return showToast('Fill required fields', 'error');
-    const res = await fetch('/api/users', { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) });
-    if (res.ok) {
-        showToast('Account created!', 'success');
-        document.getElementById('new-username').value = '';
-        document.getElementById('new-password').value = '';
-        document.getElementById('new-fullname').value = '';
-        document.getElementById('new-email').value = '';
-    } else {
-        const data = await res.json();
-        showToast(data.error || 'Failed', 'error');
-    }
-}
-
+fetchAllLabs();
 loadAdminDash();
 initCreateForm();
-
-// ── AUDIT LOGS ──
-async function loadAuditLogs() {
-    try {
-        const res = await fetch('/api/analytics/admin', { headers: authHeaders() });
-        const data = await res.json();
-            const logs = data.auditLogs || [];
-    } catch(err) {}
-}
-
-async function fetchAuditLogs() {
-    try {
-            const res = await fetch('/api/audit-logs', { headers: authHeaders() });
-        if(res.ok) {
-            const logs = await res.json();
-            document.getElementById('audit-table').innerHTML = logs.map(l => `<tr>
-                <td>${formatDateTime(l.created_at)}</td>
-                <td>${l.username || 'System'}</td>
-                <td><span class="badge badge-neutral">${l.action}</span></td>
-                <td>${l.entity_type}</td>
-                <td>${l.entity_id}</td>
-                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title='${l.details}'>${l.details}</td>
-            </tr>`).join('');
-        }
-    } catch (err) {}
-}
-window.loadAuditLogs = fetchAuditLogs;
-
-async function loadArchives() {
-    try {
-        const res = await fetch('/api/archives', { headers: authHeaders() });
-        const rows = await res.json();
-        document.getElementById('archive-table').innerHTML = (rows || []).map(r => `<tr>
-            <td>${formatDateTime(r.archived_at)}</td>
-            <td><span class="badge badge-neutral">${r.entity_type}</span></td>
-            <td>${r.entity_id}</td>
-            <td>${r.archived_by_name || 'System'}</td>
-            <td>
-                <button class="btn btn-sm btn-success" onclick="restoreArchive(${r.id})"><i class="fa-solid fa-rotate-left"></i> Restore</button>
-                <button class="btn btn-sm btn-danger" onclick="purgeArchive(${r.id})"><i class="fa-solid fa-trash"></i> Delete</button>
-            </td>
-        </tr>`).join('') || '<tr><td colspan="5" class="text-center text-muted">No archived records</td></tr>';
-    } catch (err) { showToast('Failed to load archives', 'error'); }
-}
-
-async function restoreArchive(id) {
-    const res = await fetch(`/api/archives/${id}/restore`, { method: 'POST', headers: authHeaders() });
-    if (res.ok) { showToast('Record restored', 'success'); loadArchives(); }
-    else showToast('Restore failed', 'error');
-}
-
-async function purgeArchive(id) {
-    if (!confirm('Permanently delete this archived record? This cannot be undone.')) return;
-    const res = await fetch(`/api/archives/${id}`, { method: 'DELETE', headers: authHeaders() });
-    if (res.ok) { showToast('Permanently deleted', 'success'); loadArchives(); }
-    else showToast('Delete failed', 'error');
-}
-
-// ── CUSTOMIZATION ──
-async function loadCustomization() {
-    try {
-        const res = await fetch('/api/settings', { headers: authHeaders() });
-        const settings = await res.json();
-        if(settings) {
-            document.getElementById('cust-nav-color').value = settings.navbar_color || '#1e293b';
-            document.getElementById('cust-nav-color-text').value = settings.navbar_color || '#1e293b';
-            document.getElementById('cust-bg-url').value = settings.background_image || '';
-        }
-    } catch(err) {}
-}
-
-async function saveCustomization() {
-    const navColor = document.getElementById('cust-nav-color').value;
-    const bgUrl = document.getElementById('cust-bg-url').value;
-    try {
-        const res = await fetch('/api/settings', {
-            method: 'PUT', headers: authHeaders(),
-            body: JSON.stringify({ navbar_color: navColor, background_image: bgUrl })
-        });
-        if(res.ok) { showToast('Settings saved!', 'success'); }
-        else { showToast('Failed to save settings', 'error'); }
-    } catch(err) {}
-}
-
-// ── SERVICE MANAGEMENT ──
-let allLabs = [];
-let allDoctors = [];
-async function fetchAllLabs() {
-    const [labRes, doctorRes] = await Promise.all([
-        fetch('/api/laboratories', { headers: authHeaders() }),
-        fetch('/api/doctors', { headers: authHeaders() })
-    ]);
-    allLabs = await labRes.json();
-    allDoctors = await doctorRes.json();
-    populateDoctorSelect();
-}
-fetchAllLabs();
-
-async function loadServiceMgmt() {
-    await fetchAllLabs();
-    const res = await fetch('/api/packages');
-    const pkgs = await res.json();
-    document.getElementById('svc-list').innerHTML = pkgs.map(p => `<tr>
-        <td><strong>${p.name}</strong></td><td>${formatCurrency(p.price)}</td><td>${p.est_time_minutes}m</td>
-        <td>${(p.laboratories||[]).map(l=>l.lab_name).join(' → ') || 'None'}${p.doctor_name ? ` → Dr. ${p.doctor_name}` : ''}</td>
-        <td>${p.is_available === false ? '<span class="badge badge-danger">Currently Unavailable</span>' : `<span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'Active':'Inactive'}</span>`}</td>
-        <td><button class="btn btn-sm btn-secondary" onclick='editService(${JSON.stringify(p).replace(/'/g,"&apos;")})'><i class="fa-solid fa-pen"></i></button></td>
-    </tr>`).join('');
-}
-
-function editService(pkg) {
-    document.getElementById('svc-edit-id').value = pkg.id;
-    document.getElementById('svc-name').value = pkg.name;
-    document.getElementById('svc-desc').value = pkg.description || '';
-    document.getElementById('svc-price').value = pkg.price;
-    document.getElementById('svc-doctor').value = pkg.doctor_id || '';
-    document.getElementById('svc-modal-title').textContent = 'Edit Service Package';
-    renderLabSequence(pkg.laboratories || []);
-    openModal('svc-modal');
-}
-
-let labSequence = [];
-let draggedLabIndex = null;
-window.dragLab = function(e, i) { draggedLabIndex = i; e.dataTransfer.effectAllowed = 'move'; }
-window.allowDropLab = function(e) { e.preventDefault(); }
-window.dropLab = function(e, targetI) {
-    e.preventDefault();
-    if (draggedLabIndex === null || draggedLabIndex === targetI) return;
-    const item = labSequence.splice(draggedLabIndex, 1)[0];
-    labSequence.splice(targetI, 0, item);
-    renderLabSequence(labSequence);
-}
-
-function renderLabSequence(labs) {
-    labSequence = labs || [];
-    const container = document.getElementById('svc-lab-list');
-    container.innerHTML = labSequence.map((l, i) => `
-        <div class="flex-between" draggable="true" ondragstart="dragLab(event, ${i})" ondragover="allowDropLab(event)" ondrop="dropLab(event, ${i})" style="padding:8px;background:var(--bg-input);border-radius:8px;margin-bottom:6px;cursor:grab;">
-            <span><i class="fa-solid fa-grip-vertical text-muted mr-sm"></i> <strong>${i+1}.</strong> ${l.lab_name || allLabs.find(x=>x.id==l.laboratory_id)?.name || 'Lab #'+l.laboratory_id}</span>
-            <button class="btn btn-sm btn-danger btn-icon" onclick="removeLabStep(${i})"><i class="fa-solid fa-trash"></i></button>
-        </div>
-    `).join('');
-}
-
-function addLabToSequence() {
-    const sel = document.getElementById('lab-select-dropdown');
-    sel.innerHTML = allLabs.map(l => `<option value="${l.id}">${l.name} (${l.service_type})</option>`).join('');
-    openModal('select-lab-modal');
-}
-window.confirmAddLab = function() {
-    const sel = document.getElementById('lab-select-dropdown').value;
-    if (sel) { labSequence.push({ laboratory_id: parseInt(sel), est_time_minutes: 10 }); renderLabSequence(labSequence); }
-    closeModal('select-lab-modal');
-}
-function removeLabStep(i) { labSequence.splice(i, 1); renderLabSequence(labSequence); }
-
-async function saveService() {
-    const id = document.getElementById('svc-edit-id').value;
-    let finalLabs = labSequence;
-    let est_time_minutes = 15;
-    try {
-        const estRes = await fetch('/api/packages/estimate-time', {
-            method: 'POST', headers: authHeaders(), body: JSON.stringify({ laboratories: labSequence })
-        });
-        const estData = await estRes.json();
-        est_time_minutes = estData.total;
-        finalLabs = estData.laboratories;
-    } catch(err) { console.warn('AI Estimation failed'); }
-
-    const body = {
-        name: document.getElementById('svc-name').value,
-        description: document.getElementById('svc-desc').value,
-        price: parseFloat(document.getElementById('svc-price').value),
-        est_time_minutes: est_time_minutes,
-        laboratories: finalLabs,
-        doctor_id: document.getElementById('svc-doctor').value || null
-    };
-    const url = id ? `/api/packages/${id}` : '/api/packages';
-    const method = id ? 'PUT' : 'POST';
-    const res = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(body) });
-    if (res.ok) { closeModal('svc-modal'); showToast('Saved!', 'success'); loadServiceMgmt(); }
-    else showToast('Failed to save', 'error');
-}
-
-function prepareNewService() {
-    document.getElementById('svc-edit-id').value = '';
-    document.getElementById('svc-name').value = '';
-    document.getElementById('svc-desc').value = '';
-    document.getElementById('svc-price').value = '';
-    document.getElementById('svc-doctor').value = '';
-    document.getElementById('svc-modal-title').textContent = 'Add Service Package';
-    renderLabSequence([]);
-    openModal('svc-modal');
-}
-
-function populateDoctorSelect() {
-    const select = document.getElementById('svc-doctor');
-    if (!select) return;
-    select.innerHTML = '<option value="">No doctor consultation</option>' +
-        allDoctors.map(d => `<option value="${d.id}">${d.name}${d.specialty ? ` (${d.specialty})` : ''}</option>`).join('');
-}

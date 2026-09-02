@@ -1,0 +1,106 @@
+# ── Local / on-premise stack: the app plus its database ─────────────────────
+#
+#   docker compose up --build
+#
+# Reads .env from this directory for the ${...} values below. The three marked
+# `:?` have no sensible default and stop the stack with a named error rather
+# than booting something insecure - see DOCKER.md.
+#
+# For a hosting platform (Railway, Render, Fly) you generally use the Dockerfile
+# alone and attach that platform's own managed MySQL, setting the same DB_*
+# variables in its dashboard. This file is what you want for a clinic running
+# the system on its own machine, and for testing the image locally.
+
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD in .env}
+      # The image creates this database and this user on first boot, granting
+      # the user everything on that one database. initDB() then builds the
+      # tables inside it, and tolerates having no server-wide CREATE grant.
+      MYSQL_DATABASE: ${DB_NAME:-clinic_v2}
+      MYSQL_USER: ${DB_USER:-clinic}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      TZ: ${TZ:-Asia/Manila}
+    command: >
+      --default-time-zone=${DB_TIME_ZONE:-+08:00}
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    volumes:
+      # The clinic's actual records. Named volume rather than a bind mount so it
+      # survives `docker compose down` - only `down -v` destroys it.
+      - db_data:/var/lib/mysql
+    healthcheck:
+      # CMD-SHELL because the password has to come from the container's own
+      # environment; the exec form does not expand variables. `$$` is how
+      # compose passes a literal `$` through to the shell.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      # A cold volume spends a while initialising before it answers at all.
+      start_period: 40s
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    # Reaps zombies and makes sure signals reach node, so the graceful shutdown
+    # in server.js actually runs on `docker compose stop`.
+    init: true
+    depends_on:
+      db:
+        # Waits for the healthcheck above, not merely for the container to
+        # exist. The app also retries the connection itself
+        # (DB_CONNECT_RETRIES), so a slow database delays the boot instead of
+        # failing it.
+        condition: service_healthy
+    # Everything in .env reaches the container, and the block below overrides
+    # only what has to differ inside it. This replaced an explicit allow-list of
+    # variables, which was the wrong shape for the job: the list omitted
+    # BETTER_AUTH_SECRET and the app crash-looped on boot, and that variable is
+    # read by the better-auth library itself rather than by any
+    # `process.env.X` this repository could be grepped for. An allow-list can
+    # only ever enumerate what we already know about.
+    env_file:
+      - .env
+    environment:
+      PORT: 3000
+      TZ: ${TZ:-Asia/Manila}
+
+      # REQUIRED. Signs the 8-hour session tokens. Generate one with:
+      #   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+      # Named here as well as in .env so a missing value stops the stack with
+      # this message instead of booting on the hardcoded development default.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env - do not deploy without it}
+
+      # `db` is the service name above, which is the hostname on the compose
+      # network. Not localhost: inside a container that means the container.
+      # These four override whatever .env says, because .env is written for
+      # running against a MySQL on the host.
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-clinic_v2}
+      DB_USER: ${DB_USER:-clinic}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      # The database is on the compose network, not the open internet, so TLS
+      # would be encrypting a hop that never leaves the host. Set DB_SSL in the
+      # platform's dashboard when pointing at a managed database instead.
+      DB_SSL: ""
+
+      # Set this in any environment that has a URL. The seed accounts' default
+      # passwords are published in example_accounts.md, so on a fresh database
+      # without this, "owner1" / "owner123" is a working administrator login for
+      # anyone who finds the site. Applies at account creation only - a password
+      # changed afterwards is never overwritten.
+      SEED_PASSWORD: ${SEED_PASSWORD:-}
+
+    ports:
+      # Host:container. Change APP_PORT if 3000 is taken on the host machine;
+      # the container always listens on 3000.
+      - "${APP_PORT:-3000}:3000"
+
+volumes:
+  db_data:

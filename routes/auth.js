@@ -4,11 +4,12 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const { pool } = require('../database');
+const sessionActivity = require('../session_activity');
 const multer = require('multer');
 const aiServices = require('../ai_services');
 const { JWT_SECRET } = require('../config');
 const { sendLoginOTP, verifyLoginOTP } = require('../lib/better_auth_bridge');
-const { sendPasswordResetEmail } = require('../email_service');
+const { sendOtpEmail, sendPasswordResetEmail } = require('../email_service');
 const upload = multer({ dest: 'uploads/' });
 
 // Simple in-memory rate limiter (per IP + route)
@@ -103,9 +104,12 @@ async function issueSessionToken(user, res) {
         { id: user.id, username: user.username, role: user.role, category: user.customer_category },
         JWT_SECRET, { expiresIn: '8h' }
     );
-    // Track staff login
+    // Track staff login, and start the 15-minute inactivity clock for this
+    // session (session_activity.js) so a fresh sign-in is never treated as the
+    // continuation of an idle one.
     if (user.role !== 'customer') {
-        await pool.query('INSERT INTO staff_sessions (user_id) VALUES (?)', [user.id]);
+        await pool.query('INSERT INTO staff_sessions (user_id, last_activity) VALUES (?, NOW())', [user.id]);
+        await sessionActivity.start(user.id);
     }
     res.json({
         success: true, token, role: user.role,
@@ -120,6 +124,15 @@ router.post('/login', rateLimit(10, 60 * 1000), async (req, res) => {
         const [rows] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
         if (rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
         const user = rows[0];
+
+        // A walk-in was registered at the counter by staff, for somebody with no
+        // phone - nobody ever chose a password for it, so there is nothing to
+        // sign in with. Refused here rather than left to fail the hash compare,
+        // so a random password can never be walked into by accident. The wording
+        // matches a wrong password exactly: whether a given name is on file is
+        // not something an unauthenticated caller should be able to probe.
+        if (user.is_walk_in) return res.status(401).json({ error: 'Invalid credentials' });
+
         const match = await bcrypt.compare(password, user.password_hash);
         if (!match) return res.status(401).json({ error: 'Invalid credentials' });
 
@@ -234,21 +247,34 @@ router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ na
         // is authoritative (OCR name extraction is unreliable); OCR only fills in
         // gaps if the client somehow sent a blank name.
         let category = 'Regular', gender = null, birthday = null, detectedName = full_name.trim().slice(0, 255);
-        let frontIdPath = null, backIdPath = null;
+        // The ID images are read and discarded within this request - nothing
+        // about them is stored. They used to be kept on disk and their paths
+        // written to pending_registrations, but no screen ever displayed them:
+        // the paths existed only so the files could be deleted later, on
+        // completion or expiry. Retaining a customer's identity document for a
+        // deletion that may never run is the wrong default for a clinic, so the
+        // columns are now always written null and the file is gone before the
+        // response is sent.
+        const frontIdPath = null, backIdPath = null;
         if (!isUnderage) {
             const frontFile = req.files['frontId'][0];
             const backFile = req.files['backId'][0];
-            frontIdPath = frontFile.path;
-            backIdPath = backFile.path;
             const ocrData = await aiServices.ocrScan(frontFile.path);
             if (ocrData.idType === 'Senior' || ocrData.idType === 'Elderly') category = 'Senior';
             else if (ocrData.idType === 'PWD') category = 'PWD';
             if (!detectedName && ocrData.name) detectedName = ocrData.name;
-            if (ocrData.age) {
+            // The printed date when the reader could make it out; otherwise
+            // the year implied by the printed age, which is all the text-only
+            // fallbacks can offer. Deriving it from age when a real date was
+            // read put a patient's birthday a year out and on 1 January.
+            if (/^\d{4}-\d{2}-\d{2}$/.test(ocrData.birthdate || '')) {
+                birthday = ocrData.birthdate;
+            } else if (ocrData.age) {
                 const y = new Date().getFullYear() - ocrData.age;
                 birthday = `${y}-01-01`;
             }
             if (ocrData.gender) gender = ocrData.gender;
+            cleanupUpload(req.files);
         } else {
             cleanupUpload(req.files);
         }
@@ -283,8 +309,15 @@ router.post('/register/step2', rateLimit(5, 10 * 60 * 1000), async (req, res) =>
     try {
         if (!token) return res.status(400).json({ error: 'Registration token required' });
         if (!password || !confirm_password) return res.status(400).json({ error: 'Password and confirmation required' });
+        // Client blocks spaces at the keystroke level, but this is the actual
+        // security boundary — the client can be bypassed. Reject rather than
+        // silently strip, so a caller that sends a space-containing password
+        // (e.g. a direct API call) gets a clear error instead of having it
+        // hashed as a different string than what they sent.
         if (password !== confirm_password) return res.status(400).json({ error: 'Passwords do not match' });
+        if (/\s/.test(password)) return res.status(400).json({ error: 'Password cannot contain spaces' });
         if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+        if (password.length > 16) return res.status(400).json({ error: 'Password cannot exceed 16 characters' });
 
         const [rows] = await pool.query('SELECT * FROM pending_registrations WHERE token = ? AND expires_at > NOW()', [token]);
         if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired registration token' });
@@ -312,8 +345,7 @@ router.post('/register/send-verification', rateLimit(3, 10 * 60 * 1000), async (
         const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
         await pool.query('UPDATE pending_registrations SET otp_code = ?, otp_expires_at = ?, otp_attempts = 0 WHERE token = ?', [otp, otpExpires, token]);
 
-        // Mock email sending
-        console.log(`[MOCK EMAIL TO ${rows[0].email}] Your verification code: ${otp}`);
+        await sendOtpEmail(rows[0].email, otp);
 
         res.json({ success: true, message: 'Verification code sent to your email.' });
     } catch (err) {
@@ -324,9 +356,10 @@ router.post('/register/send-verification', rateLimit(3, 10 * 60 * 1000), async (
 
 // Step 4: Verify OTP and create account
 router.post('/register/verify-otp', rateLimit(10, 10 * 60 * 1000), async (req, res) => {
-    const { token, otp } = req.body || {};
+    const { token, otp, terms_accepted } = req.body || {};
     try {
         if (!token || !otp) return res.status(400).json({ error: 'Token and OTP required' });
+        if (!terms_accepted) return res.status(400).json({ error: 'You must accept the Terms and Conditions to create an account' });
 
         const [rows] = await pool.query('SELECT * FROM pending_registrations WHERE token = ? AND expires_at > NOW() AND password_hash IS NOT NULL AND otp_code IS NOT NULL AND otp_expires_at > NOW()', [token]);
         if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired registration token or OTP' });
@@ -343,8 +376,8 @@ router.post('/register/verify-otp', rateLimit(10, 10 * 60 * 1000), async (req, r
 
         // Create the actual user account
         const [result] = await pool.query(
-            `INSERT INTO users (username, password_hash, role, customer_category, email, full_name, birthday, gender, verification_method, is_underage, guardian_name, guardian_contact, guardian_relationship)
-             VALUES (?, ?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO users (username, password_hash, role, customer_category, email, full_name, birthday, gender, verification_method, is_underage, guardian_name, guardian_contact, guardian_relationship, terms_accepted_at)
+             VALUES (?, ?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
             [pending.username, pending.password_hash, pending.detected_category, pending.email || '', pending.detected_name || pending.username, pending.detected_birthday, pending.detected_gender, pending.verification_method, pending.is_underage ? 1 : 0, pending.guardian_name || '', pending.guardian_contact || '', pending.guardian_relationship || '']
         );
         await pool.query('UPDATE users SET customer_uid=? WHERE id=?', [makeCustomerUid(result.insertId), result.insertId]);
@@ -376,18 +409,53 @@ router.post('/register/abandon', rateLimit(20, 10 * 60 * 1000), async (req, res)
 router.post('/forgot-password', rateLimit(3, 10 * 60 * 1000), async (req, res) => {
     const { username } = req.body || {};
     try {
+        // Always issue an opaque session token in the response, whether or not the
+        // account exists — otherwise "did a token come back" becomes an account
+        // enumeration oracle. A token for a nonexistent account just never matches
+        // any row's reset_token later, so it fails the same way an expired one does.
+        const resetToken = generateToken();
         const [rows] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
         if (rows.length > 0 && rows[0].email) {
-            const resetToken = generateToken();
-            await pool.query('UPDATE users SET reset_token = ?, reset_expiry = DATE_ADD(NOW(), INTERVAL 1 HOUR) WHERE id = ?', [resetToken, rows[0].id]);
-            const resetLink = `${req.protocol}://${req.get('host')}/reset-password.html?token=${resetToken}`;
-            await sendPasswordResetEmail(rows[0].email, resetLink);
+            const otp = generateOTP();
+            await pool.query(
+                'UPDATE users SET reset_token = ?, reset_expiry = DATE_ADD(NOW(), INTERVAL 15 MINUTE), reset_otp = ?, reset_otp_attempts = 0 WHERE id = ?',
+                [resetToken, otp, rows[0].id]
+            );
+            await sendPasswordResetEmail(rows[0].email, otp);
         }
-        // Always respond the same way regardless of whether the account/email exists, so this endpoint can't be used to enumerate accounts.
-        res.json({ success: true, message: 'If the account exists, reset instructions were sent.' });
+        res.json({ success: true, message: 'If the account exists, a verification code was sent.', token: resetToken });
     } catch (err) {
         console.error('Forgot password error:', err);
         res.status(500).json({ error: 'Error processing request' });
+    }
+});
+
+// Verifies the emailed code before the client is allowed to proceed to the
+// "new password" step. Clearing reset_otp here is what /reset-password below
+// requires — a password can only be set after this step has succeeded.
+router.post('/reset-password/verify-otp', rateLimit(10, 10 * 60 * 1000), async (req, res) => {
+    const { token, otp } = req.body || {};
+    try {
+        if (!token || !otp) return res.status(400).json({ error: 'Token and code required' });
+        const [rows] = await pool.query('SELECT * FROM users WHERE reset_token = ? AND reset_expiry > NOW()', [token]);
+        if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired session. Please request a new code.' });
+
+        const user = rows[0];
+        if (user.reset_otp === null) return res.status(400).json({ error: 'Code already verified.' });
+        if (user.reset_otp_attempts >= 5) {
+            await pool.query('UPDATE users SET reset_token = NULL, reset_expiry = NULL, reset_otp = NULL WHERE id = ?', [user.id]);
+            return res.status(429).json({ error: 'Too many failed attempts. Please request a new code.' });
+        }
+        if (user.reset_otp !== otp) {
+            await pool.query('UPDATE users SET reset_otp_attempts = reset_otp_attempts + 1 WHERE id = ?', [user.id]);
+            return res.status(400).json({ error: 'Invalid code' });
+        }
+
+        await pool.query('UPDATE users SET reset_otp = NULL WHERE id = ?', [user.id]);
+        res.json({ success: true, message: 'Code verified. Choose a new password.' });
+    } catch (err) {
+        console.error('Reset password verify-otp error:', err);
+        res.status(500).json({ error: 'Failed to verify code' });
     }
 });
 
@@ -395,11 +463,13 @@ router.post('/reset-password', rateLimit(5, 10 * 60 * 1000), async (req, res) =>
     const { token, newPassword } = req.body || {};
     try {
         if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password required' });
+        if (/\s/.test(newPassword)) return res.status(400).json({ error: 'Password cannot contain spaces' });
         if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-        const [rows] = await pool.query('SELECT * FROM users WHERE reset_token = ? AND reset_expiry > NOW()', [token]);
-        if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired reset link' });
+        if (newPassword.length > 16) return res.status(400).json({ error: 'Password cannot exceed 16 characters' });
+        const [rows] = await pool.query('SELECT * FROM users WHERE reset_token = ? AND reset_expiry > NOW() AND reset_otp IS NULL', [token]);
+        if (rows.length === 0) return res.status(400).json({ error: 'Verification required before resetting your password.' });
         const hash = await bcrypt.hash(newPassword, 10);
-        await pool.query('UPDATE users SET password_hash = ?, reset_token = NULL, reset_expiry = NULL WHERE id = ?', [hash, rows[0].id]);
+        await pool.query('UPDATE users SET password_hash = ?, reset_token = NULL, reset_expiry = NULL, reset_otp = NULL, reset_otp_attempts = 0 WHERE id = ?', [hash, rows[0].id]);
         res.json({ success: true, message: 'Password reset successfully!' });
     } catch (err) {
         console.error('Reset password error:', err);
@@ -417,7 +487,13 @@ router.post('/ocr', upload.single('idImage'), async (req, res) => {
         if (ocrData.idType === 'Senior' || ocrData.idType === 'Elderly') category = 'Senior';
         else if (ocrData.idType === 'PWD') category = 'PWD';
         if (ocrData.name) detectedName = ocrData.name;
-        if (ocrData.age) {
+        // The printed date when the reader could make it out; otherwise the
+        // year implied by the printed age, which is all the text-only fallbacks
+        // can offer. Deriving it from age when a real date was read put a
+        // patient's birthday a year out and on the 1st of January.
+        if (/^\d{4}-\d{2}-\d{2}$/.test(ocrData.birthdate || '')) {
+            birthday = ocrData.birthdate;
+        } else if (ocrData.age) {
             const y = new Date().getFullYear() - ocrData.age;
             birthday = `${y}-01-01`;
         }

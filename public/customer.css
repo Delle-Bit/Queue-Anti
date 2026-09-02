@@ -31,6 +31,30 @@
     display: flex; align-items: center; gap: 10px; padding: 10px 14px;
     background: var(--bg-input); border-radius: var(--radius-sm);
 }
+/* Appointment fee breakdown, inside the dark .payment-card. */
+.appt-fee-line {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; font-size: 0.85em;
+    color: rgba(255,255,255,0.72);
+    padding: 4px 0;
+}
+.appt-fee-line + .appt-fee-line { border-top: 1px solid rgba(255,255,255,0.1); }
+
+.appt-pay-note {
+    display: flex; align-items: flex-start; gap: 10px;
+    margin-top: 14px; padding-top: 12px;
+    border-top: 1px solid rgba(255,255,255,0.15);
+    font-size: 0.78em; line-height: 1.5;
+    color: rgba(255,255,255,0.7);
+}
+.appt-pay-note i { margin-top: 2px; flex-shrink: 0; font-size: 1.1em; }
+.appt-pay-note strong { color: #fff; }
+
+/* The front desk step: mandatory cashier stop every service starts with. */
+.pkg-lab-item-required {
+    background: var(--danger-light);
+    border-left: 3px solid var(--primary);
+}
 .pkg-lab-num { width: 28px; height: 28px; border-radius: 50%; background: var(--primary); color: #fff;
     display: flex; align-items: center; justify-content: center; font-size: 0.75em; font-weight: 700; flex-shrink: 0; }
 .pkg-lab-info { flex: 1; }
@@ -55,7 +79,7 @@
     font-size: 0.85em;
 }
 
-.time-slot:hover:not(.disabled):not(.full):not(.closed) {
+.time-slot:hover:not(.disabled):not(.full):not(.closed):not(.past) {
     border-color: var(--primary);
     color: var(--primary);
 }
@@ -66,10 +90,26 @@
     border-color: var(--primary);
 }
 
-.time-slot.disabled, .time-slot.full, .time-slot.closed {
+.time-slot.disabled, .time-slot.full, .time-slot.closed, .time-slot.past {
     opacity: 0.5;
     cursor: not-allowed;
     background: var(--bg-body);
+}
+
+/* A slot on today that has already started. Distinct from .full (booked by
+   someone) so the customer can tell why it is unavailable. */
+.time-slot.past {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-decoration: line-through;
+    color: var(--text-muted);
+}
+.time-slot.past::after {
+    content: 'Passed';
+    font-size: 0.72em;
+    font-weight: 700;
+    text-decoration: none;
 }
 
 .time-slot.full {
@@ -255,6 +295,7 @@
    and is inset by half a step so it runs from the first node centre to the last. */
 .queue-track-rail {
     position: absolute;
+    z-index: 0;
     top: 14px;
     left: calc(100% / var(--track-count, 4) / 2);
     right: calc(100% / var(--track-count, 4) / 2);
@@ -296,10 +337,19 @@
     display: grid;
     place-items: center;
     border-radius: 50%;
-    background: #fff;
+    /* Opaque, and card-coloured rather than #fff: the rail runs behind the
+       circle, so a transparent or wrongly-themed fill shows it straight
+       through the middle of the badge. #fff was also a white disc on the
+       dark theme. */
+    background: var(--bg-card);
     border: 3px solid var(--border);
     color: var(--text-muted);
     font-size: 0.8em;
+    /* Lifts the badge above the rail. Without this the node paints in the
+       non-positioned layer and the absolutely positioned rail lands on top
+       of it. */
+    position: relative;
+    z-index: 1;
     transition: var(--transition);
 }
 
@@ -369,6 +419,17 @@
     opacity: 0.38;
 }
 
+/* A date that has already passed. Not bookable, so it reads as inert rather
+   than as a button - and :hover/:selected must not light it up. */
+.calendar-day.past,
+.calendar-day.past:hover {
+    opacity: 0.3;
+    cursor: not-allowed;
+    background: none;
+    color: var(--text-muted);
+    text-decoration: line-through;
+}
+
 .calendar-day.has-booking::after {
     content: '';
     position: absolute;
@@ -410,4 +471,14 @@
     #mandatory-med-modal .modal-body [style*="grid-template-columns"] {
         grid-template-columns: 1fr !important;
     }
+}
+
+/* Service card meta row: category badge + service ID, so the customer can
+   search by either and see what they matched on. */
+.pkg-card-tags {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 6px 0 10px;
 }

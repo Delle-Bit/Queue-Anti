@@ -11,6 +11,10 @@ dotenv.config();
 const NV_INVOKE_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 const NV_API_KEY = process.env.NVIDIA_API_KEY;
 
+// Gemini configuration (store token in .env as GEMINI_API_KEY) - primary provider for the Virtual Assistant
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
 // Pytesseract OCR script path - configurable via env var, fallback to project-local script
 const PYTESSERACT_SCRIPT = process.env.PYTESSERACT_SCRIPT || path.join(__dirname, 'pytesseract_ocr.py');
 
@@ -86,6 +90,43 @@ async function nvidiaChat(systemPrompt, messages) {
     return res.data?.choices?.[0]?.message?.content || null;
   } catch (e) {
     console.error('[NVIDIA Chat] Request failed:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Calls Google Gemini 2.5 Flash for the Virtual Assistant dialogue.
+ * Primary provider for `assistantDialogue`; falls back to `nvidiaChat` when this
+ * returns null (missing key, quota, network issue) so a demo never goes silent.
+ * Returns the assistant reply text, or null when unavailable.
+ */
+async function geminiChat(systemPrompt, messages) {
+  if (!GEMINI_API_KEY) {
+    console.warn('[Gemini Chat] GEMINI_API_KEY not configured, skipping');
+    return null;
+  }
+
+  const contents = messages.map(m => ({
+    role: m.role === 'user' ? 'user' : 'model',
+    parts: [{ text: m.content }]
+  }));
+
+  const payload = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    contents,
+    generationConfig: { temperature: 0.3, topP: 0.95, maxOutputTokens: 1024 }
+  };
+
+  try {
+    const res = await axios.post(GEMINI_URL, payload, {
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
+      timeout: 15000
+    });
+    const parts = res.data?.candidates?.[0]?.content?.parts || [];
+    const text = parts.map(p => p.text || '').join('').trim();
+    return text || null;
+  } catch (e) {
+    console.error('[Gemini Chat] Request failed:', e.response?.data?.error?.message || e.message);
     return null;
   }
 }
@@ -343,7 +384,34 @@ async function checkAIToggle(featureName) {
     return true; // default true
 }
 
+// Features whose payloads are a customer's identity document. The uploaded
+// image is deleted inside the request that reads it, so writing the fields
+// lifted off it into ai_logs would put the same data back on disk by another
+// route - a name, birth date, ID number and address, indefinitely, in a table
+// nothing needs them in. For these, the log records that a scan happened and
+// which fields came back, not what they said.
+const IDENTITY_FEATURES = /ocr|id scanning/i;
+
+const IDENTITY_SAFE_KEYS = ['idType', 'category', 'source', 'model'];
+
+function redactIdentityPayload(value) {
+    if (!value || typeof value !== 'object') return { redacted: true };
+    const kept = {};
+    for (const key of IDENTITY_SAFE_KEYS) {
+        if (value[key] !== undefined && value[key] !== null) kept[key] = value[key];
+    }
+    // Field names only - enough to tell a failed read from a partial one when
+    // somebody asks why a registration prefilled badly.
+    kept.fields_returned = Object.keys(value).filter(k =>
+        !IDENTITY_SAFE_KEYS.includes(k) && value[k] !== null && value[k] !== '' && value[k] !== 0);
+    return kept;
+}
+
 async function logAI(feature, input, output) {
+    if (IDENTITY_FEATURES.test(String(feature || ''))) {
+        input = { redacted: 'identity document' };
+        output = redactIdentityPayload(output);
+    }
     try {
         await pool.query(
             'INSERT INTO ai_logs (feature, input_data, output_data) VALUES (?, ?, ?)',
@@ -352,6 +420,202 @@ async function logAI(feature, input, output) {
     } catch (e) {
         console.error('Error logging AI', e);
     }
+}
+
+// HuggingFace retired api-inference.huggingface.co - the hostname no longer
+// resolves at all, so every primary call was failing at DNS and falling through
+// to the local logic. Inference now goes through the router, which routes to a
+// provider: hf-inference is HuggingFace's own. Verified against the live API -
+// this path answers, while router.huggingface.co/models/<model> returns 404.
+//
+// One constant rather than eight literals, and overridable, so the next time
+// they move it this is a line in .env instead of a hunt through the file.
+const HF_INFERENCE_BASE = process.env.HF_INFERENCE_BASE
+  || 'https://router.huggingface.co/hf-inference/models';
+
+const hfModel = (model) => `${HF_INFERENCE_BASE}/${model}`;
+
+// Which features actually have a model behind them.
+//
+// OCR (trocr, image-to-text) and report generation (gpt2, text-generation) ask
+// a model something it can answer, and they now work once the token is valid.
+//
+// The six analytics features did not. They posted queue figures to
+// distilbert-base-uncased, a masked-language model: it replies with fill-mask
+// predictions - [{ score, token_str, sequence }] - which have no bearing on how
+// long a station takes. Because the primary's response is returned as the
+// feature's answer, a *successful* call was worse than a failed one: with a
+// working endpoint, `serviceTimeEstimation` returned an object with no
+// estimatedMins, and /api/packages/estimate-time answered
+// est_time_minutes: null for every station. That went unnoticed only because
+// the old hostname had stopped resolving, so the local logic always ran.
+//
+// So those six pass no endpoint and use their local logic directly, which is
+// exactly what they have been doing in practice. To put a real model behind one
+// of them, give it an endpoint whose response the feature's caller can actually
+// read - not this one.
+
+// HuggingFace wants { inputs: ... }; this code was posting its own shapes
+// ({ image: ... }, or a raw analytics object), which a live endpoint rejects as
+// a 400. Kept narrow deliberately: it converts what the callers already pass
+// into the documented envelope rather than inventing a new one.
+function hfPayload(data) {
+  if (data == null) return { inputs: '' };
+  if (typeof data === 'string') return { inputs: data };
+  if (data.image) return { inputs: data.image };
+  if (data.inputs !== undefined) return data;
+  return { inputs: JSON.stringify(data) };
+}
+
+// ── GEMINI ID READER ────────────────────────────────────────────────────
+// Primary OCR for registration ID photos.
+//
+// This replaces microsoft/trocr-base-handwritten, which never had a chance at
+// the job: it is a single-line *handwriting* recognizer, and it was being
+// handed `{ image: '<file path>' }` - the path string, not the image - so the
+// call could not have worked even against a live endpoint. Gemini is
+// multimodal: it reads the whole card in one request.
+//
+// It also returns the fields directly rather than a wall of text, which retires
+// the regex guessing in parseSimpleOcr for the common case: responseSchema
+// makes the model answer in a fixed JSON shape instead of prose we then have to
+// pattern-match. parseSimpleOcr stays for the fallbacks, which still return
+// raw text.
+//
+// The key goes in the x-goog-api-key header rather than ?key= in the URL, so it
+// does not end up in an access log or an error message.
+const GEMINI_BASE = process.env.GEMINI_BASE
+  || 'https://generativelanguage.googleapis.com/v1beta';
+// Pinned, not `gemini-flash-latest`: an alias can be repointed at a new model
+// underneath a running clinic, and this one reads identity documents. Google
+// refuses gemini-2.5-flash for keys issued now ("no longer available to new
+// users") and names 3.6-flash as the replacement. Override per deployment with
+// GEMINI_OCR_MODEL.
+const GEMINI_OCR_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-3.6-flash';
+
+const GEMINI_MIME_BY_EXT = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+  '.webp': 'image/webp', '.heic': 'image/heic', '.heif': 'image/heif'
+};
+
+// The shape the registration flow reads back: routes/auth.js uses idType, name,
+// age and gender; the rest prefills the form the customer would otherwise type
+// out by hand.
+const GEMINI_ID_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string', description: 'Full name exactly as printed, or empty if unreadable' },
+    idType: {
+      type: 'string',
+      enum: ['Senior', 'PWD', 'Pregnant', 'Regular', 'Unknown'],
+      description: 'Senior for a senior citizen or OSCA card, PWD for a person-with-disability card, Regular for any other government ID, Unknown if it cannot be told'
+    },
+    age: { type: 'integer', description: 'Age in years if printed or derivable from a birth date, else 0' },
+    birthdate: { type: 'string', description: 'ISO yyyy-mm-dd if printed, else empty' },
+    // 'Unknown' rather than an empty option: Gemini rejects a schema with an
+    // empty string in an enum (enum[n]: cannot be empty), and the whole request
+    // 400s - which sent every scan to the fallback.
+    gender: { type: 'string', enum: ['Male', 'Female', 'Unknown'], description: 'Unknown if not printed' },
+    idNumber: { type: 'string', description: 'The card or licence number, else empty' },
+    address: { type: 'string', description: 'Address as printed, else empty' },
+    text: { type: 'string', description: 'All text visible on the card, for the record' }
+  },
+  required: ['name', 'idType', 'age', 'gender', 'text']
+};
+
+const GEMINI_ID_PROMPT = [
+  'You are reading a photograph of a Philippine government-issued identification card',
+  'for a medical clinic registration desk. Transcribe only what is printed on the card.',
+  'Do not guess a name, a number or a date that you cannot actually read - return an',
+  'empty string for anything unreadable and 0 for an unknown age. If the card is a',
+  'senior citizen (OSCA) card use idType "Senior"; if it is a PWD card use "PWD";',
+  'any other valid ID is "Regular".'
+].join(' ');
+
+// Accepts a file path (what routes/auth.js passes) or a raw base64 string, the
+// same two shapes pytesseract_ocr.py tolerates.
+function geminiImagePart(imageData) {
+  if (typeof imageData !== 'string') return null;
+  if (fs.existsSync(imageData)) {
+    const ext = path.extname(imageData).toLowerCase();
+    return {
+      inline_data: {
+        mime_type: GEMINI_MIME_BY_EXT[ext] || 'image/jpeg',
+        data: fs.readFileSync(imageData).toString('base64')
+      }
+    };
+  }
+  // Strips a data: URL prefix if one came through.
+  const base64 = imageData.replace(/^data:[^;]+;base64,/, '');
+  if (base64.length < 32) return null;
+  return { inline_data: { mime_type: 'image/jpeg', data: base64 } };
+}
+
+// Returns the parsed fields, or null so the caller falls through to the local
+// chain. Never throws: a registration must not fail because OCR did.
+async function geminiIdScan(imageData) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+
+  const imagePart = geminiImagePart(imageData);
+  if (!imagePart) {
+    console.warn('[Gemini OCR] No readable image supplied');
+    return null;
+  }
+
+  try {
+    const res = await axios.post(
+      `${GEMINI_BASE}/models/${GEMINI_OCR_MODEL}:generateContent`,
+      {
+        contents: [{ parts: [{ text: GEMINI_ID_PROMPT }, imagePart] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: GEMINI_ID_SCHEMA,
+          temperature: 0
+        }
+      },
+      { headers: { 'x-goog-api-key': apiKey }, timeout: 30000 }
+    );
+
+    const raw = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!raw) {
+      console.warn('[Gemini OCR] Empty response');
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    const age = Number(parsed.age) || 0;
+    const result = {
+      name: (parsed.name || '').trim(),
+      // 'Unknown' is the model saying it could not tell, which is not a
+      // customer category - the desk treats it as Regular and can correct it.
+      idType: parsed.idType && parsed.idType !== 'Unknown' ? parsed.idType : 'Regular',
+      age,
+      gender: parsed.gender && parsed.gender !== 'Unknown' ? parsed.gender : null,
+      birthdate: parsed.birthdate || null,
+      idNumber: parsed.idNumber || null,
+      address: parsed.address || null,
+      text: parsed.text || '',
+      source: 'gemini'
+    };
+    result.category = result.idType;
+
+    // Nothing legible means nothing to prefill; better to hand over to
+    // pytesseract than to return a confidently empty form.
+    if (!result.name && !result.age && !result.text) {
+      console.warn('[Gemini OCR] Nothing legible on the card');
+      return null;
+    }
+
+    // logAI redacts identity payloads - see IDENTITY_FEATURES.
+    await logAI('ID Scanning OCR (Gemini)', { model: GEMINI_OCR_MODEL }, result);
+    return result;
+  } catch (err) {
+    const status = err.response ? err.response.status : err.code;
+    const detail = err.response?.data?.error?.message || err.message;
+    console.warn(`[Gemini OCR] Failed (${status}): ${String(detail).slice(0, 160)}`);
+    return null;
+  }
 }
 
 async function callMockAI(featureKey, endpoint, apiKey, data, firstFallback, mockFallback, featureLogName) {
@@ -378,7 +642,9 @@ async function callMockAI(featureKey, endpoint, apiKey, data, firstFallback, moc
     }
 
     // 3. Try mock fallback
-    if (mockFallback) {
+    // Type-checked, not truthiness-checked: with the arguments shifted, a log
+    // name sat in this slot and was called as a function.
+    if (typeof mockFallback === 'function') {
       try {
         return await mockFallback(data);
       } catch (mockErr) {
@@ -389,10 +655,13 @@ async function callMockAI(featureKey, endpoint, apiKey, data, firstFallback, moc
     return null;
   };
 
-  if (isEnabled) {
+  // No endpoint means there is no remote model worth asking - the feature's
+  // local logic is the answer, not a fallback from one. See the note on
+  // hfModel() below for which features are which and why.
+  if (isEnabled && endpoint) {
     try {
       // Primary API call (may fail)
-      const res = await axios.post(endpoint, data, {
+      const res = await axios.post(endpoint, hfPayload(data), {
         headers: { Authorization: `Bearer ${apiKey}` },
         timeout: 10000
       });
@@ -402,8 +671,9 @@ async function callMockAI(featureKey, endpoint, apiKey, data, firstFallback, moc
       output = await runFallbackChain();
     }
   } else {
-    // Feature disabled – still run fallback chain
-    console.log(`[AI Disabled] ${featureLogName}`);
+    // Feature disabled, or no remote model for it – run the local chain.
+    if (isEnabled) console.log(`[AI Local] ${featureLogName}`);
+    else console.log(`[AI Disabled] ${featureLogName}`);
     output = await runFallbackChain();
   }
 
@@ -417,19 +687,31 @@ async function callMockAI(featureKey, endpoint, apiKey, data, firstFallback, moc
 
 const aiServices = {
     ocrScan: async (imageData) => {
-        // Primary OCR model (HuggingFace TroCR) – may fail.
-        // First fallback: pytesseract OCR via local Python script.
-        // Second fallback (automatic inside callMockAI): NVIDIA Nemotron‑3.
+        // Gemini reads the card and returns the fields.
+        // First fallback: pytesseract OCR via local Python script (offline).
+        // Second fallback (automatic inside callMockAI): NVIDIA Nemotron-3.
         // Final fallback: mock random category detection.
-        const rawResult = await callMockAI(
-          'ocr',
-          'https://api-inference.huggingface.co/models/microsoft/trocr-base-handwritten',
-          process.env.API_ALLAROUND,
-          { image: imageData },
-          pytesseractOcrFallback,
-          mockOcrFallback,
-          'ID Scanning OCR'
-        );
+        //
+        // Gemini sits outside callMockAI because that helper posts one fixed
+        // request shape; a multimodal call is a different shape, and threading
+        // another callback through those seven parameters is how the argument
+        // order got shifted in the first place. The chain reads top to bottom
+        // here instead.
+        let rawResult = null;
+        if (await checkAIToggle('ocr')) {
+          rawResult = await geminiIdScan(imageData);
+        }
+        if (!rawResult) {
+          rawResult = await callMockAI(
+            'ocr',
+            null,
+            process.env.API_ALLAROUND,
+            { image: imageData },
+            pytesseractOcrFallback,
+            mockOcrFallback,
+            'ID Scanning OCR'
+          );
+        }
         // If the fallback returns raw text only, attempt simple parsing for form prefill
         if (rawResult && rawResult.text && !rawResult.idType) {
           const parsed = parseSimpleOcr(rawResult.text);
@@ -439,45 +721,77 @@ const aiServices = {
     },
 
     anomalyDetection: async (queueData) => {
-        return await callMockAI('anomaly', 'https://api-inference.huggingface.co/models/distilbert-base-uncased', process.env.API_ALLAROUND, queueData, (data) => {
+        return await callMockAI('anomaly', null, process.env.API_ALLAROUND, queueData, (data) => {
             return { anomaly: data.waitTime > 30, reason: "Wait time exceeded threshold of 30 mins" };
-        }, 'Anomaly Detection');
+        }, null, 'Anomaly Detection');
     },
 
+    /**
+     * Announcement Generator — template-based Natural Language Generation, Node.js only (no external API call).
+     * Fills predefined templates with live queue data to produce a ready-to-send announcement draft.
+     * `statusData` = { waitingCount, nextServing, department, avgWaitMinutes }
+     */
     announcementGen: async (statusData) => {
-        return await callMockAI('announcement', 'https://api-inference.huggingface.co/models/gpt2', process.env.API_ALLAROUND, statusData, (data) => {
-            return { message: `The clinic has ${data.waitingCount} patients waiting. Next in line is ${data.nextServing}.` };
-        }, 'Announcement NLP');
+        const isEnabled = await checkAIToggle('announcement');
+        if (!isEnabled) {
+            console.log('[AI Disabled] Announcement Generator');
+            const output = { message: '' };
+            await logAI('Announcement NLG', statusData, output);
+            return output;
+        }
+
+        const waitingCount = Number(statusData?.waitingCount || 0);
+        const nextServing = statusData?.nextServing || null;
+        const department = statusData?.department || 'the clinic';
+        const avgWaitMinutes = statusData?.avgWaitMinutes != null ? Math.round(Number(statusData.avgWaitMinutes)) : null;
+
+        const templates = [];
+        if (waitingCount === 0) {
+            templates.push(`${department} currently has no one waiting. Walk-ins are welcome.`);
+        } else {
+            templates.push(`${department} currently has ${waitingCount} ${waitingCount === 1 ? 'patient' : 'patients'} waiting${nextServing ? `. Now serving ticket ${nextServing}` : ''}.`);
+            if (avgWaitMinutes != null) {
+                templates.push(`Average wait time at ${department} is about ${avgWaitMinutes} minute${avgWaitMinutes === 1 ? '' : 's'} for ${waitingCount} waiting ${waitingCount === 1 ? 'patient' : 'patients'}.`);
+            }
+            if (waitingCount >= 10) {
+                templates.push(`${department} is experiencing higher than usual volume (${waitingCount} waiting). Thank you for your patience.`);
+            }
+        }
+
+        const message = templates[Math.floor(Math.random() * templates.length)] || `Update from ${department}.`;
+        const output = { message };
+        await logAI('Announcement NLG', statusData, output);
+        return output;
     },
 
     cutoffRecommendation: async (metrics) => {
-        return await callMockAI('cutoff', 'https://api-inference.huggingface.co/models/distilbert-base-uncased', process.env.API_ALLAROUND, metrics, (data) => {
+        return await callMockAI('cutoff', null, process.env.API_ALLAROUND, metrics, (data) => {
             const accept = data.queueLength * data.avgServiceTime < 120;
             return { decision: accept ? "ACCEPT" : "STOP", confidence: 0.8 };
-        }, 'Cut-off Recommendation');
+        }, null, 'Cut-off Recommendation');
     },
 
     serviceTimeEstimation: async (data) => {
-        return await callMockAI('estimation', 'https://api-inference.huggingface.co/models/distilbert-base-uncased', process.env.API_ALLAROUND, data, (d) => {
+        return await callMockAI('estimation', null, process.env.API_ALLAROUND, data, (d) => {
             return { estimatedMins: (d.historicalAvg || 15) * 1.1 };
-        }, 'Service Time ML');
+        }, null, 'Service Time ML');
     },
 
     departmentPerformance: async (stats) => {
-        return await callMockAI('performance', 'https://api-inference.huggingface.co/models/distilbert-base-uncased', process.env.API_ALLAROUND, stats, (data) => {
+        return await callMockAI('performance', null, process.env.API_ALLAROUND, stats, (data) => {
             let score = 100 - (data.delayRate * 10) + (data.satisfaction * 10);
             return { efficiencyScore: score, rank: score > 80 ? "High" : "Average" };
-        }, 'Performance Board');
+        }, null, 'Performance Board');
     },
 
     feedbackAnalysis: async (feedbackArray) => {
-        return await callMockAI('feedback', 'https://api-inference.huggingface.co/models/distilbert-base-uncased', process.env.API_ALLAROUND, feedbackArray, (data) => {
+        return await callMockAI('feedback', null, process.env.API_ALLAROUND, feedbackArray, (data) => {
             return { sentiment: "Mixed", issues: ["Long wait times"] };
-        }, 'Feedback NLP');
+        }, null, 'Feedback NLP');
     },
 
     reportGeneration: async (reportData) => {
-        return await callMockAI('report', 'https://api-inference.huggingface.co/models/gpt2', process.env.API_ALLAROUND, reportData, (data) => {
+        return await callMockAI('report', hfModel('gpt2'), process.env.API_ALLAROUND, reportData, (data) => {
             const { period, patientVolume, waitTimeAvg, revenue, topService } = data;
             return {
                 summary: `Reporting Insight for ${period}: The clinic observed a patient volume of ${patientVolume} individuals.
@@ -485,43 +799,52 @@ const aiServices = {
                 Financial performance reached a total revenue of ₱${revenue.toLocaleString()}.
                 The most utilized service was ${topService}. Overall, the system shows stable throughput with opportunities for wait time optimization during peak periods.`
             };
-        }, 'Report Generation');
+        }, null, 'Report Generation');
     },
 
     /**
      * Virtual Assistant dialogue controller.
      * `payload` = { text, history: [{role,text}], context: { packages, queue, customer_name, customer_category } }
-     * Resolution order: NVIDIA chat (system prompt above) → deterministic local intent parser.
+     * Resolution order: Gemini 2.5 Flash → NVIDIA Nemotron-3 (demo-safety fallback) → deterministic local intent parser.
      */
     assistantDialogue: async (payload) => {
         const isEnabled = await checkAIToggle('assistant');
         let output = null;
+        let provider = 'local';
 
         if (isEnabled) {
             const history = (payload.history || []).slice(-6).map(h => ({
                 role: h.role === 'user' ? 'user' : 'assistant',
                 content: String(h.text || '')
             }));
-            const raw = await nvidiaChat(
-                buildAssistantSystemPrompt(payload.context),
-                [...history, { role: 'user', content: String(payload.text || '') }]
-            );
+            const systemPrompt = buildAssistantSystemPrompt(payload.context);
+            const turns = [...history, { role: 'user', content: String(payload.text || '') }];
+
+            let raw = await geminiChat(systemPrompt, turns);
+            if (raw) provider = 'gemini';
+            if (!raw) {
+                raw = await nvidiaChat(systemPrompt, turns);
+                if (raw) provider = 'nvidia';
+            }
             output = parseAssistantReply(raw);
-            if (!output) console.warn('[Virtual Assistant] LLM unavailable or unparseable, using local intent parser');
+            if (!output) {
+                provider = 'local';
+                console.warn('[Virtual Assistant] LLM unavailable or unparseable, using local intent parser');
+            }
         } else {
             console.log('[AI Disabled] Virtual Assistant Dialogue');
         }
 
         if (!output) output = assistantLocalFallback(payload);
 
-        await logAI('Virtual Assistant Dialogue', { text: payload.text }, output);
+        await logAI('Virtual Assistant Dialogue', { text: payload.text, provider }, output);
         return output;
     },
 
     peakHourPrediction: async (historicalData) => {
-        return await callMockAI('prediction', 'https://api-inference.huggingface.co/models/distilbert-base-uncased', process.env.API_ALLAROUND, historicalData, (data) => {
+        return await callMockAI('prediction', null, process.env.API_ALLAROUND, historicalData, (data) => {
             return { peakHour: "10:00 AM", confidence: 0.9 };
-        }, 'Peak Hour ML');
+        }, null, 'Peak Hour ML');
     }
 };
 

@@ -1,0 +1,49 @@
+# ── Development overlay ─────────────────────────────────────────────────────
+#
+#   npm run docker:dev
+#   (i.e. docker compose -f docker-compose.yml -f docker-compose.dev.yml up)
+#
+# Mounts your working copy into the container so editing a file changes what the
+# container serves, instead of needing a rebuild for every keystroke.
+#
+# Named explicitly rather than as docker-compose.override.yml, which compose
+# would merge in automatically. That would be convenient here and wrong on a
+# clinic machine running the stack in production with plain `docker compose up`,
+# where a bind-mounted source tree and a development NODE_ENV are the last
+# things you want.
+
+services:
+  app:
+    environment:
+      NODE_ENV: development
+      # One socket per open page, so this is noisy - but while you are working
+      # on the queue it is the fastest way to see the browser reconnecting.
+      LOG_SOCKETS: ${LOG_SOCKETS:-1}
+    volumes:
+      # The working copy, live. Frontend files need nothing further: there is no
+      # bundler and express.static reads them from disk per request, so editing
+      # public/frontdesk.js and pressing F5 shows the change immediately.
+      - .:/app
+
+      # These two mask the bind mount above, keeping the container's own copies.
+      #
+      # node_modules must not come from the host: bcrypt is a compiled native
+      # addon, and the Windows binary in your working copy cannot load inside a
+      # Linux container. An anonymous volume here keeps the Linux build made
+      # during `docker build`.
+      - /app/node_modules
+      # uploads/ stays inside the container too. Registration writes an ID
+      # image, reads it for OCR and deletes it in the same request - through a
+      # bind mount those would briefly land on your real disk, which is exactly
+      # what the delete-on-read behaviour exists to avoid.
+      - /app/uploads
+
+    # Restarts the server when a backend file changes. `--watch` is built into
+    # Node, so this needs no nodemon and no extra dependency.
+    #
+    # Caveat on Windows and macOS: file-change events do not always cross the
+    # bind mount from the host filesystem, so a backend edit may not trigger
+    # the restart. `docker compose restart app` is the fallback and takes about
+    # two seconds - still far better than a rebuild. Frontend edits are
+    # unaffected either way, since nothing has to restart to serve them.
+    command: ["node", "--watch", "server.js"]

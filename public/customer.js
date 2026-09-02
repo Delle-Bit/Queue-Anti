@@ -34,33 +34,43 @@ window.onQueueUpdate = () => {
 };
 
 // ── DASHBOARD ──────────────────────────────────────────────────
-let lastQueueStatus = null; // tracks 'parked' -> non-parked transitions for the chime/notification
+let lastQueueStatus = null; // tracks 'on-hold' -> active transitions for the chime/notification
+let allPackages = [];       // the Services catalogue, kept for client-side search
+
+// Removes the first-load placeholder. Called as soon as the status is known -
+// including on failure, or it would shimmer indefinitely over a page that is
+// not going to get an answer.
+function settleQueueSkeleton() {
+    document.getElementById('queue-status-skeleton')?.remove();
+}
 
 async function loadDashboard() {
     await checkMandatoryMedicalForm(false);
-    showSectionLoader('active-queue-panel', 'Updating queue status...');
+    // No loader on refresh. This runs every five seconds, and the old overlay
+    // put a blurred scrim over the patient's own ticket number twelve times a
+    // minute; the first load is covered by the placeholder in the markup.
     try {
         const res = await fetch('/api/queue/my-status', { headers: authHeaders() });
         const data = await res.json();
+        settleQueueSkeleton();
         if (!data.active) {
             document.getElementById('no-active-queue').style.display = 'block';
             document.getElementById('active-queue-panel').style.display = 'none';
-            document.getElementById('parked-queue-panel').style.display = 'none';
+            document.getElementById('hold-queue-panel').style.display = 'none';
             lastQueueStatus = null;
-            hideSectionLoader('active-queue-panel');
             return;
         }
         document.getElementById('no-active-queue').style.display = 'none';
 
-        handleParkedTransition(data);
+        handleHoldTransition(data);
 
-        if (data.parked) {
+        if (data.on_hold) {
             document.getElementById('active-queue-panel').style.display = 'none';
-            document.getElementById('parked-queue-panel').style.display = 'block';
-            const station = data.parked_station_name || 'the lab';
-            document.getElementById('parked-instruction').textContent =
-                `Take your time. Once ready, bring your sample to ${station}. Your place in line will resume with priority.`;
-            const readyBtn = document.getElementById('parked-ready-btn');
+            document.getElementById('hold-queue-panel').style.display = 'block';
+            const station = data.hold_station_name || 'the lab';
+            document.getElementById('hold-instruction').textContent =
+                `Take your time. Once ready, bring your sample to ${station}. You will rejoin the line just behind the next patient.`;
+            const readyBtn = document.getElementById('hold-ready-btn');
             if (data.sample_ready_at) {
                 readyBtn.disabled = true;
                 readyBtn.innerHTML = '<i class="fa-solid fa-check"></i> Staff Notified — Awaiting Hand-off';
@@ -68,11 +78,10 @@ async function loadDashboard() {
                 readyBtn.disabled = false;
                 readyBtn.innerHTML = '<i class="fa-solid fa-check"></i> I am Ready for Hand-off / Re-queue';
             }
-            hideSectionLoader('active-queue-panel');
             return;
         }
 
-        document.getElementById('parked-queue-panel').style.display = 'none';
+        document.getElementById('hold-queue-panel').style.display = 'none';
         document.getElementById('active-queue-panel').style.display = 'block';
 
         document.getElementById('dash-ahead').textContent = data.people_ahead;
@@ -81,29 +90,37 @@ async function loadDashboard() {
         document.getElementById('dash-current-processing').textContent = data.current_processing || '--';
 
         const stationLabel = data.current_queue
-            ? (data.current_queue.station_type === 'frontdesk' ? 'Front Desk' : data.steps.find(s=>s.status==='active')?.name || 'Processing')
+            ? (data.steps.find(s => s.status === 'active')?.name
+               || (data.current_queue.station_type === 'frontdesk' ? 'Front Desk' : 'Processing'))
             : '--';
-        document.getElementById('dash-current-station').textContent = 'Currently at: ' + stationLabel;
+        document.getElementById('dash-current-station').textContent = data.awaiting_finalization
+            ? 'Last step: return to the Front Desk to close your visit'
+            : 'Currently at: ' + stationLabel;
 
         document.getElementById('queue-stepper-container').innerHTML = renderQueueTrack(data.steps);
-    } catch (err) { console.error('Dashboard error:', err); }
-    hideSectionLoader('active-queue-panel');
+    } catch (err) {
+        console.error('Dashboard error:', err);
+        // Nothing to show: fall back to the empty state rather than leaving a
+        // placeholder shimmering over a panel that will never fill.
+        settleQueueSkeleton();
+        document.getElementById('no-active-queue').style.display = 'block';
+    }
 }
 
-// Detects the PARKED -> active transition and fires the chime + browser notification.
+// Detects the ON-HOLD -> active transition and fires the chime + browser notification.
 // Runs on every dashboard refresh (socket-driven via onQueueUpdate), so it only needs
 // to compare against the previously observed status.
-function handleParkedTransition(data) {
-    const wasParked = lastQueueStatus === 'parked';
-    lastQueueStatus = data.parked ? 'parked' : 'active';
+function handleHoldTransition(data) {
+    const wasOnHold = lastQueueStatus === 'on-hold';
+    lastQueueStatus = data.on_hold ? 'on-hold' : 'active';
 
-    if (data.parked && 'Notification' in window && Notification.permission === 'default') {
-        // Ask while the patient is actually entering the parked state — a real user-driven moment.
+    if (data.on_hold && 'Notification' in window && Notification.permission === 'default') {
+        // Ask while the patient is actually going On-Hold — a real user-driven moment.
         Notification.requestPermission();
     }
 
-    if (wasParked && !data.parked) {
-        playParkedResumeChime();
+    if (wasOnHold && !data.on_hold) {
+        playResumeChime();
         const station = data.current_queue?.station_type === 'doctor' ? 'the Doctor' : 'the next station';
         const message = `Your sample has been received — please proceed to ${station}.`;
         if ('Notification' in window && Notification.permission === 'granted') {
@@ -113,7 +130,7 @@ function handleParkedTransition(data) {
     }
 }
 
-function playParkedResumeChime() {
+function playResumeChime() {
     try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         const now = ctx.currentTime;
@@ -155,6 +172,12 @@ function renderQueueTrack(steps = []) {
     const labels = { pending: 'Waiting', active: 'In Progress', completed: 'Completed' };
     const icons = { pending: 'fa-clock', active: 'fa-spinner fa-spin', completed: 'fa-check' };
     const typeLabels = { frontdesk: 'Verification & payment', doctor: 'Consultation', laboratory: 'Laboratory' };
+    // The front desk is both the first and the last stop of every visit, but it
+    // is doing a different job each time - captioning both as "verification &
+    // payment" would tell the patient to expect to pay twice.
+    const stepCaption = (step) => step.is_final
+        ? 'Return to the front desk to close your visit'
+        : (typeLabels[step.type] || 'Service');
 
     // Fill reaches the active node, or the far end once every department is done.
     const activeIndex = steps.findIndex(s => s.status === 'active');
@@ -181,7 +204,7 @@ function renderQueueTrack(steps = []) {
             <div class="queue-track-meta">
                 <strong>${index + 1}. ${step.name}</strong>
                 <span class="queue-track-status">${labels[step.status] || 'Waiting'}</span>
-                <small>${typeLabels[step.type] || 'Service'} · ${detail}</small>
+                <small>${stepCaption(step)} · ${detail}</small>
             </div>
         </div>`;
     }).join('');
@@ -206,32 +229,106 @@ function vaStartPackageFlow(packageId) {
 }
 
 // ── SERVICES ───────────────────────────────────────────────────
+// The inside of one placeholder service card. Every wrapper here is the class
+// the real card in renderServices() uses - badge, heading, tag row, blurb,
+// price footer, step count - so each placeholder line occupies exactly one line
+// box of the real element and the card lands at the height it will keep.
+const SERVICE_CARD_SKELETON = `
+    <div class="pkg-card-badge"><span class="skel skel-pill skel-badge"></span></div>
+    <h3 class="skel-box"><span class="skel skel-line skel-w-80"></span></h3>
+    <div class="pkg-card-tags">
+        <span class="skel skel-pill skel-w-50"></span>
+        <span class="skel skel-pill skel-w-30"></span>
+    </div>
+    <p class="skel-box"><span class="skel skel-line skel-w-90"></span></p>
+    <div class="pkg-card-footer">
+        <span class="skel skel-line pkg-price skel-w-40"></span>
+        <span class="skel skel-line pkg-time skel-w-30"></span>
+    </div>
+    <div class="mt-sm text-sm skel-box"><span class="skel skel-line skel-w-60"></span></div>`;
+
 async function loadServices() {
     try {
-        showSectionLoader('packages-grid', 'Loading services...');
+        // Six cards is what fills the grid above the fold at desktop width, so
+        // the placeholder occupies the space the catalogue is about to occupy
+        // instead of collapsing the section to nothing and pushing it open.
+        skeletonCards('packages-grid', { count: 6, cardClass: 'pkg-card', body: SERVICE_CARD_SKELETON });
         const res = await fetch('/api/packages');
-        const packages = await res.json();
-        const grid = document.getElementById('packages-grid');
-        if (packages.length === 0) {
-            grid.innerHTML = '<div class="card text-center" style="grid-column:1/-1;padding:40px;"><p class="text-muted">No services available yet.</p></div>';
-            return;
-        }
-        grid.innerHTML = packages.map(p => `
-            <div class="pkg-card ${p.is_available === false ? 'pkg-card-unavailable' : ''}" onclick="showPackageDetail(${p.id})">
-                <div class="pkg-card-badge">${categoryBadge(getCategory())}</div>
-                <h3>${p.name}</h3>
-                <p>${p.description || 'No description'}</p>
-                <div class="pkg-card-footer">
-                    <span class="pkg-price">${formatCurrency(p.price)}</span>
-                    <span class="pkg-time"><i class="fa-solid fa-clock"></i> ~${p.est_time_minutes}min</span>
-                </div>
-                ${p.is_available === false
-                    ? '<div class="mt-sm"><span class="badge badge-danger">Currently Unavailable</span></div>'
-                    : `<div class="mt-sm text-sm text-muted">${p.laboratories?.length || 0} lab step(s)</div>`}
-            </div>
-        `).join('');
+        allPackages = await res.json();
+        populateServiceCategories(allPackages);
+        renderServices();
     } catch (err) { console.error(err); }
-    hideSectionLoader('packages-grid');
+    clearSkeleton('packages-grid');
+}
+
+// Only categories that actually have a service in them, so the filter never
+// offers a choice that returns nothing.
+function populateServiceCategories(packages) {
+    const select = document.getElementById('service-category-filter');
+    if (!select) return;
+    const categories = [...new Set(packages.map(p => p.category).filter(Boolean))].sort();
+    const current = select.value;
+    select.innerHTML = '<option value="">All categories</option>' +
+        categories.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+    select.value = current;
+}
+
+// Filtering happens on the already-fetched catalogue so results appear as the
+// patient types. /api/packages also accepts ?q= and ?category= for the same
+// filtering server-side, which is what keeps this workable as the catalogue grows.
+function renderServices() {
+    const grid = document.getElementById('packages-grid');
+    if (!grid) return;
+    const term = document.getElementById('service-search')?.value || '';
+    const category = document.getElementById('service-category-filter')?.value || '';
+
+    const rows = allPackages.filter(p =>
+        (!category || p.category === category) &&
+        matchesSearch({ ...p, id_text: String(p.id) }, term, ['id_text', 'name', 'category', 'description']));
+
+    const count = document.getElementById('service-count');
+    if (count) {
+        count.textContent = allPackages.length === 0 ? ''
+            : `${rows.length} of ${allPackages.length} services`;
+    }
+
+    if (allPackages.length === 0) {
+        grid.innerHTML = '<div class="card text-center" style="grid-column:1/-1;padding:40px;"><p class="text-muted">No services available yet.</p></div>';
+        return;
+    }
+    if (rows.length === 0) {
+        grid.innerHTML = `<div class="card text-center" style="grid-column:1/-1;padding:40px;">
+            <p class="text-muted">No services match your search.</p>
+            <button class="btn btn-sm btn-outline mt-sm" onclick="clearServiceFilters()">Clear filters</button></div>`;
+        return;
+    }
+
+    grid.innerHTML = rows.map(p => `
+        <div class="pkg-card ${p.is_available === false ? 'pkg-card-unavailable' : ''}" onclick="showPackageDetail(${p.id})">
+            <div class="pkg-card-badge">${categoryBadge(getCategory())}</div>
+            <h3>${escapeHtml(p.name)}</h3>
+            <div class="pkg-card-tags">
+                <span class="badge badge-neutral">${escapeHtml(p.category || 'General')}</span>
+                <span class="text-muted text-sm">ID #${p.id}</span>
+            </div>
+            <p>${escapeHtml(p.description || 'No description')}</p>
+            <div class="pkg-card-footer">
+                <span class="pkg-price">${formatCurrency(p.price)}</span>
+                <span class="pkg-time"><i class="fa-solid fa-clock"></i> ~${p.est_time_minutes}min</span>
+            </div>
+            ${p.is_available === false
+                ? '<div class="mt-sm"><span class="badge badge-danger">Currently Unavailable</span></div>'
+                : `<div class="mt-sm text-sm text-muted">${p.steps?.length || 0} step(s) &middot; Front Desk to Front Desk</div>`}
+        </div>
+    `).join('');
+}
+
+function clearServiceFilters() {
+    const search = document.getElementById('service-search');
+    const filter = document.getElementById('service-category-filter');
+    if (search) search.value = '';
+    if (filter) filter.value = '';
+    renderServices();
 }
 
 async function showPackageDetail(id) {
@@ -246,13 +343,30 @@ async function showPackageDetail(id) {
         document.getElementById('pkg-modal-price').textContent = formatCurrency(pkg.price);
         document.getElementById('pkg-modal-eta').textContent = pkg.estimated_total_time + ' minutes';
 
-        const labsHtml = (pkg.laboratories || []).map((l, i) => `
-            <div class="pkg-lab-item">
-                <div class="pkg-lab-num">${i+1}</div>
-                <div class="pkg-lab-info"><strong>${l.lab_name}</strong><small>${l.service_type || ''} • ~${l.est_time_minutes}min</small></div>
-            </div>
-        `).join('');
-        document.getElementById('pkg-modal-labs').innerHTML = labsHtml || '<p class="text-muted text-sm">No laboratory steps</p>';
+        // pkg.steps is the real station sequence and always begins at the front
+        // desk (the cashier), which is the first stop the queue actually creates.
+        // Falls back to the laboratories list for an older API response.
+        const steps = pkg.steps && pkg.steps.length
+            ? pkg.steps
+            : [{ name: 'Front Desk', type: 'frontdesk', est_time_minutes: 5 },
+               ...(pkg.laboratories || []).map(l => ({ name: l.lab_name, type: 'laboratory', service_type: l.service_type, est_time_minutes: l.est_time_minutes })),
+               { name: 'Front Desk — Finalization', type: 'frontdesk', est_time_minutes: 3, is_final: true }];
+        const stepSubtitle = { frontdesk: 'Verification & payment', laboratory: 'Laboratory', doctor: 'Consultation' };
+        const labsHtml = steps.map((s, i) => {
+            const detail = s.is_final
+                ? 'Outcome recorded'
+                : (s.type === 'laboratory' ? (s.service_type || stepSubtitle.laboratory) : stepSubtitle[s.type] || '');
+            // Both front desk steps are mandatory and neither can be skipped, so
+            // both carry the required marker - the first as the cashier, the last
+            // as the only station that can close the visit.
+            const note = s.is_final ? ' • required last' : (s.type === 'frontdesk' ? ' • required first' : '');
+            return `
+            <div class="pkg-lab-item${s.type === 'frontdesk' ? ' pkg-lab-item-required' : ''}">
+                <div class="pkg-lab-num">${i + 1}</div>
+                <div class="pkg-lab-info"><strong>${s.name}</strong><small>${detail} • ~${s.est_time_minutes}min${note}</small></div>
+            </div>`;
+        }).join('');
+        document.getElementById('pkg-modal-labs').innerHTML = labsHtml;
         openModal('pkg-modal');
     } catch (err) { showToast('Failed to load package details', 'error'); }
 }
@@ -322,18 +436,28 @@ async function cancelQueue() {
 async function loadAppointments() {
     try {
         const tbody = document.getElementById('appointments-list');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="6"><div class="medical-inline-loader"><span class="medical-loader-heart"></span> Loading appointments...</div></td></tr>';
+        // Status is a badge and the last column a button, so those two columns
+        // get pill-shaped placeholders rather than a full-width bar.
+        skeletonTable(tbody, { rows: 3, cols: [
+            'skel-line skel-w-70', 'skel-line skel-w-60', 'skel-line skel-w-50',
+            'skel-pill skel-w-60', 'skel-line skel-w-50', 'skel-btn'
+        ] });
         const res = await fetch('/api/appointments/my', { headers: authHeaders() });
         const appts = await res.json();
         if (appts.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted" style="padding:32px;">No appointments yet</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted" style="padding:32px;">No appointments yet</td></tr>';
         } else {
+            // 'no-show' is set by the missed-appointment sweep. It stays in the
+            // customer's own history (the staff lists drop it) so a slot they
+            // missed doesn't appear to have silently vanished.
+            const statusBadge = { 'scheduled': 'badge-warning', 'checked-in': 'badge-success', 'completed': 'badge-success', 'no-show': 'badge-danger', 'cancelled': 'badge-neutral' };
+            const statusLabel = { 'no-show': 'Did Not Arrive' };
             tbody.innerHTML = appts.map(a => `<tr>
                 <td><strong>${a.package_name}</strong></td>
                 <td>${a.appointment_date}</td>
                 <td>${a.appointment_time}</td>
-                <td><span class="badge ${a.status==='scheduled'?'badge-warning':a.status==='paid'||a.status==='checked-in'?'badge-success':'badge-neutral'}">${a.status}</span></td>
-                <td>${formatCurrency(a.price)}</td>
+                <td><span class="badge ${statusBadge[a.status] || 'badge-neutral'}">${statusLabel[a.status] || a.status}</span></td>
+                <td>${formatCurrency(a.amount_due ?? a.price)}${a.payment_status === 'pending' ? '<br><small class="text-muted">due on site</small>' : ''}</td>
                 <td>
                     ${a.status === 'scheduled' ? `<button class="btn btn-sm btn-primary" onclick="openCheckInScanner(${a.id})"><i class="fa-solid fa-qrcode"></i> Check-In</button>` : '--'}
                 </td>
@@ -344,20 +468,29 @@ async function loadAppointments() {
         const pkgRes = await fetch('/api/packages');
         const pkgs = await pkgRes.json();
         const sel = document.getElementById('appt-package');
-        sel.innerHTML = pkgs.map(p => `<option value="${p.id}" data-price="${p.price}">${p.name} — ${formatCurrency(p.price)}</option>`).join('');
+        // The booking total and the surcharge percentage both come from the API,
+        // so the fee is defined in one place (appointment_automation.js) instead
+        // of being duplicated here.
+        sel.innerHTML = pkgs.map(p => `<option value="${p.id}"
+            data-price="${p.price}"
+            data-appt-price="${p.appointment_price ?? p.price}"
+            data-surcharge-pct="${p.appointment_surcharge_pct ?? 0}">${p.name} — ${formatCurrency(p.appointment_price ?? p.price)}</option>`).join('');
         sel.onchange = () => {
             const opt = sel.options[sel.selectedIndex];
-            document.getElementById('appt-amount').textContent = formatCurrency(opt.dataset.price);
+            if (!opt) return;
+            const base = Number(opt.dataset.price) || 0;
+            const total = Number(opt.dataset.apptPrice) || base;
+            const pct = Number(opt.dataset.surchargePct) || 0;
+            document.getElementById('appt-base-price').textContent = formatCurrency(base);
+            document.getElementById('appt-surcharge-pct').textContent = pct;
+            document.getElementById('appt-surcharge').textContent = formatCurrency(total - base);
+            document.getElementById('appt-amount').textContent = formatCurrency(total);
         };
         if (sel.options.length > 0) sel.onchange();
 
         renderAppointmentCalendar();
     } catch (err) { console.error(err); }
-}
-
-function selectPayMethod(method) {
-    document.getElementById('appt-pay-method').value = method;
-    showToast(`Payment method: ${method.toUpperCase()}`, 'info', 1500);
+    clearSkeleton('appointments-list');
 }
 
 async function bookAppointment() {
@@ -366,19 +499,26 @@ async function bookAppointment() {
     const date = document.getElementById('appt-date').value;
     const time = selectedTimeSlot;
     const notes = document.getElementById('appt-notes').value;
-    const method = document.getElementById('appt-pay-method').value;
     if (!pkg || !date || !time) return showToast('Fill all fields', 'error');
+    // Re-checked at submit: the modal can sit open long enough for the selected
+    // slot to fall into the past while the customer is on the payment step.
+    if (isPastSlot(date, time)) {
+        return showToast('That time has already passed. Please pick a new date and time.', 'error');
+    }
 
     const btn = document.getElementById('appt-confirm-btn');
     btn.disabled = true;
     try {
         const res = await fetch('/api/appointments', {
             method: 'POST', headers: authHeaders(),
-            body: JSON.stringify({ package_id: pkg, appointment_date: date, appointment_time: time, payment_method: method, notes })
+            body: JSON.stringify({ package_id: pkg, appointment_date: date, appointment_time: time, notes })
         });
         if (res.ok) {
+            const data = await res.json().catch(() => ({}));
             closeModal('appt-modal');
-            showToast('Appointment booked!', 'success');
+            showToast(data.amount_due != null
+                ? `Appointment booked. Pay ${formatCurrency(data.amount_due)} at the front desk.`
+                : 'Appointment booked!', 'success', 5000);
             loadAppointments();
         } else {
             const data = await res.json();
@@ -443,23 +583,62 @@ async function fetchTimeSlots() {
         const booked = await res.json();
 
         let slotsHtml = '';
+        let selectable = 0;
         APPT_SLOTS.forEach(timeStr => {
             const isBooked = booked.includes(timeStr);
-            const className = isBooked ? 'time-slot full' : 'time-slot';
-            const clickAttr = isBooked ? '' : `onclick="selectTimeSlot('${timeStr}')"`;
-            slotsHtml += `<div class="${className}" id="ts-${timeStr}" ${clickAttr}>${timeStr}</div>`;
+            // On a future date every slot is still ahead; only today can have
+            // slots that have already started.
+            const isPast = !isBooked && isPastSlot(dateInput, timeStr);
+            const classes = ['time-slot'];
+            if (isBooked) classes.push('full');
+            if (isPast) classes.push('past');
+            const clickAttr = (isBooked || isPast) ? '' : `onclick="selectTimeSlot('${timeStr}')"`;
+            if (!isBooked && !isPast) selectable++;
+            slotsHtml += `<div class="${classes.join(' ')}" id="ts-${timeStr}" ${clickAttr}>${timeStr}</div>`;
         });
-        grid.innerHTML = slotsHtml;
+        grid.innerHTML = slotsHtml + (selectable === 0
+            ? '<p class="text-muted text-sm mt-sm" style="grid-column:1/-1;">No slots left for this date. Please pick a later date.</p>'
+            : '');
         selectedTimeSlot = null;
     } catch (err) { grid.innerHTML = '<div class="text-danger">Failed to load slots</div>'; }
 }
 
 function selectTimeSlot(timeStr) {
+    const iso = document.getElementById('appt-date').value;
+    if (iso && isPastSlot(iso, timeStr)) {
+        return showToast('That time has already passed. Please choose a later slot.', 'warning');
+    }
     document.querySelectorAll('.time-slot').forEach(el => el.classList.remove('selected'));
     document.getElementById(`ts-${timeStr}`).classList.add('selected');
     selectedTimeSlot = timeStr;
     document.getElementById('selected-appt-time').textContent = `at ${timeStr}`;
     closeModal('slot-modal');
+}
+
+// ── APPOINTMENT DATE/TIME RULES ────────────────────────────────
+// Only future slots are bookable. Past dates are disabled in the calendar, and
+// on today only slots strictly later than the current time are selectable - a
+// slot equal to the current time has already started. Mirrored server-side in
+// routes/admin.js; this half is only the affordance, not the enforcement.
+function startOfToday() {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+// Parsed field-by-field rather than with new Date(iso): a bare 'YYYY-MM-DD'
+// string is parsed as UTC, which shifts the day either side of midnight.
+function parseLocalDate(iso, timeStr) {
+    const [y, m, d] = String(iso).split('-').map(Number);
+    const [hh, mm] = String(timeStr || '00:00').split(':').map(Number);
+    return new Date(y, m - 1, d, hh || 0, mm || 0, 0, 0);
+}
+
+function isPastDate(iso) {
+    return parseLocalDate(iso) < startOfToday();
+}
+
+function isPastSlot(iso, timeStr) {
+    return parseLocalDate(iso, timeStr) <= new Date();
 }
 
 function formatLocalDate(date) {
@@ -494,17 +673,37 @@ async function renderAppointmentCalendar() {
         const muted = d.getMonth() !== month ? 'muted' : '';
         const selected = document.getElementById('appt-date').value === iso ? 'selected' : '';
         const hasBooking = bookedDates.has(iso) ? 'has-booking' : '';
-        days += `<button type="button" class="calendar-day ${muted} ${selected} ${hasBooking}" onclick="selectAppointmentDate('${iso}')">${d.getDate()}</button>`;
+        const past = isPastDate(iso);
+        // disabled (not just a class) so the button is also unreachable by
+        // keyboard and can't be activated by a stray click handler.
+        const attrs = past
+            ? 'disabled aria-disabled="true" title="This date has already passed"'
+            : `onclick="selectAppointmentDate('${iso}')"`;
+        days += `<button type="button" class="calendar-day ${muted} ${selected} ${hasBooking} ${past ? 'past' : ''}" ${attrs}>${d.getDate()}</button>`;
     }
     cal.innerHTML = heads + days;
+
+    // Nothing before the current month is bookable, so don't let the user page
+    // back into it and find a grid of dead cells.
+    const prevBtn = document.getElementById('calendar-prev-btn');
+    if (prevBtn) {
+        const now = new Date();
+        const atCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+        prevBtn.disabled = atCurrentMonth;
+        prevBtn.title = atCurrentMonth ? 'Past months cannot be booked' : 'Previous month';
+    }
 }
 
 function changeCalendarMonth(delta) {
-    calendarDate.setMonth(calendarDate.getMonth() + delta);
+    const target = new Date(calendarDate.getFullYear(), calendarDate.getMonth() + delta, 1);
+    const now = new Date();
+    if (target < new Date(now.getFullYear(), now.getMonth(), 1)) return;
+    calendarDate = target;
     renderAppointmentCalendar();
 }
 
 function selectAppointmentDate(iso) {
+    if (isPastDate(iso)) return showToast('Please choose today or a future date.', 'warning');
     document.getElementById('appt-date').value = iso;
     document.getElementById('selected-appt-date').textContent = iso;
     selectedTimeSlot = null;
@@ -566,6 +765,168 @@ function toggleSurgeryInput() {
     document.getElementById('surgery-spec-div').style.display = val === 'Yes' ? 'block' : 'none';
 }
 
+// ── PH ADDRESS CASCADE (Province → City/Municipality → Barangay) ─────
+// Data is PSGC (see scripts/build-psgc-data.js). Provinces + cities are one
+// small fetch each; barangays are sharded per province so picking a province
+// downloads only that province's ~15-90KB instead of the country's 11MB.
+// Everything is memoized, so reopening the form re-fetches nothing.
+const PH_DATA_BASE = '/data/ph';
+const phAddress = { provinces: null, cities: null, barangays: new Map(), basePromise: null };
+
+function loadPhBaseData() {
+    if (!phAddress.basePromise) {
+        phAddress.basePromise = Promise.all([
+            fetch(`${PH_DATA_BASE}/provinces.json`).then(r => { if (!r.ok) throw new Error('provinces'); return r.json(); }),
+            fetch(`${PH_DATA_BASE}/cities.json`).then(r => { if (!r.ok) throw new Error('cities'); return r.json(); })
+        ]).then(([provinces, cities]) => {
+            phAddress.provinces = provinces;
+            phAddress.cities = cities;
+        }).catch(err => {
+            phAddress.basePromise = null; // let a later reopen retry
+            throw err;
+        });
+    }
+    return phAddress.basePromise;
+}
+
+function loadPhBarangays(provinceCode) {
+    if (!phAddress.barangays.has(provinceCode)) {
+        const p = fetch(`${PH_DATA_BASE}/barangays/${provinceCode}.json`)
+            .then(r => { if (!r.ok) throw new Error('barangays'); return r.json(); })
+            .catch(err => {
+                phAddress.barangays.delete(provinceCode);
+                throw err;
+            });
+        phAddress.barangays.set(provinceCode, p);
+    }
+    return phAddress.barangays.get(provinceCode);
+}
+
+// Option value is the NAME (that's what gets stored and displayed); the PSGC
+// code rides along in a data attribute purely to filter the next level.
+function setSelectOptions(select, items, placeholder) {
+    select.innerHTML = '';
+    const ph = document.createElement('option');
+    ph.value = '';
+    ph.textContent = placeholder;
+    select.appendChild(ph);
+    items.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.n;
+        opt.textContent = item.n;
+        opt.dataset.code = item.c;
+        select.appendChild(opt);
+    });
+}
+
+function selectedCode(select) {
+    const opt = select.selectedOptions && select.selectedOptions[0];
+    return opt ? (opt.dataset.code || '') : '';
+}
+
+async function initAddressSelects() {
+    const provSel = document.getElementById('req-med-province');
+    if (!provSel || provSel.dataset.ready === 'true') return;
+    try {
+        await loadPhBaseData();
+        setSelectOptions(provSel, phAddress.provinces, 'Select province');
+        provSel.dataset.ready = 'true';
+    } catch (err) {
+        console.error('Failed to load address data', err);
+        setSelectOptions(provSel, [], 'Unable to load provinces');
+        showToast('Could not load the address list. Check your connection, then reopen the form.', 'error');
+    }
+}
+
+async function onProvinceChange() {
+    const provSel = document.getElementById('req-med-province');
+    const citySel = document.getElementById('req-med-city');
+    const brgySel = document.getElementById('req-med-barangay');
+    const provinceCode = selectedCode(provSel);
+
+    // Any province change invalidates both levels below it.
+    brgySel.disabled = true;
+    setSelectOptions(brgySel, [], 'Select city first');
+    if (!provinceCode) {
+        citySel.disabled = true;
+        setSelectOptions(citySel, [], 'Select province first');
+        return;
+    }
+    const cities = (phAddress.cities || []).filter(c => c.p === provinceCode);
+    setSelectOptions(citySel, cities, 'Select city / municipality');
+    citySel.disabled = false;
+    // Warm the shard now so picking a city feels instant.
+    loadPhBarangays(provinceCode).catch(() => {});
+}
+
+async function onCityChange() {
+    const provSel = document.getElementById('req-med-province');
+    const citySel = document.getElementById('req-med-city');
+    const brgySel = document.getElementById('req-med-barangay');
+    const provinceCode = selectedCode(provSel);
+    const cityCode = selectedCode(citySel);
+
+    if (!cityCode) {
+        brgySel.disabled = true;
+        setSelectOptions(brgySel, [], 'Select city first');
+        return;
+    }
+    setSelectOptions(brgySel, [], 'Loading barangays...');
+    // Stays enabled on failure on purpose: an empty required select blocks
+    // submission, whereas a disabled one is skipped by the validator and
+    // would let an address through with no barangay.
+    brgySel.disabled = false;
+    try {
+        const all = await loadPhBarangays(provinceCode);
+        // Guard against a slow shard resolving after the user moved on.
+        if (selectedCode(citySel) !== cityCode) return;
+        const list = all.filter(b => b.m === cityCode);
+        setSelectOptions(brgySel, list, list.length ? 'Select barangay' : 'No barangays found');
+    } catch (err) {
+        console.error('Failed to load barangays', err);
+        setSelectOptions(brgySel, [], 'Unable to load barangays');
+        showToast('Could not load barangays for that city. Please try again.', 'error');
+    }
+}
+
+// Rebuilds the single-line address string that the profile card, staff views,
+// and PDF export all already read from `medical_records.address`.
+function composeAddressString({ houseNumber, street, barangay, city, province }) {
+    const line = [houseNumber, street].map(v => String(v || '').trim()).filter(Boolean).join(' ');
+    // Many PSGC barangay names are literally "Barangay 1 (Pob.)" — don't
+    // produce "Barangay Barangay 1".
+    const brgy = String(barangay || '').trim();
+    const brgyLabel = !brgy ? '' : (/^barangay\b/i.test(brgy) ? brgy : `Barangay ${brgy}`);
+    return [line, brgyLabel, String(city || '').trim(), String(province || '').trim()]
+        .filter(Boolean)
+        .join(', ');
+}
+
+// Restores the three chained selects from a saved record, level by level —
+// each one has to be populated before the next can be set.
+async function restoreAddressSelects(med) {
+    await initAddressSelects();
+    const provSel = document.getElementById('req-med-province');
+    const citySel = document.getElementById('req-med-city');
+    const brgySel = document.getElementById('req-med-barangay');
+    if (!provSel) return;
+
+    provSel.value = med.province || '';
+    // A saved name that's no longer in PSGC (renamed/merged) won't match any
+    // option, leaving the select blank so the user just re-picks it.
+    if (!provSel.value) {
+        await onProvinceChange();
+        return;
+    }
+    await onProvinceChange();
+
+    citySel.value = med.city || '';
+    if (!citySel.value) return;
+    await onCityChange();
+
+    brgySel.value = med.barangay || '';
+}
+
 async function submitMandatoryMedicalForm() {
     if (!validateRequiredMedicalFields()) return;
     const surname = document.getElementById('req-med-surname').value.trim();
@@ -578,7 +939,12 @@ async function submitMandatoryMedicalForm() {
 
     const birthplace = document.getElementById('req-med-birthplace').value;
     const status = document.getElementById('req-med-status').value;
-    const address = document.getElementById('req-med-address').value;
+    const houseNumber = document.getElementById('req-med-house-number').value.trim();
+    const street = document.getElementById('req-med-street').value.trim();
+    const barangay = document.getElementById('req-med-barangay').value;
+    const city = document.getElementById('req-med-city').value;
+    const province = document.getElementById('req-med-province').value;
+    const address = composeAddressString({ houseNumber, street, barangay, city, province });
     const phone = document.getElementById('req-med-phone').value;
     const occupation = document.getElementById('req-med-occupation').value;
     const emergency = document.getElementById('req-med-emergency').value;
@@ -614,6 +980,11 @@ async function submitMandatoryMedicalForm() {
         birthplace,
         status,
         address,
+        house_number: houseNumber,
+        street,
+        barangay,
+        city,
+        province,
         phone,
         occupation,
         retiree,
@@ -657,7 +1028,9 @@ async function populateMedicalFormFromRecord() {
         setVal('req-med-birthdate', user.birthday ? String(user.birthday).slice(0, 10) : '');
         setVal('req-med-birthplace', med.birthplace);
         setVal('req-med-status', med.status);
-        setVal('req-med-address', med.address);
+        setVal('req-med-house-number', med.house_number);
+        setVal('req-med-street', med.street);
+        await restoreAddressSelects(med);
         setVal('req-med-phone', med.phone);
         setVal('req-med-occupation', med.occupation);
         document.getElementById('req-med-retiree').checked = !!med.retiree;
@@ -676,6 +1049,9 @@ window.openModal = async function(id) {
     }
     if (id === 'mandatory-med-modal') {
         await populateMedicalFormFromRecord();
+        // Safety net: if the record fetch above failed, the province list
+        // would otherwise be left stuck on "Loading...".
+        await initAddressSelects();
     }
     if (origOpenModal) origOpenModal(id);
     else document.getElementById(id)?.classList.add('active');
@@ -764,7 +1140,7 @@ async function processCheckIn(qrData) {
 async function loadMyMedicalRecords() {
     try {
         const timelineEl = document.getElementById('my-history-timeline');
-        if (timelineEl) timelineEl.innerHTML = '<div class="medical-inline-loader"><span class="medical-loader-heart"></span> Loading records...</div>';
+        skeletonLines(timelineEl, { rows: 3, avatar: true });
         const [medRes, clinicalRes] = await Promise.all([
             fetch('/api/medical-records/my', { headers: authHeaders() }),
             fetch('/api/clinical-records/my', { headers: authHeaders() })
@@ -859,20 +1235,27 @@ async function loadMyMedicalRecords() {
                 else if (r.record_type === 'lab_result') { badgeCls = 'badge-danger'; typeLabel = 'Lab Result'; }
 
                 let detailsHtml = '';
+                // A freeform result ("Other Diagnostics") is written in the
+                // laboratory's notepad and stored as markup, so it is rendered
+                // as markup here rather than escaped into one flat line.
+                // Sanitised again on the way out: the record may have been
+                // written before the allow-list was what it is now.
+                let richHtml = '';
                 if (r.data) {
                     try {
                         const parsedData = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+                        if (parsedData.rich_notes) richHtml = sanitizeRichHtml(parsedData.rich_notes);
                         if (r.record_type === 'examination') {
                             detailsHtml = `<div style="font-size:0.85em;margin-top:4px;">BP: <strong>${parsedData.bp || '--'}</strong> | HR: <strong>${parsedData.pulse || '--'} bpm</strong> | Temp: <strong>${parsedData.temp || '--'} °C</strong></div>`;
                         } else if (r.record_type === 'prescription' && parsedData.items) {
                             detailsHtml = `<div style="font-size:0.85em;margin-top:4px;"><strong>Rx:</strong> ${parsedData.items.map(i => `${i.medicine} (${i.dosage})`).join(', ')}</div>`;
                         } else if (r.record_type === 'lab_result') {
                             let paramsHtml = '';
-                            if (parsedData.parameters) {
-                                paramsHtml = Object.entries(parsedData.parameters).map(([key, val]) => `<li>${key}: <strong>${val}</strong></li>`).join('');
+                            if (parsedData.parameters && Object.keys(parsedData.parameters).length > 0) {
+                                paramsHtml = Object.entries(parsedData.parameters).map(([key, val]) => `<li>${escapeHtml(key)}: <strong>${escapeHtml(String(val))}</strong></li>`).join('');
                                 paramsHtml = `<ul style="margin:4px 0 0 14px; padding:0; font-size:0.85em;">${paramsHtml}</ul>`;
                             }
-                            detailsHtml = `<div style="font-size:0.85em;margin-top:4px;"><strong>Test Type:</strong> ${parsedData.test_name || 'General'}${paramsHtml}</div>`;
+                            detailsHtml = `<div style="font-size:0.85em;margin-top:4px;"><strong>Test Type:</strong> ${escapeHtml(parsedData.test_name || 'General')}${paramsHtml}</div>`;
                         }
                     } catch(e) {}
                 }
@@ -885,7 +1268,9 @@ async function loadMyMedicalRecords() {
                             <small class="text-muted">By: ${r.staff_full_name || r.staff_name || 'Clinic Staff'}</small>
                         </div>
                         <div class="timeline-desc">
-                            <div>${escapeHtml(r.notes || 'No comments.')}</div>
+                            ${richHtml
+                                ? `<div class="rich-note">${richHtml}</div>`
+                                : `<div>${escapeHtml(r.notes || 'No comments.')}</div>`}
                             ${detailsHtml}
                         </div>
                     </div>
@@ -896,5 +1281,195 @@ async function loadMyMedicalRecords() {
     } catch (err) {
         console.error('Error loading my medical records:', err);
     }
+    clearSkeleton('my-history-timeline');
 }
 
+// ── MEDICAL RECORD PDF EXPORT ────────────────────────────────────────
+// Renders the patient's record as a formal clinic document via jsPDF
+// (direct download, no print dialog). Reads the same endpoints and field
+// mapping as loadMyMedicalRecords().
+//
+// Layout follows the conventions real clinic paperwork uses: serif
+// letterhead, a titled document band, boxed demographics, ruled section
+// headers, and a repeating footer carrying the confidentiality notice and
+// page count.
+// The letterhead, section headings, field grid and footer used below live in
+// clinic-pdf.js, which frontdesk.html loads too - the walk-in intake and
+// diagnosis forms are the same clinic's paperwork and print on the same
+// stationery. Loaded before this file; see customer.html.
+
+async function exportMedicalRecordPDF() {
+    const btn = document.getElementById('export-med-pdf-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...'; }
+    try {
+        const [medRes, clinicalRes, settingsRes] = await Promise.all([
+            fetch('/api/medical-records/my', { headers: authHeaders() }),
+            fetch('/api/clinical-records/my', { headers: authHeaders() }),
+            // Branding is best-effort: a failed settings call must not sink the export.
+            fetch('/api/settings').catch(() => null)
+        ]);
+        const med = await medRes.json();
+        const records = await clinicalRes.json();
+        const settings = settingsRes && settingsRes.ok ? await settingsRes.json().catch(() => ({})) : {};
+
+        const clinic = {
+            name: settings.site_name || 'Medical Clinic',
+            logoPath: settings.logo_path || '/images/examplelogo.svg'
+        };
+        const logo = await loadLogoDataUrl(clinic.logoPath);
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+        const generatedAt = new Date().toLocaleString();
+        const user = med.user || {};
+
+        let ageText = '—';
+        if (user.birthday) {
+            const diff = Date.now() - new Date(user.birthday).getTime();
+            ageText = Math.abs(new Date(diff).getUTCFullYear() - 1970) + ' years';
+        }
+        const category = user.customer_category || 'Regular';
+        const patient = {
+            name: user.full_name || getUsername() || 'Customer',
+            id: user.customer_uid || ('MC-' + String(user.id || getUserId() || '').padStart(6, '0'))
+        };
+
+        pdfLetterhead(doc, clinic, logo);
+
+        let y = PDF.headerBottom + 3;
+        y = pdfSectionHeading(doc, 'Patient Information', y) + 1.5;
+        y = pdfFieldGrid(doc, [
+            ['Patient Name', patient.name],
+            ['Patient ID', patient.id],
+            ['Date of Birth', user.birthday ? new Date(user.birthday).toLocaleDateString() : '—'],
+            ['Age', ageText],
+            ['Sex', user.gender || 'Unspecified'],
+            ['Priority Category', user.is_underage ? category + ' / Underage' : category],
+            ['Civil Status', med.status || '—'],
+            ['Occupation', med.occupation || '—'],
+            ['Place of Birth', med.birthplace || '—'],
+            ['Contact Number', med.phone || '—'],
+            // Full width: a complete PH address won't fit in half a row.
+            ['Residential Address', med.address || '—', 'full'],
+            ['Emergency Contact', med.emergency_contact || '—', 'full']
+        ], y);
+
+        y += 6;
+        y = pdfSectionHeading(doc, 'Reported Health Conditions', y) + 2;
+
+        let symptomsText = 'None reported';
+        if (med.current_health) {
+            try {
+                const arr = JSON.parse(med.current_health);
+                if (Array.isArray(arr) && arr.length) symptomsText = arr.join(' · ');
+            } catch (e) { symptomsText = med.current_health; }
+        }
+        y = pdfTextBlock(doc, 'Current', symptomsText, y);
+
+        let pastText = 'None reported';
+        if (med.past_conditions) {
+            try {
+                const pc = JSON.parse(med.past_conditions);
+                if (pc && typeof pc === 'object') {
+                    pastText = [
+                        'High blood pressure: ' + (pc.high_bp || 'No'),
+                        'Heart / circulation: ' + (pc.heart_problems || 'No'),
+                        'Blood clots: ' + (pc.blood_clots || 'No'),
+                        'High cholesterol: ' + (pc.high_cholesterol || 'No'),
+                        'Surgeries: ' + (pc.surgeries || 'No') + (pc.surgeries === 'Yes' && pc.surgeries_details ? ' (' + pc.surgeries_details + ')' : '')
+                    ].join(' · ');
+                }
+            } catch (e) { pastText = med.past_conditions; }
+        }
+        y = pdfTextBlock(doc, 'History', pastText, y);
+
+        y += 5;
+        y = pdfSectionHeading(doc, 'Consultation & Laboratory Records', y) + 2;
+
+        const typeLabels = { prescription: 'Prescription', examination: 'Examination', diagnostic: 'Diagnostic', lab_result: 'Laboratory' };
+        const tableRows = records.map(r => {
+            let details = '';
+            if (r.data) {
+                try {
+                    const d = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+                    if (r.record_type === 'examination') {
+                        details = 'BP ' + (d.bp || '—') + '  ·  HR ' + (d.pulse || '—') + ' bpm  ·  Temp ' + (d.temp || '—') + ' °C';
+                    } else if (r.record_type === 'prescription' && d.items) {
+                        details = d.items.map(i => i.medicine + ' (' + i.dosage + ')').join('\n');
+                    } else if (r.record_type === 'lab_result') {
+                        const params = d.parameters
+                            ? Object.entries(d.parameters).map(([k, v]) => k + ': ' + v).join('\n')
+                            : '';
+                        details = [d.test_name || 'General', params].filter(Boolean).join('\n');
+                    }
+                } catch (e) { /* leave details blank on malformed JSON */ }
+            }
+            return [
+                formatDateTime(r.created_at),
+                typeLabels[r.record_type] || r.record_type,
+                details || '—',
+                r.notes || '—',
+                r.staff_full_name || r.staff_name || 'Clinic Staff'
+            ];
+        });
+
+        if (tableRows.length === 0) {
+            doc.setFont('helvetica', 'italic');
+            doc.setFontSize(8.8);
+            doc.setTextColor(PDF.muted[0], PDF.muted[1], PDF.muted[2]);
+            doc.text('No consultation or laboratory records on file.', PDF.margin, y + 4);
+            pdfFooter(doc, 1, generatedAt);
+        } else {
+            doc.autoTable({
+                startY: y + 1,
+                head: [['Date & Time', 'Type', 'Findings / Details', 'Remarks', 'Recorded By']],
+                body: tableRows,
+                theme: 'grid',
+                margin: { left: PDF.margin, right: PDF.margin, top: PDF.runningHeaderBottom, bottom: 26 },
+                styles: {
+                    font: 'helvetica', fontSize: 7.6, cellPadding: 2.2,
+                    textColor: PDF.ink, lineColor: PDF.hairline, lineWidth: 0.15,
+                    valign: 'top', overflow: 'linebreak'
+                },
+                headStyles: {
+                    fillColor: PDF.brand, textColor: [255, 255, 255],
+                    fontSize: 7.4, fontStyle: 'bold', halign: 'left'
+                },
+                alternateRowStyles: { fillColor: [250, 251, 252] },
+                columnStyles: {
+                    0: { cellWidth: 26 },
+                    1: { cellWidth: 20 },
+                    2: { cellWidth: 48 },
+                    3: { cellWidth: 'auto' },
+                    4: { cellWidth: 26, textColor: PDF.muted }
+                },
+                // Stamps the running header and footer on every page the table
+                // spills onto, so continuation sheets stand on their own.
+                didDrawPage: () => {
+                    const page = doc.internal.getCurrentPageInfo().pageNumber;
+                    if (page > 1) pdfRunningHeader(doc, clinic, patient);
+                    pdfFooter(doc, page, generatedAt);
+                }
+            });
+        }
+
+        // Page numbering is deferred: the total is only known once the table
+        // has finished paginating.
+        const total = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= total; i++) {
+            doc.setPage(i);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.8);
+            doc.setTextColor(PDF.muted[0], PDF.muted[1], PDF.muted[2]);
+            doc.text('Page ' + i + ' of ' + total, PDF.pageW - PDF.margin, PDF.footerTop + 11.5, { align: 'right' });
+        }
+
+        const safeName = String(patient.name).replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
+        doc.save('medical-record-' + (safeName || 'patient') + '-' + new Date().toISOString().slice(0, 10) + '.pdf');
+    } catch (err) {
+        console.error('Error exporting medical record PDF:', err);
+        showToast('Failed to generate PDF export', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-file-arrow-down"></i> Export PDF'; }
+    }
+}

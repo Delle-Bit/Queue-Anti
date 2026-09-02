@@ -10,6 +10,8 @@
     <link rel="stylesheet" href="customer.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+    <script src="https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.js"></script>
 </head>
 
 <body>
@@ -25,21 +27,55 @@
                     <div class="page-subtitle">Your queue status at a glance</div>
                 </div>
             </div>
-            <div id="no-active-queue" class="card text-center" style="padding:48px;">
+            <!-- Until /api/queue/my-status answers, the page does not know whether
+                 this customer is in a queue at all - and "No Active Queue" below is
+                 a claim it cannot yet make. This placeholder holds the shape of the
+                 status panel instead and is removed on the first response. -->
+            <div id="queue-status-skeleton" aria-hidden="true">
+                <div class="queue-status-panel">
+                    <div class="queue-number-card primary">
+                        <div class="stat-label skel-box"><span class="skel skel-line skel-w-70"></span></div>
+                        <div class="queue-number"><span class="skel skel-number skel-w-50"></span></div>
+                    </div>
+                    <div class="queue-number-card">
+                        <div class="stat-label skel-box"><span class="skel skel-line skel-w-70"></span></div>
+                        <div class="queue-number"><span class="skel skel-number skel-w-50"></span></div>
+                    </div>
+                    <div class="queue-time-card">
+                        <span class="skel skel-icon"></span>
+                        <div style="flex:1 1 auto;">
+                            <div class="stat-label skel-box"><span class="skel skel-line skel-w-60"></span></div>
+                            <div class="queue-time"><span class="skel skel-number skel-w-40"></span></div>
+                            <div class="text-sm skel-box"><span class="skel skel-line skel-w-80"></span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title"><span class="skel skel-line skel-heading"></span></div>
+                    </div>
+                    <div class="skel-stack">
+                        <div class="skel-stack-row"><span class="skel skel-circle skel-avatar"></span><span class="skel skel-line"></span></div>
+                        <div class="skel-stack-row"><span class="skel skel-circle skel-avatar"></span><span class="skel skel-line"></span></div>
+                        <div class="skel-stack-row"><span class="skel skel-circle skel-avatar"></span><span class="skel skel-line"></span></div>
+                    </div>
+                </div>
+            </div>
+            <div id="no-active-queue" class="card text-center" style="display:none;padding:48px;">
                 <i class="fa-solid fa-inbox" style="font-size:3em;color:var(--text-muted);"></i>
                 <h3 class="mt-md">No Active Queue</h3>
                 <p class="text-muted">Select a service package to get started</p>
                 <button class="btn btn-primary btn-lg mt-md" onclick="navigateTo('services')"><i
                         class="fa-solid fa-flask"></i> Browse Services</button>
             </div>
-            <div id="parked-queue-panel" class="card" style="display:none;border:2px solid var(--warning,#d97706);margin-bottom:16px;">
+            <div id="hold-queue-panel" class="card" style="display:none;border:2px solid var(--warning,#d97706);margin-bottom:16px;">
                 <div class="card-header">
-                    <div class="card-title"><i class="fa-solid fa-hourglass-half"></i> Active Parked Queue</div>
+                    <div class="card-title"><i class="fa-solid fa-hourglass-half"></i> Your Queue Is On-Hold</div>
                 </div>
                 <div style="padding:8px 4px;">
                     <p class="fw-600" style="font-size:1.05em;">Status: On Hold (Pending Sample)</p>
-                    <p class="text-muted" id="parked-instruction">Take your time. Once ready, bring your sample to Lab Window. Your place in line will resume with priority.</p>
-                    <button class="btn btn-primary btn-lg mt-md" id="parked-ready-btn" onclick="signalSampleReady()">
+                    <p class="text-muted" id="hold-instruction">Take your time. Once ready, bring your sample to Lab Window. Your place in line will resume with priority.</p>
+                    <button class="btn btn-primary btn-lg mt-md" id="hold-ready-btn" onclick="signalSampleReady()">
                         <i class="fa-solid fa-check"></i> I am Ready for Hand-off / Re-queue
                     </button>
                 </div>
@@ -85,6 +121,17 @@
                     <div class="page-subtitle">Select a service package to begin</div>
                 </div>
             </div>
+            <div class="filter-bar">
+                <div class="search-bar">
+                    <i class="fa-solid fa-search"></i>
+                    <input type="text" id="service-search" placeholder="Search by service ID, name or category..."
+                           aria-label="Search services" oninput="renderServices()">
+                </div>
+                <select class="form-select" id="service-category-filter" aria-label="Filter by category" onchange="renderServices()">
+                    <option value="">All categories</option>
+                </select>
+                <span class="filter-count" id="service-count"></span>
+            </div>
             <div id="packages-grid" class="packages-grid"></div>
         </div>
 
@@ -124,7 +171,10 @@
                     <div class="page-title"><i class="fa-solid fa-notes-medical"></i> Medical Records & History</div>
                     <div class="page-subtitle">Your personal health records and diagnostic history</div>
                 </div>
-                <button class="btn btn-primary" onclick="openModal('mandatory-med-modal')"><i class="fa-solid fa-file-signature"></i> Update Profile Form</button>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button class="btn btn-outline" id="export-med-pdf-btn" onclick="exportMedicalRecordPDF()"><i class="fa-solid fa-file-arrow-down"></i> Export PDF</button>
+                    <button class="btn btn-primary" onclick="openModal('mandatory-med-modal')"><i class="fa-solid fa-file-signature"></i> Update Profile Form</button>
+                </div>
             </div>
 
             <div class="grid-2">
@@ -190,7 +240,7 @@
                     <div class="payment-amount" id="pkg-modal-price">₱0</div>
                     <div class="payment-label">Est. Processing Time: <strong id="pkg-modal-eta">--</strong></div>
                 </div>
-                <h4 class="mt-md mb-md" style="font-size:0.9em;">Included Laboratories:</h4>
+                <h4 class="mt-md mb-md" style="font-size:0.9em;">Service Steps:</h4>
                 <div id="pkg-modal-labs"></div>
             </div>
             <div class="modal-footer">
@@ -253,9 +303,9 @@
                     </div>
                     <div class="appointment-calendar-wrap">
                         <div class="calendar-toolbar">
-                            <button class="btn btn-sm btn-secondary btn-icon" onclick="changeCalendarMonth(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+                            <button class="btn btn-sm btn-secondary btn-icon" id="calendar-prev-btn" onclick="changeCalendarMonth(-1)" aria-label="Previous month"><i class="fa-solid fa-chevron-left"></i></button>
                             <strong id="calendar-title"></strong>
-                            <button class="btn btn-sm btn-secondary btn-icon" onclick="changeCalendarMonth(1)"><i class="fa-solid fa-chevron-right"></i></button>
+                            <button class="btn btn-sm btn-secondary btn-icon" onclick="changeCalendarMonth(1)" aria-label="Next month"><i class="fa-solid fa-chevron-right"></i></button>
                         </div>
                         <div class="appointment-calendar" id="appointment-calendar"></div>
                         <input type="hidden" id="appt-date">
@@ -270,19 +320,21 @@
                         <input type="text" class="form-input" id="appt-notes" placeholder="Any special notes">
                     </div>
                     <div id="appt-payment-section" class="payment-card mt-md">
-                        <div class="payment-label">Amount Due</div>
-                        <div class="payment-amount" id="appt-amount">₱0</div>
-                        <div class="mt-md" style="display:flex;gap:8px;flex-wrap:wrap;">
-                            <button class="btn btn-outline" style="color:#fff;border-color:rgba(255,255,255,0.3)"
-                                onclick="selectPayMethod('gcash')"><i class="fa-solid fa-mobile"></i> GCash</button>
-                            <button class="btn btn-outline" style="color:#fff;border-color:rgba(255,255,255,0.3)"
-                                onclick="selectPayMethod('maya')"><i class="fa-solid fa-credit-card"></i> Maya</button>
-                            <button class="btn btn-outline" style="color:#fff;border-color:rgba(255,255,255,0.3)"
-                                onclick="selectPayMethod('card')"><i class="fa-solid fa-credit-card"></i> Card</button>
+                        <div class="appt-fee-line">
+                            <span>Service price</span>
+                            <span id="appt-base-price">₱0</span>
                         </div>
-                        <input type="hidden" id="appt-pay-method" value="gcash">
-                        <div class="mt-sm" style="font-size:0.75em;color:rgba(255,255,255,0.5);">Mock payment — no real
-                            charges</div>
+                        <div class="appt-fee-line">
+                            <span>Priority booking fee (<span id="appt-surcharge-pct">10</span>%)</span>
+                            <span id="appt-surcharge">₱0</span>
+                        </div>
+                        <div class="payment-label mt-md">Total Due On Site</div>
+                        <div class="payment-amount" id="appt-amount">₱0</div>
+                        <div class="appt-pay-note">
+                            <i class="fa-solid fa-cash-register"></i>
+                            <span>Pay at the <strong>Front Desk</strong> on the day of your visit. Booking a slot
+                                places you ahead of walk-ins, which is what the priority fee covers.</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -292,7 +344,7 @@
                     onclick="apptPrevStep()">Back</button>
                 <button class="btn btn-primary" id="appt-next-btn" onclick="apptNextStep()">Next</button>
                 <button class="btn btn-success" id="appt-confirm-btn" style="display:none;"
-                    onclick="bookAppointment()"><i class="fa-solid fa-check"></i> Confirm & Pay</button>
+                    onclick="bookAppointment()"><i class="fa-solid fa-check"></i> Confirm Booking</button>
             </div>
         </div>
     </div>
@@ -343,8 +395,41 @@
                             <option value="Divorced">Divorced</option>
                         </select></div>
                 </div>
-                <div class="form-group"><label class="form-label required">Address</label><input type="text" id="req-med-address"
-                        class="form-input" data-required="true"></div>
+                <h4 class="mt-md mb-sm">Address</h4>
+                <div style="display:grid; grid-template-columns: 1fr 2fr; gap:8px;">
+                    <div class="form-group">
+                        <label class="form-label" for="req-med-house-number">House / Unit No.</label>
+                        <input type="text" id="req-med-house-number" class="form-input" placeholder="e.g. Blk 11 Lot 12"
+                            aria-describedby="req-med-house-number-note">
+                        <small class="text-muted" id="req-med-house-number-note">Optional — leave blank if your address has no house or unit number.</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label required" for="req-med-street">Street</label>
+                        <input type="text" id="req-med-street" class="form-input" data-required="true"
+                            placeholder="e.g. Mahogany Villas Phase 2A">
+                    </div>
+                </div>
+                <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px;">
+                    <div class="form-group">
+                        <label class="form-label required" for="req-med-province">Province</label>
+                        <select id="req-med-province" class="form-input" data-required="true"
+                            onchange="onProvinceChange()">
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label required" for="req-med-city">City / Municipality</label>
+                        <select id="req-med-city" class="form-input" data-required="true" onchange="onCityChange()" disabled>
+                            <option value="">Select province first</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label required" for="req-med-barangay">Barangay</label>
+                        <select id="req-med-barangay" class="form-input" data-required="true" disabled>
+                            <option value="">Select city first</option>
+                        </select>
+                    </div>
+                </div>
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
                     <div class="form-group"><label class="form-label required">Phone Number</label><input type="text"
                             id="req-med-phone" class="form-input" data-required="true"></div>
@@ -551,6 +636,7 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="shared.js"></script>
+    <script src="clinic-pdf.js"></script>
     <script src="customer.js"></script>
     <script src="va.js"></script>
 </body>

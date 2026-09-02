@@ -15,6 +15,9 @@ These accounts are seeded automatically when the server starts.
 | customer_senior | pass123 | Customer | Senior |
 | customer_pwd | pass123 | Customer | PWD |
 | customer_pregnant | pass123 | Customer | Pregnant |
+| customer_senior2 | pass123 | Customer | Senior |
+| customer_regular2 | pass123 | Customer | Regular |
+| customer_pwd2 | pass123 | Customer | PWD |
 
 ## Sample Data
 

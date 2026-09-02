@@ -5,45 +5,76 @@ const bcrypt = require('bcrypt');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const { requireStaff, requireAdmin } = require('../config');
+const aiServices = require('../ai_services');
+const appointmentAutomation = require('../appointment_automation');
+const sessionActivity = require('../session_activity');
+const { recordAudit, requireReason, snapshotRow } = require('../audit');
+const { archiveRecord, ARCHIVE_TABLE_MAP } = require('../archive');
+const { sanitizeRichText, richTextToPlain } = require('../rich_text');
 
 const ELEVATED_ROLES = ['admin', 'admintechnical', 'owner'];
 
-async function archiveRecord(table, idColumn, idValue, entityType, userId) {
-    const [rows] = await pool.query(`SELECT * FROM ${table} WHERE ${idColumn} = ?`, [idValue]);
-    if (rows.length === 0) return false;
-    await pool.query(
-        `INSERT INTO archived_records (entity_type, entity_id, snapshot, archived_by) VALUES (?, ?, ?, ?)`,
-        [entityType, String(idValue), JSON.stringify(rows[0]), userId || null]
-    );
-    await pool.query(`UPDATE ${table} SET archived=true, archived_at=NOW() WHERE ${idColumn} = ?`, [idValue]);
-    await pool.query(
-        'INSERT INTO audit_logs (action, entity_type, entity_id, details, performed_by) VALUES (?, ?, ?, ?, ?)',
-        ['archive', entityType, Number(idValue) || null, JSON.stringify({ table }), userId || null]
-    );
-    return true;
+// --- USERS ---
+// Free-text search across the columns an operator would actually type into a
+// search box. Built as a parameterised OR block rather than string-concatenated
+// SQL, so a search term can never reach the query text.
+function buildSearchClause(term, columns) {
+    const q = String(term || '').trim();
+    if (!q) return { clause: '', params: [] };
+    const like = `%${q}%`;
+    return {
+        clause: `(${columns.map(c => `${c} LIKE ?`).join(' OR ')})`,
+        params: columns.map(() => like)
+    };
 }
 
-// --- USERS ---
 router.get('/users/staff', requireAdmin, async (req, res) => {
     try {
-        const [rows] = await pool.query(`SELECT id, username, role, full_name, email, created_at FROM users WHERE role != 'customer' AND archived = false ORDER BY created_at DESC`);
+        // id is cast so a search for "12" matches the account number as readily
+        // as it matches a name.
+        const search = buildSearchClause(req.query.q, [
+            'CAST(u.id AS CHAR)', 'u.username', 'u.full_name', 'u.email', 'u.role'
+        ]);
+        const params = [];
+        let where = `u.role != 'customer' AND u.archived = false`;
+        if (search.clause) { where += ` AND ${search.clause}`; params.push(...search.params); }
+        if (req.query.role) { where += ' AND u.role = ?'; params.push(req.query.role); }
+        const [rows] = await pool.query(
+            `SELECT u.id, u.username, u.role, u.full_name, u.email, u.created_at
+             FROM users u WHERE ${where} ORDER BY u.created_at DESC LIMIT 500`,
+            params
+        );
         res.json(rows);
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    } catch (err) {
+        console.error('Staff list error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
 router.get('/users/customers', requireAdmin, async (req, res) => {
     try {
-        const [rows] = await pool.query(`
-            SELECT u.id, u.username, u.full_name, u.email, u.customer_category, u.created_at,
-                   COUNT(qs.id) as total_services
-            FROM users u LEFT JOIN queue_sequences qs ON u.id = qs.customer_id AND qs.status='completed'
-            WHERE u.role = 'customer' AND u.archived = false GROUP BY u.id ORDER BY u.created_at DESC
-        `);
+        const search = buildSearchClause(req.query.q, [
+            'CAST(u.id AS CHAR)', 'u.customer_uid', 'u.username', 'u.full_name', 'u.email', 'u.customer_category'
+        ]);
+        const params = [];
+        let where = `u.role = 'customer' AND u.archived = false`;
+        if (search.clause) { where += ` AND ${search.clause}`; params.push(...search.params); }
+        if (req.query.category) { where += ' AND u.customer_category = ?'; params.push(req.query.category); }
+        const [rows] = await pool.query(
+            `SELECT u.id, u.customer_uid, u.username, u.full_name, u.email, u.customer_category, u.created_at,
+                    COUNT(qs.id) as total_services
+             FROM users u LEFT JOIN queue_sequences qs ON u.id = qs.customer_id AND qs.status='completed'
+             WHERE ${where} GROUP BY u.id ORDER BY u.created_at DESC LIMIT 500`,
+            params
+        );
         res.json(rows);
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    } catch (err) {
+        console.error('Customer list error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
-router.post('/users', requireAdmin, async (req, res) => {
+router.post('/users', requireAdmin, requireReason, async (req, res) => {
     const { username, password, role, email, full_name } = req.body;
     try {
         // Admin role cannot create other admins
@@ -51,20 +82,28 @@ router.post('/users', requireAdmin, async (req, res) => {
             return res.status(403).json({ error: 'Admin cannot create other Admin accounts' });
         }
         const hash = await bcrypt.hash(password, 10);
-        await pool.query(
+        const [result] = await pool.query(
             'INSERT INTO users (username, password_hash, role, email, full_name) VALUES (?, ?, ?, ?, ?)',
             [username, hash, role, email || '', full_name || '']
         );
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to create user' }); }
+        await recordAudit({
+            req, action: 'create', entityType: 'user', entityId: result.insertId,
+            summary: `Created ${role} account "${username}"`,
+            after: { id: result.insertId, username, role, email: email || '', full_name: full_name || '' }
+        });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        console.error('Create user error:', err);
+        res.status(500).json({ error: 'Failed to create user' });
+    }
 });
 
-router.put('/users/:id', requireAdmin, async (req, res) => {
+router.put('/users/:id', requireAdmin, requireReason, async (req, res) => {
     const { password, role, email, full_name } = req.body;
     try {
-        const [targetRows] = await pool.query('SELECT role FROM users WHERE id=?', [req.params.id]);
-        if (targetRows.length === 0) return res.status(404).json({ error: 'User not found' });
-        const targetRole = targetRows[0].role;
+        const before = await snapshotRow('users', 'id', req.params.id);
+        if (!before) return res.status(404).json({ error: 'User not found' });
+        const targetRole = before.role;
 
         // Plain admins must not modify elevated accounts or grant elevated roles
         if (req.user.role === 'admin') {
@@ -87,12 +126,21 @@ router.put('/users/:id', requireAdmin, async (req, res) => {
             await pool.query('UPDATE users SET role=?, email=?, full_name=? WHERE id=?',
                 [role, email || '', full_name || '', req.params.id]);
         }
+        const after = await snapshotRow('users', 'id', req.params.id);
+        await recordAudit({
+            req, action: 'update', entityType: 'user', entityId: req.params.id,
+            summary: `Updated account "${before.username}"${password ? ' (password reset)' : ''}`,
+            before, after
+        });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to update user' }); }
+    } catch (err) {
+        console.error('Update user error:', err);
+        res.status(500).json({ error: 'Failed to update user' });
+    }
 });
 
-router.delete('/users/:id', requireAdmin, async (req, res) => {
-    const { reason } = req.body;
+router.delete('/users/:id', requireAdmin, requireReason, async (req, res) => {
+    const reason = req.auditReason;
     try {
         if (Number(req.params.id) === req.user.id) {
             return res.status(403).json({ error: 'You cannot delete your own account' });
@@ -106,16 +154,18 @@ router.delete('/users/:id', requireAdmin, async (req, res) => {
         if (userRows.length === 0) return res.status(404).json({ error: 'User not found' });
         const user = userRows[0];
 
-        const archived = await archiveRecord('users', 'id', req.params.id, 'user', req.user.id);
-        if (archived) {
-            await pool.query(
-                `INSERT INTO account_deletion_logs (account_id, account_name, deleted_by, deleted_by_name, reason)
-                 VALUES (?, ?, ?, ?, ?)`,
-                [req.params.id, user.full_name || user.username, req.user.id, req.user.username, reason || 'No reason provided']
-            );
-        }
+        const archived = await archiveRecord('users', 'id', req.params.id, 'user', req, reason);
+        if (!archived) return res.status(400).json({ error: 'This account is already archived.' });
+        await pool.query(
+            `INSERT INTO account_deletion_logs (account_id, account_name, deleted_by, deleted_by_name, reason)
+             VALUES (?, ?, ?, ?, ?)`,
+            [req.params.id, user.full_name || user.username, req.user.id, req.user.username, reason]
+        );
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to delete user' }); }
+    } catch (err) {
+        console.error('Delete user error:', err);
+        res.status(500).json({ error: 'Failed to delete user' });
+    }
 });
 
 router.get('/users/deletion-logs', requireAdmin, async (req, res) => {
@@ -136,33 +186,55 @@ router.get('/laboratories', requireStaff, async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.post('/laboratories', requireAdmin, async (req, res) => {
+router.post('/laboratories', requireAdmin, requireReason, async (req, res) => {
     const { name, service_type, assigned_staff_id, start_time, cutoff_time } = req.body;
     try {
-        await pool.query(
+        const [result] = await pool.query(
             'INSERT INTO laboratories (name, service_type, assigned_staff_id, start_time, cutoff_time) VALUES (?, ?, ?, ?, ?)',
             [name, service_type || '', assigned_staff_id || null, start_time || null, cutoff_time || null]
         );
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+        await recordAudit({
+            req, action: 'create', entityType: 'laboratory', entityId: result.insertId,
+            summary: `Added laboratory "${name}"`,
+            after: await snapshotRow('laboratories', 'id', result.insertId)
+        });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        console.error('Create laboratory error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
-router.put('/laboratories/:id', requireAdmin, async (req, res) => {
+router.put('/laboratories/:id', requireAdmin, requireReason, async (req, res) => {
     const { name, service_type, assigned_staff_id, is_open, start_time, cutoff_time } = req.body;
     try {
+        const before = await snapshotRow('laboratories', 'id', req.params.id);
+        if (!before) return res.status(404).json({ error: 'Laboratory not found' });
         await pool.query(
             'UPDATE laboratories SET name=?, service_type=?, assigned_staff_id=?, is_open=?, start_time=?, cutoff_time=? WHERE id=?',
             [name, service_type, assigned_staff_id || null, is_open !== false, start_time || null, cutoff_time || null, req.params.id]
         );
+        await recordAudit({
+            req, action: 'update', entityType: 'laboratory', entityId: req.params.id,
+            summary: `Updated laboratory "${before.name}"`,
+            before, after: await snapshotRow('laboratories', 'id', req.params.id)
+        });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    } catch (err) {
+        console.error('Update laboratory error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
-router.delete('/laboratories/:id', requireAdmin, async (req, res) => {
+router.delete('/laboratories/:id', requireAdmin, requireReason, async (req, res) => {
     try {
-        await archiveRecord('laboratories', 'id', req.params.id, 'laboratory', req.user.id);
+        const archived = await archiveRecord('laboratories', 'id', req.params.id, 'laboratory', req);
+        if (!archived) return res.status(400).json({ error: 'This laboratory is already archived.' });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    } catch (err) {
+        console.error('Archive laboratory error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
 // --- DOCTORS ---
@@ -176,40 +248,76 @@ router.get('/doctors', requireStaff, async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.post('/doctors', requireAdmin, async (req, res) => {
+router.post('/doctors', requireAdmin, requireReason, async (req, res) => {
     const { name, specialty, assigned_staff_id } = req.body;
     try {
-        await pool.query(
+        const [result] = await pool.query(
             'INSERT INTO doctors (name, specialty, assigned_staff_id) VALUES (?, ?, ?)',
             [name, specialty || '', assigned_staff_id || null]
         );
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+        await recordAudit({
+            req, action: 'create', entityType: 'doctor', entityId: result.insertId,
+            summary: `Added doctor "${name}"`,
+            after: await snapshotRow('doctors', 'id', result.insertId)
+        });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        console.error('Create doctor error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
-router.put('/doctors/:id', requireAdmin, async (req, res) => {
+router.put('/doctors/:id', requireAdmin, requireReason, async (req, res) => {
     const { name, specialty, assigned_staff_id, is_open } = req.body;
     try {
+        const before = await snapshotRow('doctors', 'id', req.params.id);
+        if (!before) return res.status(404).json({ error: 'Doctor not found' });
         await pool.query(
             'UPDATE doctors SET name=?, specialty=?, assigned_staff_id=?, is_open=? WHERE id=?',
             [name, specialty || '', assigned_staff_id || null, is_open !== false, req.params.id]
         );
+        await recordAudit({
+            req, action: 'update', entityType: 'doctor', entityId: req.params.id,
+            summary: `Updated doctor "${before.name}"`,
+            before, after: await snapshotRow('doctors', 'id', req.params.id)
+        });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    } catch (err) {
+        console.error('Update doctor error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
-router.delete('/doctors/:id', requireAdmin, async (req, res) => {
+router.delete('/doctors/:id', requireAdmin, requireReason, async (req, res) => {
     try {
-        await archiveRecord('doctors', 'id', req.params.id, 'doctor', req.user.id);
+        const archived = await archiveRecord('doctors', 'id', req.params.id, 'doctor', req);
+        if (!archived) return res.status(400).json({ error: 'This doctor is already archived.' });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    } catch (err) {
+        console.error('Archive doctor error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
 
 // --- APPOINTMENTS ---
+// Both lists sweep first so a slot that has just gone past its grace period is
+// never rendered as if it were still upcoming. The sweep is also on a timer in
+// server.js, so this is only about the freshness of the list being served.
 router.get('/appointments', requireStaff, async (req, res) => {
     try {
-        let query = `SELECT a.*, sp.name as package_name, sp.price, u.username, u.full_name
+        await appointmentAutomation.sweepQuietly();
+        // archived = false excludes no-shows: once swept, a missed appointment
+        // leaves the staff and admin working lists entirely. It stays visible to
+        // the owner under Archives, where it can be restored.
+        // appointment_date/time are formatted in SQL. A DATE column comes back as
+        // a JS Date and res.json serialises it to UTC, which shifted the day by
+        // one for every timezone east of UTC - a 5 Sep booking rendered as
+        // "2026-09-04T16:00:00.000Z" in all four appointment tables.
+        let query = `SELECT a.*,
+                            DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+                            TIME_FORMAT(a.appointment_time, '%H:%i') AS appointment_time,
+                            sp.name as package_name, sp.price, u.username, u.full_name
                      FROM appointments a
                      JOIN service_packages sp ON a.package_id = sp.id
                      JOIN users u ON a.customer_id = u.id
@@ -222,25 +330,77 @@ router.get('/appointments', requireStaff, async (req, res) => {
 
 router.get('/appointments/my', async (req, res) => {
     try {
+        await appointmentAutomation.sweepQuietly();
+        // The customer keeps seeing their own no-shows, marked "Did Not Arrive".
+        // Archiving them out of here too would make a missed appointment appear
+        // to have silently vanished from their own history.
         const [rows] = await pool.query(
-            `SELECT a.*, sp.name as package_name, sp.price FROM appointments a
+            `SELECT a.*,
+                    DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+                    TIME_FORMAT(a.appointment_time, '%H:%i') AS appointment_time,
+                    sp.name as package_name, sp.price
+             FROM appointments a
              JOIN service_packages sp ON a.package_id = sp.id
-             WHERE a.customer_id = ? AND a.archived = false ORDER BY a.appointment_date DESC`, [req.user.id]
+             WHERE a.customer_id = ? AND (a.archived = false OR a.status = 'no-show')
+             ORDER BY a.appointment_date DESC, a.appointment_time DESC`, [req.user.id]
         );
         res.json(rows);
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+// Appointments may only be booked into the future. The calendar disables past
+// dates and elapsed slots, but the endpoint takes the date and time straight
+// from the request body, so a client-side-only rule is bypassable. Comparison
+// uses the server's local clock, the same one CURDATE()/NOW() read elsewhere.
+const APPOINTMENT_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const APPOINTMENT_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+function appointmentSlotError(dateStr, timeStr) {
+    const date = String(dateStr || '');
+    // TIME columns come back as HH:MM:SS, so accept a seconds suffix.
+    const time = String(timeStr || '').slice(0, 5);
+    if (!APPOINTMENT_DATE_PATTERN.test(date)) return 'Please choose a valid appointment date.';
+    if (!APPOINTMENT_TIME_PATTERN.test(time)) return 'Please choose a valid appointment time.';
+
+    const [y, m, d] = date.split('-').map(Number);
+    const [hh, mm] = time.split(':').map(Number);
+    const slot = new Date(y, m - 1, d, hh, mm, 0, 0);
+    // Date rolls impossible calendar dates over (2026-02-31 -> March 3), so
+    // check the parts survived the round trip.
+    if (slot.getFullYear() !== y || slot.getMonth() !== m - 1 || slot.getDate() !== d) {
+        return 'Please choose a valid appointment date.';
+    }
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const slotDay = new Date(y, m - 1, d);
+    if (slotDay.getTime() < today.getTime()) {
+        return 'Appointments cannot be booked for a past date.';
+    }
+    // On today the slot must be strictly later than now - a slot at exactly the
+    // current time has already started.
+    if (slotDay.getTime() === today.getTime() && slot.getTime() <= now.getTime()) {
+        return 'That time slot has already passed. Please choose a later time today or another date.';
+    }
+    return null;
+}
+
 router.post('/appointments', async (req, res) => {
-    const { package_id, appointment_date, appointment_time, payment_method, payment_ref, notes } = req.body;
+    // payment_method/payment_ref are deliberately not read from the body any
+    // more: appointments are settled on site at the front desk, so the server
+    // decides the method and the amount rather than trusting a client that used
+    // to post a mock online payment.
+    const { package_id, appointment_date, appointment_time, notes } = req.body;
     try {
+        const slotError = appointmentSlotError(appointment_date, appointment_time);
+        if (slotError) return res.status(400).json({ error: slotError });
         const [medical] = await pool.query('SELECT id FROM medical_records WHERE customer_id=? AND archived=false', [req.user.id]);
         if (medical.length === 0) return res.status(409).json({ error: 'Please complete your medical form before booking.', medical_form_required: true });
         const [labCount] = await pool.query(
             `SELECT COUNT(*) as cnt FROM package_laboratories pl JOIN laboratories l ON pl.laboratory_id = l.id
              WHERE pl.package_id = ? AND pl.archived = false AND l.archived = false`, [package_id]
         );
-        const [pkgRows] = await pool.query('SELECT doctor_id FROM service_packages WHERE id = ? AND archived = false', [package_id]);
+        const [pkgRows] = await pool.query('SELECT doctor_id, price FROM service_packages WHERE id = ? AND archived = false', [package_id]);
         if (pkgRows.length === 0) return res.status(404).json({ error: 'Package not found' });
         if (labCount[0].cnt === 0 && !pkgRows[0].doctor_id) return res.status(400).json({ error: 'This service is currently unavailable.' });
         const [slotCount] = await pool.query(
@@ -253,13 +413,32 @@ router.post('/appointments', async (req, res) => {
             [appointment_date, appointment_time]
         );
         if (slotTaken.length > 0) return res.status(400).json({ error: 'This appointment slot is already booked.' });
-        await pool.query(
-            `INSERT INTO appointments (customer_id, package_id, appointment_date, appointment_time, payment_status, payment_method, payment_ref, notes)
-             VALUES (?, ?, ?, ?, 'paid', ?, ?, ?)`,
-            [req.user.id, package_id, appointment_date, appointment_time, payment_method || 'mock', payment_ref || 'MOCK-' + Date.now(), notes || '']
+
+        // Priority surcharge on the package price, stored on the row so a later
+        // price change cannot alter what this patient was quoted. Left 'pending':
+        // the front desk collects it when they clear the cashier step.
+        const surchargePct = appointmentAutomation.APPOINTMENT_SURCHARGE_PCT;
+        const amountDue = appointmentAutomation.appointmentPrice(pkgRows[0].price, surchargePct);
+
+        const [ins] = await pool.query(
+            `INSERT INTO appointments (customer_id, package_id, appointment_date, appointment_time,
+                                       payment_status, payment_method, payment_ref, notes,
+                                       amount_due, surcharge_pct)
+             VALUES (?, ?, ?, ?, 'pending', 'onsite', '', ?, ?, ?)`,
+            [req.user.id, package_id, appointment_date, appointment_time, notes || '', amountDue, surchargePct]
         );
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+        res.json({
+            success: true,
+            id: ins.insertId,
+            base_price: Number(pkgRows[0].price),
+            surcharge_pct: surchargePct,
+            amount_due: amountDue,
+            payment_status: 'pending'
+        });
+    } catch (err) {
+        console.error('Book appointment error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
 router.post('/appointments/:id/qr', requireStaff, async (req, res) => {
@@ -293,8 +472,11 @@ router.get('/analytics/frontdesk', requireStaff, async (req, res) => {
         const [avg] = await pool.query(`SELECT AVG(TIMESTAMPDIFF(MINUTE,serve_time,complete_time)) as v FROM queue_logs WHERE station_type='frontdesk' AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE()`);
         const [perHour] = await pool.query(`SELECT COUNT(*)/GREATEST(1,TIMESTAMPDIFF(HOUR,MIN(serve_time),MAX(complete_time))) as v FROM queue_logs WHERE station_type='frontdesk' AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE()`);
         const [total] = await pool.query(`SELECT COUNT(*) as v FROM queue_logs WHERE station_type='frontdesk' AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE()`);
-        const [fastest] = await pool.query(`SELECT ticket_number, package_name, TIMESTAMPDIFF(MINUTE,serve_time,complete_time) as mins FROM queue_logs WHERE station_type='frontdesk' AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE() ORDER BY mins ASC LIMIT 1`);
-        const [slowest] = await pool.query(`SELECT ticket_number, package_name, TIMESTAMPDIFF(MINUTE,serve_time,complete_time) as mins FROM queue_logs WHERE station_type='frontdesk' AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE() ORDER BY mins DESC LIMIT 1`);
+        // serve_time is required alongside complete_time: a ticket completed without ever being
+        // called has no measurable duration, and TIMESTAMPDIFF returns NULL for it — which sorts
+        // first ascending and would steal the "fastest" slot from a real ticket.
+        const [fastest] = await pool.query(`SELECT ticket_number, package_name, TIMESTAMPDIFF(MINUTE,serve_time,complete_time) as mins FROM queue_logs WHERE station_type='frontdesk' AND serve_time IS NOT NULL AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE() ORDER BY mins ASC LIMIT 1`);
+        const [slowest] = await pool.query(`SELECT ticket_number, package_name, TIMESTAMPDIFF(MINUTE,serve_time,complete_time) as mins FROM queue_logs WHERE station_type='frontdesk' AND serve_time IS NOT NULL AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE() ORDER BY mins DESC LIMIT 1`);
         const [dist] = await pool.query(`SELECT type, COUNT(*) as cnt FROM queue_logs WHERE station_type='frontdesk' AND DATE(join_time)=CURDATE() GROUP BY type`);
         const [logs] = await pool.query(`SELECT * FROM queue_logs WHERE station_type='frontdesk' ORDER BY join_time DESC LIMIT 50`);
         res.json({
@@ -373,31 +555,127 @@ router.get('/analytics/owner', requireAdmin, async (req, res) => {
 // --- STAFF SESSIONS ---
 router.post('/staff-sessions/logout', async (req, res) => {
     try {
-        await pool.query(`UPDATE staff_sessions SET logout_time=NOW() WHERE user_id=? AND logout_time IS NULL ORDER BY id DESC LIMIT 1`, [req.user.id]);
+        // Also drops the in-memory idle clock, so the token cannot be replayed
+        // after the user has signed out (session_activity.js).
+        await sessionActivity.terminate(req.user.id, 'logout');
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
 // --- AUDIT LOGS ---
+// Every row answers What / Who / When / Why. actor_name is read from the log
+// itself rather than joined live, so an entry still names the person who made
+// the change after their account is renamed or archived; the join is only a
+// fallback for rows written before that column existed.
 router.get('/audit-logs', requireAdmin, async (req, res) => {
     try {
-        const [rows] = await pool.query(`SELECT al.*, u.username FROM audit_logs al LEFT JOIN users u ON al.performed_by=u.id ORDER BY al.created_at DESC LIMIT 100`);
+        const params = [];
+        const filters = [];
+        const search = buildSearchClause(req.query.q, [
+            'al.action', 'al.entity_type', 'al.summary', 'al.reason', 'al.details',
+            'al.actor_name', 'u.username'
+        ]);
+        if (search.clause) { filters.push(search.clause); params.push(...search.params); }
+        if (req.query.action) { filters.push('al.action = ?'); params.push(req.query.action); }
+        if (req.query.entity_type) { filters.push('al.entity_type = ?'); params.push(req.query.entity_type); }
+        if (req.query.from) { filters.push('al.created_at >= ?'); params.push(`${req.query.from} 00:00:00`); }
+        if (req.query.to) { filters.push('al.created_at <= ?'); params.push(`${req.query.to} 23:59:59`); }
+
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 1000);
+        const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+        const [rows] = await pool.query(
+            `SELECT al.id, al.action, al.entity_type, al.entity_id, al.details, al.summary, al.reason,
+                    al.before_snapshot, al.after_snapshot, al.created_at,
+                    COALESCE(NULLIF(al.actor_name, ''), u.username, 'System') AS actor_name,
+                    COALESCE(NULLIF(al.actor_role, ''), u.role, '')          AS actor_role,
+                    COALESCE(NULLIF(al.actor_name, ''), u.username, 'System') AS username
+             FROM audit_logs al LEFT JOIN users u ON al.performed_by = u.id
+             ${where} ORDER BY al.created_at DESC, al.id DESC LIMIT ${limit}`,
+            params
+        );
         res.json(rows);
+    } catch (err) {
+        console.error('Audit log error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
+});
+
+// The distinct values present, so the log's filter dropdowns only ever offer
+// options that will actually match something.
+router.get('/audit-logs/facets', requireAdmin, async (req, res) => {
+    try {
+        const [actions] = await pool.query('SELECT DISTINCT action FROM audit_logs ORDER BY action');
+        const [types] = await pool.query("SELECT DISTINCT entity_type FROM audit_logs WHERE entity_type <> '' ORDER BY entity_type");
+        res.json({
+            actions: actions.map(r => r.action),
+            entity_types: types.map(r => r.entity_type)
+        });
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
 // --- SETTINGS ---
 // GET /settings is served publicly from server.js (branding for unauthenticated pages)
 
-router.put('/settings', requireAdmin, async (req, res) => {
-    const { site_name, logo_path, theme, navbar_color, background_image } = req.body;
+// Allowlist - also the source of the SET clause's column names, so nothing from
+// the request body can reach the SQL text.
+const SETTINGS_FIELDS = {
+    site_name: 255,
+    logo_path: 255,
+    theme: 20,
+    navbar_color: 50,
+    background_image: 255
+};
+const SETTINGS_THEMES = ['light', 'dark'];
+
+// Partial update: only the fields actually present in the body are written.
+// This used to be an unconditional full-row UPDATE, so saving the two fields the
+// Customize form sent (navbar_color + background_image) nulled out site_name and
+// logo_path and reset theme - which also silently broke the branding on the
+// customer's exported medical-record PDF, the one place those two were read.
+router.put('/settings', requireAdmin, requireReason, async (req, res) => {
+    const body = req.body || {};
+    const fields = Object.keys(SETTINGS_FIELDS).filter(f => body[f] !== undefined && body[f] !== null);
+    if (fields.length === 0) return res.status(400).json({ error: 'No settings provided' });
+
+    const values = [];
+    for (const field of fields) {
+        const value = String(body[field]).trim();
+        if (value.length > SETTINGS_FIELDS[field]) {
+            return res.status(400).json({ error: `${field} must be ${SETTINGS_FIELDS[field]} characters or fewer` });
+        }
+        if (field === 'theme' && !SETTINGS_THEMES.includes(value)) {
+            return res.status(400).json({ error: `theme must be one of: ${SETTINGS_THEMES.join(', ')}` });
+        }
+        if (field === 'navbar_color' && value && !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) {
+            return res.status(400).json({ error: 'navbar_color must be a hex colour such as #24303A' });
+        }
+        if (field === 'site_name' && !value) {
+            return res.status(400).json({ error: 'Site name cannot be empty' });
+        }
+        values.push(value);
+    }
+
     try {
-        await pool.query(
-            `UPDATE settings SET site_name=?, logo_path=?, theme=?, navbar_color=?, background_image=? WHERE id=1`,
-            [site_name, logo_path, theme || 'light', navbar_color || '#ffffff', background_image || '']
-        );
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to update settings' }); }
+        const before = await snapshotRow('settings', 'id', 1);
+        const setClause = fields.map(f => `${f}=?`).join(', ');
+        await pool.query(`UPDATE settings SET ${setClause} WHERE id=1`, values);
+        const after = await snapshotRow('settings', 'id', 1);
+
+        await recordAudit({
+            req, action: 'update', entityType: 'settings', entityId: 1,
+            summary: `Updated appearance settings: ${fields.join(', ')}`,
+            before, after
+        });
+
+        // Let every open page re-apply the branding without a manual reload.
+        const io = req.app.get('io');
+        if (io) io.emit('settingsUpdate', {});
+
+        res.json({ success: true, updated: fields });
+    } catch (err) {
+        console.error('Update settings error:', err);
+        res.status(500).json({ error: 'Failed to update settings' });
+    }
 });
 
 // --- MEDICAL RECORDS ---
@@ -415,11 +693,13 @@ router.get('/medical-records/my', async (req, res) => {
 });
 
 router.post('/medical-records/my', async (req, res) => {
-    const { full_name, surname, first_name, middle_name, no_middle_name, gender, birthday, birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions } = req.body;
+    const { full_name, surname, first_name, middle_name, no_middle_name, gender, birthday, birthplace, address, house_number, street, barangay, city, province, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions } = req.body;
     const customer_id = req.user.id;
     try {
         const missing = [];
-        const required = { surname, first_name, gender, birthday, birthplace, status, address, phone, occupation, emergency_contact };
+        // house_number is intentionally absent: many rural Philippine addresses
+        // have no house number, so it stays optional.
+        const required = { surname, first_name, gender, birthday, birthplace, status, address, street, barangay, city, province, phone, occupation, emergency_contact };
         Object.entries(required).forEach(([key, value]) => {
             if (!String(value || '').trim()) missing.push(key);
         });
@@ -434,14 +714,14 @@ router.post('/medical-records/my', async (req, res) => {
         const [existing] = await pool.query('SELECT id FROM medical_records WHERE customer_id = ? AND archived=false', [customer_id]);
         if (existing.length > 0) {
             await pool.query(
-                `UPDATE medical_records SET birthplace=?, address=?, phone=?, status=?, occupation=?, retiree=?, emergency_contact=?, current_health=?, past_conditions=? WHERE customer_id=?`,
-                [birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions, customer_id]
+                `UPDATE medical_records SET birthplace=?, address=?, house_number=?, street=?, barangay=?, city=?, province=?, phone=?, status=?, occupation=?, retiree=?, emergency_contact=?, current_health=?, past_conditions=? WHERE customer_id=?`,
+                [birthplace, address, house_number || '', street, barangay, city, province, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions, customer_id]
             );
         } else {
             await pool.query(
-                `INSERT INTO medical_records (customer_id, birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [customer_id, birthplace, address, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions]
+                `INSERT INTO medical_records (customer_id, birthplace, address, house_number, street, barangay, city, province, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [customer_id, birthplace, address, house_number || '', street, barangay, city, province, phone, status, occupation, retiree, emergency_contact, current_health, past_conditions]
             );
         }
         res.json({ success: true });
@@ -517,13 +797,29 @@ router.post('/lab-notes', requireStaff, async (req, res) => {
 router.post('/clinical-records', requireStaff, async (req, res) => {
     const { customer_id, sequence_id, record_type, data, notes } = req.body;
     try {
+        // A freeform result ("Other Diagnostics") arrives as HTML from the
+        // laboratory's notepad and is rendered back to the patient as markup,
+        // so it is sanitised here rather than trusted from the browser. The
+        // flattened copy keeps `notes` plain text for everything that already
+        // reads it - the PDF export, the AI summaries, the assistant.
+        let payload = data || null;
+        let plainNotes = notes || null;
+        if (payload && payload.rich_notes) {
+            const clean = sanitizeRichText(payload.rich_notes);
+            payload = { ...payload, rich_notes: clean };
+            if (!plainNotes) plainNotes = richTextToPlain(clean);
+        }
+
         await pool.query(
             `INSERT INTO clinical_records (customer_id, sequence_id, record_type, data, notes, staff_id)
              VALUES (?, ?, ?, ?, ?, ?)`,
-            [customer_id, sequence_id || null, record_type, data ? JSON.stringify(data) : null, notes || null, req.user.id]
+            [customer_id, sequence_id || null, record_type, payload ? JSON.stringify(payload) : null, plainNotes, req.user.id]
         );
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to save clinical record' }); }
+    } catch (err) {
+        console.error('Clinical record save error:', err);
+        res.status(500).json({ error: 'Failed to save clinical record' });
+    }
 });
 
 router.get('/clinical-records/my', async (req, res) => {
@@ -555,6 +851,81 @@ router.get('/clinical-records/:customerId', requireStaff, async (req, res) => {
 });
 
 
+// --- ANNOUNCEMENTS ---
+const ANNOUNCEMENT_DEPARTMENT_NAMES = { frontdesk: 'Front Desk', laboratory: 'Laboratory', doctor: 'Doctor' };
+
+router.get('/announcements/draft', requireStaff, async (req, res) => {
+    const stationType = ['frontdesk', 'laboratory', 'doctor'].includes(req.query.station_type) ? req.query.station_type : 'frontdesk';
+    const stationId = req.query.station_id || null;
+    try {
+        const waitingParams = [stationType];
+        let waitingSql = `SELECT COUNT(*) as v FROM queue WHERE station_type=? AND status='waiting'`;
+        if (stationId) { waitingSql += ' AND station_id=?'; waitingParams.push(stationId); }
+        const [waitingRows] = await pool.query(waitingSql, waitingParams);
+
+        const nextParams = [stationType];
+        let nextSql = `SELECT number FROM queue WHERE station_type=? AND status IN ('waiting','serving')`;
+        if (stationId) { nextSql += ' AND station_id=?'; nextParams.push(stationId); }
+        nextSql += ` ORDER BY (status='serving') DESC, timestamp ASC LIMIT 1`;
+        const [nextRows] = await pool.query(nextSql, nextParams);
+
+        const avgParams = [stationType];
+        let avgSql = `SELECT AVG(TIMESTAMPDIFF(MINUTE,serve_time,complete_time)) as v FROM queue_logs WHERE station_type=? AND complete_time IS NOT NULL AND DATE(join_time)=CURDATE()`;
+        if (stationId) { avgSql += ' AND station_id=?'; avgParams.push(stationId); }
+        const [avgRows] = await pool.query(avgSql, avgParams);
+
+        const output = await aiServices.announcementGen({
+            waitingCount: waitingRows[0].v,
+            nextServing: nextRows[0]?.number || null,
+            department: ANNOUNCEMENT_DEPARTMENT_NAMES[stationType] || stationType,
+            avgWaitMinutes: avgRows[0].v
+        });
+        res.json(output);
+    } catch (err) { res.status(500).json({ error: 'Failed to draft announcement' }); }
+});
+
+router.post('/announcements', requireStaff, async (req, res) => {
+    const message = String(req.body.message || '').trim();
+    if (!message) return res.status(400).json({ error: 'Message is required' });
+    try {
+        const [result] = await pool.query(
+            'INSERT INTO announcements (message, created_by) VALUES (?, ?)',
+            [message, req.user.id]
+        );
+        if (req.app.get('io')) req.app.get('io').emit('announcementUpdate', {});
+        res.json({ success: true, id: result.insertId });
+    } catch (err) { res.status(500).json({ error: 'Failed to send announcement' }); }
+});
+
+router.get('/announcements', requireStaff, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT a.*, u.username as sender_name FROM announcements a
+             LEFT JOIN users u ON a.created_by = u.id
+             WHERE a.archived = false ORDER BY a.timestamp DESC LIMIT 50`
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+router.get('/announcements/active', async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT id, message, timestamp FROM announcements WHERE archived = false ORDER BY timestamp DESC LIMIT 10`
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+router.delete('/announcements/:id', requireStaff, async (req, res) => {
+    try {
+        const ok = await archiveRecord('announcements', 'id', req.params.id, 'announcement', req, 'Announcement withdrawn by staff');
+        if (!ok) return res.status(404).json({ error: 'Not found' });
+        if (req.app.get('io')) req.app.get('io').emit('announcementUpdate', {});
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Failed to archive' }); }
+});
+
 // --- FAQS / SERVICE PRICE REFERENCE ---
 router.get('/faqs', async (req, res) => {
     try {
@@ -563,64 +934,102 @@ router.get('/faqs', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+// The recoverable archive. Everything soft-deleted anywhere in the system lands
+// here with a snapshot, a human-readable label and the reason it was archived,
+// and every type in ARCHIVE_TABLE_MAP can be restored with one action.
 router.get('/archives', requireAdmin, async (req, res) => {
     try {
+        const params = [];
+        const filters = ['ar.restored_at IS NULL', 'ar.permanently_deleted_at IS NULL'];
+        const search = buildSearchClause(req.query.q, [
+            'ar.entity_type', 'ar.entity_id', 'ar.label', 'ar.reason', 'u.username'
+        ]);
+        if (search.clause) { filters.push(search.clause); params.push(...search.params); }
+        if (req.query.type) { filters.push('ar.entity_type = ?'); params.push(req.query.type); }
+
         const [rows] = await pool.query(
-            `SELECT ar.*, u.username as archived_by_name
+            `SELECT ar.id, ar.entity_type, ar.entity_id, ar.label, ar.reason, ar.snapshot,
+                    ar.archived_at, u.username as archived_by_name
              FROM archived_records ar LEFT JOIN users u ON ar.archived_by=u.id
-             WHERE ar.restored_at IS NULL AND ar.permanently_deleted_at IS NULL
-             ORDER BY ar.archived_at DESC LIMIT 200`
+             WHERE ${filters.join(' AND ')}
+             ORDER BY ar.archived_at DESC LIMIT 300`,
+            params
+        );
+        // Restorable says whether this session can actually put the record back,
+        // so the UI can grey out the button instead of failing on click.
+        res.json(rows.map(r => ({ ...r, restorable: !!ARCHIVE_TABLE_MAP[r.entity_type] })));
+    } catch (err) {
+        console.error('Archives list error:', err);
+        res.status(500).json({ error: 'Failed' });
+    }
+});
+
+router.get('/archives/types', requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT entity_type, COUNT(*) AS cnt FROM archived_records
+             WHERE restored_at IS NULL AND permanently_deleted_at IS NULL
+             GROUP BY entity_type ORDER BY entity_type`
         );
         res.json(rows);
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-router.post('/archives/:id/restore', requireAdmin, async (req, res) => {
-    const map = {
-        user: ['users', 'id'],
-        laboratory: ['laboratories', 'id'],
-        doctor: ['doctors', 'id'],
-        service_package: ['service_packages', 'id'],
-        appointment: ['appointments', 'id'],
-        queue: ['queue', 'id'],
-        queue_sequence: ['queue_sequences', 'id'],
-        queue_log: ['queue_logs', 'id'],
-        medical_record: ['medical_records', 'id'],
-        lab_note: ['lab_notes', 'id']
-    };
+router.post('/archives/:id/restore', requireAdmin, requireReason, async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM archived_records WHERE id=? AND restored_at IS NULL AND permanently_deleted_at IS NULL', [req.params.id]);
         if (rows.length === 0) return res.status(404).json({ error: 'Archive record not found' });
-        const [table, idColumn] = map[rows[0].entity_type] || [];
-        if (!table) return res.status(400).json({ error: 'Unsupported archive type' });
-        await pool.query(`UPDATE ${table} SET archived=false, archived_at=NULL WHERE ${idColumn}=?`, [rows[0].entity_id]);
+        const archive = rows[0];
+        const [table, idColumn] = ARCHIVE_TABLE_MAP[archive.entity_type] || [];
+        if (!table) return res.status(400).json({ error: `Unsupported archive type: ${archive.entity_type}` });
+
+        const [result] = await pool.query(
+            `UPDATE ${table} SET archived=false, archived_at=NULL WHERE ${idColumn}=?`,
+            [archive.entity_id]
+        );
+        // The underlying row is gone (hard-deleted, or cascaded away with its
+        // parent), so there is nothing to un-archive. Saying so is better than
+        // reporting success and leaving the record missing from the live list.
+        if (result.affectedRows === 0) {
+            return res.status(410).json({
+                error: `The original ${archive.entity_type} record no longer exists, so it cannot be restored.`
+            });
+        }
         await pool.query('UPDATE archived_records SET restored_at=NOW() WHERE id=?', [req.params.id]);
+        await recordAudit({
+            req, action: 'restore', entityType: archive.entity_type, entityId: archive.entity_id,
+            summary: `Restored ${archive.entity_type} "${archive.label || archive.entity_id}" from the archive`,
+            details: { archive_id: archive.id, archived_at: archive.archived_at }
+        });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to restore' }); }
+    } catch (err) {
+        console.error('Restore error:', err);
+        res.status(500).json({ error: 'Failed to restore' });
+    }
 });
 
-router.delete('/archives/:id', requireAdmin, async (req, res) => {
-    const map = {
-        user: ['users', 'id'],
-        laboratory: ['laboratories', 'id'],
-        doctor: ['doctors', 'id'],
-        service_package: ['service_packages', 'id'],
-        appointment: ['appointments', 'id'],
-        queue: ['queue', 'id'],
-        queue_sequence: ['queue_sequences', 'id'],
-        queue_log: ['queue_logs', 'id'],
-        medical_record: ['medical_records', 'id'],
-        lab_note: ['lab_notes', 'id']
-    };
+// The one genuinely irreversible action in the system, so it keeps the snapshot
+// and the reason on the audit trail even though the row itself is gone.
+router.delete('/archives/:id', requireAdmin, requireReason, async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM archived_records WHERE id=? AND permanently_deleted_at IS NULL', [req.params.id]);
         if (rows.length === 0) return res.status(404).json({ error: 'Archive record not found' });
-        const [table, idColumn] = map[rows[0].entity_type] || [];
-        if (!table) return res.status(400).json({ error: 'Unsupported archive type' });
-        await pool.query(`DELETE FROM ${table} WHERE ${idColumn}=? AND archived=true`, [rows[0].entity_id]);
+        const archive = rows[0];
+        const [table, idColumn] = ARCHIVE_TABLE_MAP[archive.entity_type] || [];
+        if (!table) return res.status(400).json({ error: `Unsupported archive type: ${archive.entity_type}` });
+        await pool.query(`DELETE FROM ${table} WHERE ${idColumn}=? AND archived=true`, [archive.entity_id]);
         await pool.query('UPDATE archived_records SET permanently_deleted_at=NOW() WHERE id=?', [req.params.id]);
+        await recordAudit({
+            req, action: 'purge', entityType: archive.entity_type, entityId: archive.entity_id,
+            summary: `Permanently deleted ${archive.entity_type} "${archive.label || archive.entity_id}"`,
+            before: archive.snapshot && typeof archive.snapshot === 'object' ? archive.snapshot : null,
+            details: { archive_id: archive.id, label: archive.label }
+        });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Failed to permanently delete' }); }
+    } catch (err) {
+        console.error('Purge error:', err);
+        res.status(500).json({ error: 'Failed to permanently delete' });
+    }
 });
 
 module.exports = router;

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Queue Display — Medical Clinic</title>
+    <link rel="icon" href="/images/examplelogo.svg">
+    <link rel="stylesheet" href="display.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<!--
+    The public lobby board. No sign-in: it runs unattended on a wall-mounted
+    screen, which is why it reads from /api/display (the one public queue
+    endpoint) and why that endpoint answers with ticket numbers and station
+    names only - never a patient's name.
+
+    It deliberately does not load shared.js. That file's first act on a staff
+    page is requireAuth(), and everything else in it - the idle timeout, the
+    sidebar, the token helpers - is for a signed-in operator. A board has none.
+-->
+<body>
+    <div class="disp-shell">
+        <header class="disp-header">
+            <div class="disp-brand">
+                <img src="/images/examplelogo.svg" alt="" class="disp-logo" id="disp-logo">
+                <div>
+                    <div class="disp-clinic" id="disp-clinic">Medical Clinic</div>
+                    <div class="disp-tagline">Now Serving — please watch for your number</div>
+                </div>
+            </div>
+            <div class="disp-clock">
+                <div class="disp-time" id="disp-time">--:--</div>
+                <div class="disp-date" id="disp-date"></div>
+            </div>
+        </header>
+
+        <!-- The most recent call, so somebody walking in mid-queue can read the
+             current number from the doorway without parsing the grid. -->
+        <section class="disp-hero" id="disp-hero" data-idle="true" aria-live="polite" aria-atomic="true">
+            <div>
+                <div class="disp-hero-label" id="disp-hero-label">Waiting for the next call</div>
+                <!-- Empty until a call arrives, matching DISP_IDLE_HERO in
+                     display.js. A dash here renders as a bar at this size. -->
+                <div class="disp-hero-ticket" id="disp-hero-ticket"></div>
+            </div>
+            <div class="disp-hero-station" id="disp-hero-station"><small>Station</small></div>
+        </section>
+
+        <main class="disp-grid" id="disp-grid"></main>
+
+        <footer class="disp-footer">
+            <div id="disp-status">Connecting…</div>
+            <div class="disp-actions">
+                <!-- Browsers refuse audio until the page has been interacted
+                     with, so the board asks for that one click rather than
+                     appearing to work and never making a sound. -->
+                <button class="disp-btn" id="disp-sound" data-on="false" onclick="dispToggleSound()">
+                    <i class="fa-solid fa-volume-xmark" id="disp-sound-icon"></i>
+                    <span id="disp-sound-label">Enable sound</span>
+                </button>
+                <button class="disp-btn" onclick="dispToggleFullscreen()">
+                    <i class="fa-solid fa-expand"></i> Fullscreen
+                </button>
+            </div>
+        </footer>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="display.js"></script>
+</body>
+</html>

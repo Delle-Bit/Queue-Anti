@@ -6,6 +6,8 @@
     <link rel="icon" href="/images/examplelogo.svg">
     <link rel="stylesheet" href="shared.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+    <script src="https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.js"></script>
 </head>
 <body>
     <button class="hamburger"><i class="fa-solid fa-bars"></i></button>
@@ -27,18 +29,28 @@
                 <div class="page-header">
                     <div>
                         <div class="page-title"><i class="fa-solid fa-file-shield"></i> Audit Logs</div>
-                        <div class="page-subtitle">Track system-wide activities</div>
+                        <div class="page-subtitle">Every configuration and data change: what changed, who changed it, when, and why</div>
                     </div>
+                </div>
+                <div class="filter-bar">
                     <div class="search-bar">
                         <i class="fa-solid fa-magnifying-glass"></i>
-                        <input type="text" placeholder="Search logs..." oninput="filterAudits(this.value)">
+                        <input type="text" id="audit-search" aria-label="Search audit log"
+                               placeholder="Search by user, record, reason..." oninput="searchAuditLogs()">
                     </div>
+                    <select class="form-select" id="audit-action-filter" aria-label="Filter by action" onchange="loadAuditLogs()">
+                        <option value="">All actions</option>
+                    </select>
+                    <select class="form-select" id="audit-entity-filter" aria-label="Filter by record type" onchange="loadAuditLogs()">
+                        <option value="">All record types</option>
+                    </select>
+                    <span class="filter-count" id="audit-count"></span>
                 </div>
                 <div class="card">
                     <div class="table-wrapper">
                         <table>
-                            <thead><tr><th>Action</th><th>Type</th><th>Details</th><th>User</th><th>Timestamp</th></tr></thead>
-                            <tbody id="ow-audits"></tbody>
+                            <thead><tr><th>When</th><th>Who</th><th>Action</th><th>What changed</th><th>Why</th><th></th></tr></thead>
+                            <tbody id="audit-table"></tbody>
                         </table>
                     </div>
                 </div>
@@ -100,7 +112,7 @@
                 <div class="page-header">
                     <div>
                         <div class="page-title"><i class="fa-solid fa-box-archive"></i> Archive Management</div>
-                        <div class="page-subtitle">View and recover deleted accounts and records</div>
+                        <div class="page-subtitle">Nothing in this system is deleted outright — every archived record is here and restorable</div>
                     </div>
                 </div>
                 <div class="card mb-md">
@@ -114,10 +126,23 @@
                 </div>
                 <div class="card">
                     <div class="card-header"><div class="card-title">Archived Records (Recoverable)</div></div>
+                    <div class="card-body" style="padding:16px 20px 0;">
+                        <div class="filter-bar">
+                            <div class="search-bar">
+                                <i class="fa-solid fa-search"></i>
+                                <input type="text" id="archive-search" aria-label="Search archives"
+                                       placeholder="Search by name, type or reason..." oninput="searchArchives()">
+                            </div>
+                            <select class="form-select" id="archive-type-filter" aria-label="Filter by record type" onchange="loadArchives()">
+                                <option value="">All record types</option>
+                            </select>
+                            <span class="filter-count" id="archive-count"></span>
+                        </div>
+                    </div>
                     <div class="table-wrapper">
                         <table>
-                            <thead><tr><th>Entity</th><th>ID</th><th>Archived By</th><th>Date</th><th>Action</th></tr></thead>
-                            <tbody id="archives-table"></tbody>
+                            <thead><tr><th>Archived</th><th>Type</th><th>Record</th><th>Archived By</th><th>Reason</th><th>Actions</th></tr></thead>
+                            <tbody id="archive-table"></tbody>
                         </table>
                     </div>
                 </div>
@@ -128,11 +153,43 @@
             <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-users-gear"></i> Manage Accounts</div></div></div>
             <div class="card mb-lg">
                 <div class="card-header"><div class="card-title"><i class="fa-solid fa-user-tie"></i> Staff Accounts</div></div>
-                <div class="table-wrapper"><table><thead><tr><th>ID</th><th>Username</th><th>Name</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead><tbody id="staff-table"></tbody></table></div>
+                <div class="card-body" style="padding:16px 20px 0;">
+                    <div class="filter-bar">
+                        <div class="search-bar"><i class="fa-solid fa-search"></i>
+                            <input type="text" id="staff-search" aria-label="Search staff accounts"
+                                   placeholder="Search by user ID, username, name or email..." oninput="searchAccounts()"></div>
+                        <select class="form-select" id="staff-role-filter" aria-label="Filter by role" onchange="loadAccounts()">
+                            <option value="">All roles</option>
+                            <option value="frontdesk">Front Desk</option>
+                            <option value="laboratory">Laboratory</option>
+                            <option value="doctor">Doctor</option>
+                            <option value="admin">Admin</option>
+                            <option value="admintechnical">Admin Technical</option>
+                            <option value="owner">Owner</option>
+                        </select>
+                        <span class="filter-count" id="staff-count"></span>
+                    </div>
+                </div>
+                <div class="table-wrapper"><table><thead><tr><th>ID</th><th>Username</th><th>Name / Email</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead><tbody id="staff-table"></tbody></table></div>
             </div>
             <div class="card">
                 <div class="card-header"><div class="card-title"><i class="fa-solid fa-user"></i> Customer Accounts</div></div>
-                <div class="table-wrapper"><table><thead><tr><th>Username</th><th>Name</th><th>Category</th><th>Services</th><th>Since</th></tr></thead><tbody id="cust-table"></tbody></table></div>
+                <div class="card-body" style="padding:16px 20px 0;">
+                    <div class="filter-bar">
+                        <div class="search-bar"><i class="fa-solid fa-search"></i>
+                            <input type="text" id="cust-search" aria-label="Search customer accounts"
+                                   placeholder="Search by patient ID, username, name or email..." oninput="searchAccounts()"></div>
+                        <select class="form-select" id="cust-category-filter" aria-label="Filter by category" onchange="loadAccounts()">
+                            <option value="">All categories</option>
+                            <option value="Regular">Regular</option>
+                            <option value="Senior">Senior</option>
+                            <option value="PWD">PWD</option>
+                            <option value="Pregnant">Pregnant</option>
+                        </select>
+                        <span class="filter-count" id="cust-count"></span>
+                    </div>
+                </div>
+                <div class="table-wrapper"><table><thead><tr><th>Patient ID</th><th>Username</th><th>Name</th><th>Category</th><th>Services</th><th>Since</th></tr></thead><tbody id="cust-table"></tbody></table></div>
             </div>
         </div>
 
@@ -144,10 +201,61 @@
         </div>
 
         <!-- SERVICE MANAGEMENT -->
+
+        <!-- MEDICAL TEST STRUCTURES -->
+        <div id="section-structures" class="content-section" style="display:none;">
+            <div class="page-header">
+                <div>
+                    <div class="page-title"><i class="fa-solid fa-vials"></i> Medical Test Structures</div>
+                    <div class="page-subtitle">The result form for each kind of test: parameters, units and normal ranges</div>
+                </div>
+                <button class="btn btn-primary" onclick="prepareNewStructure()"><i class="fa-solid fa-plus"></i> Add Result Form</button>
+            </div>
+            <div class="card">
+                <div class="filter-bar">
+                    <div class="search-bar">
+                        <i class="fa-solid fa-search"></i>
+                        <input type="text" id="structure-search" placeholder="Search by form ID, name or type..."
+                               aria-label="Search result forms" oninput="searchStructures()">
+                    </div>
+                    <span class="filter-count" id="structure-count"></span>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Result Form</th>
+                                <th>Type</th>
+                                <th>Parameters</th>
+                                <th>Used By</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="structure-table"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- WALK-IN INTAKE -->
+        <!-- Markup is built by walkin-screen.js, which the front desk and both
+             admin dashboards share - see the comment at the top of that file. -->
+        <div id="section-walkin" class="content-section" style="display:none;"></div>
+
         <div id="section-services" class="content-section" style="display:none;">
             <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-box-open"></i> Service Management</div></div>
             <button class="btn btn-primary" onclick="prepareNewService()"><i class="fa-solid fa-plus"></i> Add Package</button></div>
-            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Name</th><th>Price</th><th>Est. Time</th><th>Labs</th><th>Active</th><th>Actions</th></tr></thead><tbody id="svc-list"></tbody></table></div></div>
+            <div class="filter-bar">
+                <div class="search-bar"><i class="fa-solid fa-search"></i>
+                    <input type="text" id="svc-search" aria-label="Search services"
+                           placeholder="Search by service ID, name or category..." oninput="renderServiceList()"></div>
+                <select class="form-select" id="svc-category-filter" aria-label="Filter by category" onchange="renderServiceList()">
+                    <option value="">All categories</option>
+                </select>
+                <span class="filter-count" id="svc-count"></span>
+            </div>
+            <div class="card"><div class="table-wrapper"><table><thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Price</th><th>Est. Time</th><th>Station Route</th><th>Active</th><th>Actions</th></tr></thead><tbody id="svc-list"></tbody></table></div></div>
         </div>
 
         <!-- CREATE ACCOUNTS -->
@@ -170,17 +278,39 @@
                 <div class="card">
                     <div class="card-header"><div class="card-title"><i class="fa-solid fa-paint-roller"></i> Global Styles</div></div>
                     <div class="form-group">
-                        <label class="form-label">Navbar Color (Hex)</label>
-                        <div style="display:flex;gap:8px;">
-                            <input type="color" id="cust-nav-color" class="form-input" style="width:50px;padding:2px;">
-                            <input type="text" id="cust-nav-color-text" class="form-input" onchange="document.getElementById('cust-nav-color').value = this.value">
-                        </div>
+                        <label class="form-label" for="cust-site-name">Site Name</label>
+                        <input type="text" id="cust-site-name" class="form-input" maxlength="255" placeholder="Medical Clinic">
+                        <small class="text-muted">Shown in the sidebar, page titles, and on the exported medical-record PDF.</small>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Background Image URL</label>
-                        <input type="text" id="cust-bg-url" class="form-input" placeholder="/images/bg.jpg">
+                        <label class="form-label" for="cust-logo-path">Logo Path or URL</label>
+                        <input type="text" id="cust-logo-path" class="form-input" maxlength="255" placeholder="/images/examplelogo.svg">
+                        <small class="text-muted">Used for the sidebar logo, the browser tab icon, and the PDF letterhead. Leave blank for the default logo.</small>
                     </div>
-                    <button class="btn btn-success" onclick="saveCustomization()"><i class="fa-solid fa-save"></i> Save Styles</button>
+                    <div class="form-group">
+                        <label class="form-label" for="cust-theme">Theme</label>
+                        <select class="form-select" id="cust-theme">
+                            <option value="light">Light</option>
+                            <option value="dark">Dark</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="cust-nav-color-text">Navbar Color (Hex)</label>
+                        <div style="display:flex;gap:8px;">
+                            <input type="color" id="cust-nav-color" class="form-input" style="width:50px;padding:2px;" oninput="syncNavColorInputs('picker')" aria-label="Navbar color picker">
+                            <input type="text" id="cust-nav-color-text" class="form-input" maxlength="7" placeholder="#24303A" onchange="syncNavColorInputs('text')">
+                        </div>
+                        <small class="text-muted">Sidebar background. Text and hover shades adjust automatically for light or dark colors.</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="cust-bg-url">Background Image URL</label>
+                        <input type="text" id="cust-bg-url" class="form-input" maxlength="255" placeholder="/images/bg.jpg">
+                        <small class="text-muted">Applied behind the dashboard pages. Leave blank for the plain background.</small>
+                    </div>
+                    <div class="flex-center gap-sm" style="justify-content:flex-start;flex-wrap:wrap;">
+                        <button class="btn btn-success" onclick="saveCustomization()"><i class="fa-solid fa-save"></i> Save Styles</button>
+                        <button class="btn btn-outline" onclick="resetCustomization()"><i class="fa-solid fa-rotate-left"></i> Reset to Defaults</button>
+                    </div>
                 </div>
                 <div class="card">
                     <h3 class="mb-md">Page Previews</h3>
@@ -220,6 +350,62 @@
     </div>
 
     <!-- Add/Edit Service Modal -->
+
+    <!-- Result form editor. A freeform form hides the parameter list entirely -
+         that is what makes it freeform: the laboratory gets a notepad instead. -->
+    <div id="structure-modal" class="modal-overlay">
+        <div class="modal-box" style="max-width:860px;">
+            <div class="modal-header">
+                <div class="modal-title"><i class="fa-solid fa-vials"></i> <span id="structure-modal-title">Add Result Form</span></div>
+                <button class="modal-close" onclick="closeModal('structure-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="structure-edit-id">
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label class="form-label" for="structure-name">Form Name</label>
+                        <input type="text" class="form-input" id="structure-name" placeholder="e.g. Complete Blood Count (CBC)">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="structure-mode">Input Type</label>
+                        <select class="form-select" id="structure-mode" onchange="renderStructureFieldRows()">
+                            <option value="structured">Structured &mdash; a list of parameters</option>
+                            <option value="freeform">Freeform &mdash; rich text notepad</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="structure-desc">Description</label>
+                    <input type="text" class="form-input" id="structure-desc" placeholder="Shown to the laboratory under the form name">
+                </div>
+                <div class="form-group">
+                    <label class="step-choice" style="cursor:pointer;">
+                        <input type="checkbox" id="structure-active" checked>
+                        <span class="step-choice-body">
+                            <strong>Available to the laboratory</strong>
+                            <small>Uncheck to keep the form without offering it for new results</small>
+                        </span>
+                    </label>
+                </div>
+
+                <div id="structure-fields-section">
+                    <label class="form-label">Parameters</label>
+                    <div class="structure-field-row structure-field-head">
+                        <div>Parameter</div><div>Unit</div><div>Normal range</div><div>Input</div><div>Default / choices</div><div></div>
+                    </div>
+                    <div id="structure-fields-list"></div>
+                    <button type="button" class="btn btn-sm btn-outline mt-sm" onclick="addStructureField()">
+                        <i class="fa-solid fa-plus"></i> Add parameter
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('structure-modal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveStructure()"><i class="fa-solid fa-floppy-disk"></i> Save Result Form</button>
+            </div>
+        </div>
+    </div>
+
     <div id="svc-modal" class="modal-overlay">
         <div class="modal-box" style="max-width:560px;">
             <div class="modal-header"><div class="modal-title"><i class="fa-solid fa-box-open"></i> <span id="svc-modal-title">Add Service Package</span></div><button class="modal-close" onclick="closeModal('svc-modal')">&times;</button></div>
@@ -228,11 +414,19 @@
                 <div class="form-group"><label class="form-label">Package Name</label><input type="text" class="form-input" id="svc-name"></div>
                 <div class="form-group"><label class="form-label">Description</label><input type="text" class="form-input" id="svc-desc"></div>
                 <div class="grid-2"><div class="form-group"><label class="form-label">Price (₱)</label><input type="number" class="form-input" id="svc-price" step="0.01"></div>
-                <div class="form-group"><label class="form-label">Est. Time (min)</label><input type="number" class="form-input" id="svc-time" disabled placeholder="AI Calculated"></div></div>
+                <div class="form-group"><label class="form-label">Category</label><input type="text" class="form-input" id="svc-category" list="svc-category-options" placeholder="e.g. Laboratory, Imaging, Cardiology">
+                <datalist id="svc-category-options"></datalist></div></div>
+                <div class="form-group"><label class="form-label">Est. Time (min)</label><input type="number" class="form-input" id="svc-time" disabled placeholder="AI Calculated"></div>
                 <div class="form-group"><label class="form-label">Doctor Consultation</label><select class="form-select" id="svc-doctor"><option value="">No doctor consultation</option></select></div>
-                <div class="form-group"><label class="form-label">Laboratory Sequence</label><div id="svc-lab-list"></div>
-                <button class="btn btn-sm btn-outline mt-sm" onclick="addLabToSequence()"><i class="fa-solid fa-plus"></i> Add Lab Step</button></div>
+                <div class="form-group"><label class="form-label">Station Sequence</label><div id="svc-lab-list"></div>
+                <button class="btn btn-sm btn-outline mt-sm" onclick="addLabToSequence()"><i class="fa-solid fa-plus"></i> Add Station Step</button></div>
+                <div class="form-group">
+                    <label class="form-label" for="svc-test-structure">Result Form</label>
+                    <select class="form-select" id="svc-test-structure"></select>
+                    <small class="text-muted">The form the laboratory opens on for this service. Manage the list under Medical Test Structures.</small>
+                </div>
             </div>
+
             <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('svc-modal')">Cancel</button><button class="btn btn-success" onclick="saveService()">Save</button></div>
         </div>
     </div>
@@ -249,6 +443,10 @@
     </div>
     <script src="/socket.io/socket.io.js"></script>
     <script src="shared.js"></script>
+    <script src="admin-shared.js"></script>
+    <script src="clinic-pdf.js"></script>
+    <script src="walkin-forms.js"></script>
+    <script src="walkin-screen.js"></script>
     <script src="owner.js"></script>
 </body>
 </html>

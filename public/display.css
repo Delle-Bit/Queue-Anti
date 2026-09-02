@@ -1,0 +1,346 @@
+/* ── PUBLIC QUEUE DISPLAY ────────────────────────────────────────────────────
+   The lobby board. Deliberately not built on shared.css: that stylesheet is
+   tuned for a staff member at a desk, and this is read from six metres away by
+   somebody standing up, on a screen that is powered on all day.
+
+   What that changes:
+   - Type is sized in vw/vh, not px, so one stylesheet fits a 24" counter
+     monitor and a 55" wall panel without a breakpoint for each.
+   - The palette is fixed dark rather than theme-aware. A queue board has no
+     viewer preference to respect, dark burns less on an always-on panel, and
+     a board that changed colour when a staff member elsewhere toggled the
+     theme would just look broken.
+   - Contrast is pushed well past the 4.5:1 minimum, because the reading
+     distance and the ambient light of a waiting room are both working
+     against it.
+─────────────────────────────────────────────────────────────────────────────*/
+
+:root {
+    --disp-bg: #0D1117;
+    --disp-panel: #161C24;
+    --disp-panel-alt: #1D242E;
+    --disp-border: #2A3441;
+    --disp-text: #F2F5F8;
+    --disp-muted: #93A1B1;
+    --disp-brand: #E8586B;      /* lightened from --primary for dark-ground contrast */
+    --disp-brand-deep: #C6283A;
+    --disp-live: #34D399;
+    --disp-radius: 14px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--disp-bg);
+    color: var(--disp-text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    overflow: hidden;                 /* a board never scrolls */
+}
+
+.disp-shell {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 1.6vh 1.6vw;
+    gap: 1.4vh;
+}
+
+/* ── Masthead ─────────────────────────────────────────────────────────── */
+.disp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2vw;
+    border-bottom: 2px solid var(--disp-border);
+    padding-bottom: 1.2vh;
+    flex: 0 0 auto;
+}
+
+.disp-brand { display: flex; align-items: center; gap: 1vw; min-width: 0; }
+.disp-logo { height: 5.2vh; width: auto; }
+
+.disp-clinic {
+    font-size: 2.5vh;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.disp-tagline { font-size: 1.5vh; color: var(--disp-muted); }
+
+.disp-clock { text-align: right; flex: 0 0 auto; }
+.disp-time { font-size: 3.4vh; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.disp-date { font-size: 1.5vh; color: var(--disp-muted); margin-top: 0.4vh; }
+
+/* ── The hero call ────────────────────────────────────────────────────────
+   The single most recent call, given its own band. A patient walking in
+   part-way through should be able to answer "what number is up?" from the
+   doorway without reading the grid. */
+.disp-hero {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2vw;
+    background: linear-gradient(100deg, var(--disp-brand-deep), #8E1B29);
+    border-radius: var(--disp-radius);
+    padding: 1.6vh 2vw;
+    min-height: 16vh;
+}
+
+.disp-hero[data-idle="true"] {
+    background: var(--disp-panel);
+    border: 1px solid var(--disp-border);
+}
+
+.disp-hero-label {
+    font-size: 1.7vh;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: rgba(255, 255, 255, 0.82);
+    font-weight: 600;
+}
+.disp-hero[data-idle="true"] .disp-hero-label { color: var(--disp-muted); }
+
+.disp-hero-ticket {
+    font-size: 11vh;
+    font-weight: 800;
+    line-height: 0.95;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+}
+.disp-hero-station { font-size: 3vh; font-weight: 600; text-align: right; }
+.disp-hero-station small {
+    display: block;
+    font-size: 1.6vh;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.75);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    margin-bottom: 0.5vh;
+}
+.disp-hero[data-idle="true"] .disp-hero-station small { color: var(--disp-muted); }
+
+/* Same reasoning as the station panels: the idle hero was an 11vh white dash
+   across a third of the band. */
+.disp-hero[data-idle="true"] .disp-hero-ticket {
+    font-size: 4.4vh;
+    color: var(--disp-muted);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    line-height: 11vh;
+}
+
+/* The flash that accompanies a call. Paired with the chime, because a room
+   with its back to the screen hears the announcement first and looks up
+   second - the flash is still going when they do. */
+@keyframes dispCallFlash {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(232, 88, 107, 0); }
+    18%      { box-shadow: 0 0 0 1.2vh rgba(232, 88, 107, 0.55); }
+    55%      { box-shadow: 0 0 0 0.5vh rgba(232, 88, 107, 0.28); }
+}
+.disp-hero.is-calling { animation: dispCallFlash 2.4s ease-out 2; }
+
+/* ── Station grid ─────────────────────────────────────────────────────── */
+.disp-grid {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(22vw, 1fr));
+    gap: 1.2vw;
+    min-height: 0;
+}
+
+.disp-station {
+    background: var(--disp-panel);
+    border: 1px solid var(--disp-border);
+    border-radius: var(--disp-radius);
+    padding: 1.4vh 1.4vw;
+    display: flex;
+    flex-direction: column;
+    gap: 1vh;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.disp-station.is-calling {
+    border-color: var(--disp-brand);
+    background: var(--disp-panel-alt);
+}
+
+.disp-station-name {
+    font-size: 2vh;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    display: flex;
+    align-items: baseline;
+    gap: 0.6vw;
+    white-space: nowrap;
+    overflow: hidden;
+    /* Never shrinks. On a portrait panel this row was flex-shrinking to zero
+       height and, with overflow hidden, the station name simply disappeared -
+       leaving a ticket number with nothing to say which counter to go to. If
+       something has to give on a cramped panel it is the "next up" list. */
+    flex: 0 0 auto;
+}
+
+/* The name is what truncates, not the row. Truncating the row instead let a
+   long station name ("Dr. Maria Cristina Aguilar") push the waiting count off
+   the panel and clip it mid-word. */
+.disp-station-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.disp-dot {
+    width: 0.9vh;
+    height: 0.9vh;
+    border-radius: 50%;
+    background: var(--disp-live);
+    flex: 0 0 auto;
+}
+.disp-dot[data-idle="true"] { background: var(--disp-border); }
+
+.disp-now {
+    font-size: 6.4vh;
+    font-weight: 800;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--disp-brand);
+    flex: 0 0 auto;
+    /* Reserved with min-height rather than a tall line-height, so the portrait
+       override below can resize the type without also having to restate the
+       leading. Holds the space an active number occupies, so a station going
+       idle does not shuffle the panel around it. */
+    min-height: 6.4vh;
+    display: flex;
+    align-items: center;
+}
+.disp-now[data-idle="true"] {
+    color: var(--disp-muted);
+    font-size: 2.6vh;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+/* The "next up" block is the part that yields when a panel is short: a
+   truncated list of upcoming numbers still makes sense, a missing station name
+   does not. */
+.disp-station-next-block {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.disp-next-label {
+    font-size: 1.3vh;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--disp-muted);
+    font-weight: 600;
+}
+
+.disp-next { display: flex; flex-wrap: wrap; gap: 0.6vw; }
+
+.disp-chip {
+    background: var(--disp-panel-alt);
+    border: 1px solid var(--disp-border);
+    border-radius: 999px;
+    padding: 0.5vh 1vw;
+    font-size: 1.9vh;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.disp-empty { font-size: 1.7vh; color: var(--disp-muted); font-style: italic; }
+.disp-waiting-count {
+    font-size: 1.4vh;
+    color: var(--disp-muted);
+    margin-left: auto;
+    font-weight: 400;
+    flex: 0 0 auto;              /* never gives up its space to the name */
+    white-space: nowrap;
+}
+
+/* ── Footer / controls ────────────────────────────────────────────────── */
+.disp-footer {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1vw;
+    color: var(--disp-muted);
+    font-size: 1.4vh;
+    border-top: 1px solid var(--disp-border);
+    padding-top: 1vh;
+}
+
+.disp-actions { display: flex; gap: 0.6vw; }
+
+/* Real controls, sized for a mouse rather than the room, because they are
+   touched once when the board is set up and then never again. Kept at 44px
+   minimum all the same - a staff member may well be doing this on a tablet. */
+.disp-btn {
+    background: var(--disp-panel-alt);
+    color: var(--disp-text);
+    border: 1px solid var(--disp-border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    min-height: 44px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+.disp-btn:hover { border-color: var(--disp-brand); }
+.disp-btn:focus-visible { outline: 3px solid var(--disp-brand); outline-offset: 2px; }
+.disp-btn[data-on="true"] { background: var(--disp-brand-deep); border-color: var(--disp-brand); color: #fff; }
+
+/* Sound cannot be switched on without a gesture (browser autoplay policy), so
+   the board asks for one instead of silently never speaking. */
+.disp-sound-nudge {
+    background: rgba(232, 88, 107, 0.12);
+    border: 1px solid var(--disp-brand);
+    color: var(--disp-text);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 13px;
+}
+
+.disp-offline {
+    color: #FCA5A5;
+    font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .disp-hero.is-calling { animation: none; }
+    /* The border change on the station panel still marks the call, so removing
+       the pulse costs nothing that was load-bearing. */
+}
+
+/* A portrait panel (a common lobby mount) gets two station columns rather than
+   four unreadably narrow ones - and everything shrinks a step, because the same
+   number of stations now has to stack down a much taller, narrower grid. */
+@media (orientation: portrait) {
+    .disp-grid { grid-template-columns: repeat(auto-fit, minmax(40vw, 1fr)); }
+    .disp-hero { min-height: 11vh; }
+    .disp-hero-ticket { font-size: 7.5vh; }
+    .disp-hero[data-idle="true"] .disp-hero-ticket { font-size: 3.4vh; line-height: 7.5vh; }
+    .disp-station { gap: 0.5vh; padding: 1vh 1.4vw; }
+    .disp-station-name { font-size: 1.5vh; }
+    .disp-now { font-size: 4.2vh; min-height: 4.2vh; }
+    .disp-now[data-idle="true"] { font-size: 2vh; }
+    .disp-chip { font-size: 1.5vh; }
+    .disp-next-label { font-size: 1.1vh; }
+    .disp-empty { font-size: 1.3vh; }
+}
