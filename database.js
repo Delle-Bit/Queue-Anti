@@ -84,7 +84,13 @@ const STAFF_SEEDS = [
     { username: 'customer_pwd', password: 'pass123', role: 'customer', category: 'PWD',
       first_name: 'Elmer', middle_name: 'Dizon', surname: 'Cabrera' },
     { username: 'customer_pregnant', password: 'pass123', role: 'customer', category: 'Pregnant',
-      first_name: 'Jocelyn', middle_name: 'Ramos', surname: 'Enriquez' }
+      first_name: 'Jocelyn', middle_name: 'Ramos', surname: 'Enriquez' },
+    { username: 'customer_senior2', password: 'pass123', role: 'customer', category: 'Senior',
+      first_name: 'Consuelo', middle_name: 'Aguilar', surname: 'Macaraeg' },
+    { username: 'customer_regular2', password: 'pass123', role: 'customer', category: 'Regular',
+      first_name: 'Rogelio', middle_name: 'Santos', surname: 'Dela Cruz' },
+    { username: 'customer_pwd2', password: 'pass123', role: 'customer', category: 'PWD',
+      first_name: 'Samantha', middle_name: 'Villanueva', surname: 'Reyes' }
 ];
 
 // Physical stations a ticket can be routed to. The queue engine only knows
