@@ -244,11 +244,28 @@ app handles it — it logs
 tables inside the database you were given. Just make sure `DB_NAME` matches
 that database's real name.
 
-### The other option: a VPS you control
+### The other options: a VPS, or the clinic's own machine
 
-If you would rather run the whole thing yourself — or the clinic wants it on its
-own machine — the compose file already does this. On any Linux box with Docker
-installed:
+Both use the compose file rather than the Dockerfile alone, and the commands are
+identical. What differs is where the machine is, and that difference decides one
+important thing:
+
+- A **VPS** is a Linux machine you rent in a data centre (Hetzner, DigitalOcean,
+  Vultr; roughly $5-7/month for 2GB of RAM, which is ample here). You get root
+  and nothing installed. Compared with Railway you trade convenience for control
+  and a flat price.
+- The **clinic's own machine** - a mini-PC on the network - is the same setup
+  physically on site.
+
+Only the second one keeps working when the clinic's internet goes down. A VPS is
+in a data centre, so an ISP outage leaves the front desk unable to reach it just
+as surely as a platform would. For a queue system that the desk, the stations
+and the lobby board all depend on through the working day, that is the argument
+for on-site, with a cloud copy as the demo. If the clinic has reliable
+connectivity, or the system needs to be reachable from elsewhere, a VPS or
+Railway is the simpler life.
+
+On any Linux box with Docker installed, either way:
 
 ```bash
 git clone https://github.com/Delle-Bit/Queue-Anti.git
@@ -257,12 +274,14 @@ cp .env.example .env      # then fill in JWT_SECRET, DB_PASSWORD, DB_ROOT_PASSWO
 docker compose up -d
 ```
 
-That is the entire deployment. You are then responsible for the things a
-platform does for you: a domain, HTTPS (put Caddy or nginx in front — browsers
+That is the entire deployment. You are then responsible for what a platform
+would have done for you: a domain, HTTPS (put Caddy or nginx in front — browsers
 block the microphone the virtual assistant uses on plain HTTP), backups, and
-keeping the host patched. For a clinic that wants the system to keep working
-when the internet does not, this is the right answer and the cloud copy is the
-demo.
+keeping the host patched.
+
+On a machine inside the clinic you can skip the domain and reach it at the
+machine's LAN address, but HTTPS still matters for the microphone, so a
+self-signed certificate or a local CA is worth setting up.
 
 ## How the image is built
 
