@@ -919,6 +919,47 @@ tbody tr:last-child td { border-bottom: none; }
 .va-dock-btn.primary:hover { filter: brightness(1.06); }
 .va-dock-btn.muted { color: var(--danger); }
 
+/* Typed input: the assistant's only universal input. Sized and coloured off the
+   dock above it so the two read as one control, and kept narrow enough that the
+   widget does not become a panel over the dashboard. */
+.va-typed {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 5px 5px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(10px);
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border-light);
+    max-width: 260px;
+}
+.va-typed-input {
+    flex: 1 1 auto;
+    min-width: 0;          /* lets it shrink inside the flex row instead of overflowing */
+    border: none;
+    background: none;
+    outline: none;
+    font: inherit;
+    font-size: 0.82em;
+    color: var(--text-primary);
+}
+.va-typed-input::placeholder { color: var(--text-secondary); }
+.va-typed-send {
+    flex: 0 0 auto;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    border: none;
+    background: var(--primary);
+    color: #fff;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-size: 0.78em;
+    transition: var(--transition);
+}
+.va-typed-send:hover { filter: brightness(1.08); }
+
 .va-hint {
     font-size: 0.7em;
     color: var(--text-secondary);

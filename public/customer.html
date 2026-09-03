@@ -599,6 +599,17 @@
             <button class="va-dock-btn" id="va-history-btn" type="button" onclick="openVaHistory()"
                 aria-label="Open conversation history"><i class="fa-solid fa-clock-rotate-left"></i></button>
         </div>
+
+        <!-- Typing reaches the same dialogue endpoint as speech. It is the only
+             input that works on every browser: Opera ships no speech recogniser
+             at all, and Safari's is unreliable. It is also the better choice in
+             a waiting room with other patients in it. -->
+        <form class="va-typed" id="va-typed-form" autocomplete="off">
+            <input class="va-typed-input" id="va-typed-input" type="text" maxlength="300"
+                placeholder="Or type your question…" aria-label="Type a question for the nurse assistant">
+            <button class="va-typed-send" type="submit" aria-label="Send question to the nurse assistant">
+                <i class="fa-solid fa-paper-plane"></i></button>
+        </form>
         <div class="va-hint" id="va-hint">Click to speak · Double-click nurse for history</div>
     </div>
 

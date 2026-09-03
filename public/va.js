@@ -27,6 +27,13 @@ const VA_SPEECH_ERRORS = {
     'heard-nothing': "I didn't hear anything. Click the nurse again and start speaking once the badge says Listening.",
     // It heard something but nothing survived as text.
     'nothing-usable': "I heard you but couldn't make out the words. Click the nurse and try again, a little slower.",
+    // Opera carries no speech recogniser at all: Chromium reaches a Google
+    // service with a key compiled into Chrome, and Opera does not ship it, so
+    // recognition is absent or fails every session on Opera desktop and
+    // Opera Mobile alike. Nothing here can change that, so it says so plainly
+    // and points at the box the customer can actually use.
+    'opera': 'Opera cannot listen \u2014 it has no speech recogniser built in. Type your question in the box below and I will answer it.',
+    'unsupported': 'This browser cannot listen. Type your question in the box below, or use Google Chrome for voice.',
     'default': "I couldn't hear that clearly. Click the nurse and try again."
 };
 
@@ -38,6 +45,53 @@ let silenceTimer = null;
 // Numbers the speech sessions in the console trace, so overlapping or repeated
 // sessions can be told apart when diagnosing a microphone that will not stay on.
 let sessionSerial = 0;
+// Set when the customer stops a session themselves, so onend knows not to
+// explain a silence they caused on purpose.
+let speechCancelledByUser = false;
+
+// ── ENGINE CAPABILITIES ───────────────────────────────────────────
+// This is deliberately user-agent based, which is normally the wrong tool.
+// It is the only tool available here: there is no feature flag that answers
+// "does continuous mode actually work" or "is a speech backend present", and
+// both differ per engine while the API surface looks identical.
+//
+//   Chromium (Chrome, Edge): continuous and interim results both work.
+//   WebKit (Safari 14.1+ macOS, 14.5+ iOS, and every browser on iOS since
+//     they all use WebKit): continuous = true is broken - the microphone
+//     never stops after the customer finishes and the recognised text never
+//     arrives at all. interimResults is unreliable too and can throttle the
+//     engine into switching recognisers mid-session. So on WebKit we ask for
+//     one utterance and take only final results, and let Safari's own
+//     end-of-speech detection close the session.
+//   Opera: ships no speech backend. Chromium routes recognition through a
+//     Google service using a key compiled into Chrome, and Opera does not
+//     carry it, so webkitSpeechRecognition is absent or non-functional on
+//     Opera desktop and Opera Mobile alike. Nothing in this file can fix
+//     that; the typed input below is the answer for Opera.
+function vaSpeechProfile() {
+    const ua = navigator.userAgent;
+    // Opera puts OPR/ in its Chromium user agent, and OPiOS/ on iOS.
+    const isOpera = /\bOPR\//.test(ua) || /\bOPiOS\//.test(ua) || /\bOpera\b/.test(ua);
+    // navigator.vendor is 'Apple Computer, Inc.' on Safari and on every iOS
+    // browser - Chrome, Firefox and Edge on iOS are all WebKit underneath and
+    // inherit its quirks - and 'Google Inc.' on desktop Chrome. It needs no
+    // version table and has been stable for years, which is more than can be
+    // said for parsing the user agent string itself.
+    const isWebKit = /apple/i.test(navigator.vendor || '');
+    const isFirefox = /\bFirefox\//.test(ua) && !isWebKit;
+
+    return {
+        engine: isOpera ? 'opera' : isWebKit ? 'webkit' : isFirefox ? 'firefox' : 'chromium',
+        isOpera,
+        isWebKit,
+        // WebKit cannot hold a continuous session open correctly.
+        continuous: !isWebKit,
+        // WebKit's interim results throttle the recogniser; take finals only.
+        interimResults: !isWebKit,
+        // Opera exposes no working recogniser at all.
+        speechUsable: !isOpera
+    };
+}
 let synthesisSpeech = null;
 let vaHistory = loadVaHistory();
 
@@ -167,22 +221,26 @@ function bindVaListeners() {
     };
 
     if (avatar) {
-        let clickTimer = null;
-
         avatar.addEventListener('click', (event) => {
             event.preventDefault();
-            // Defer the tap action so a second click can claim it as a double-click.
-            if (clickTimer) return;
-            clickTimer = setTimeout(() => {
-                clickTimer = null;
-                toggleListening();
-            }, 260);
+            // Acted on immediately, inside the gesture. This used to be
+            // deferred 260ms so a second click could claim it as a
+            // double-click, and that deferral is fatal on WebKit: Safari
+            // only permits a recognition start that happens directly inside a
+            // user gesture, so every avatar click on Safari was refused
+            // before it began. A double-click is handled by undoing this
+            // instead - see below.
+            toggleListening();
         });
 
-        // Gesture: double-click the nurse to open the full conversation history.
+        // Gesture: double-click the nurse to open the full conversation
+        // history. The first of the two clicks has already started listening
+        // by the time this fires, so it is stopped again rather than
+        // prevented - which is what lets the single-click path stay inside
+        // its gesture.
         avatar.addEventListener('dblclick', (event) => {
             event.preventDefault();
-            if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+            if (isListening) stopSpeechRecognition();
             openVaHistory();
         });
 
@@ -201,6 +259,51 @@ function bindVaListeners() {
             toggleListening();
         });
     }
+
+    bindVaTypedInput();
+}
+
+// ── TYPED INPUT ───────────────────────────────────────────────────
+// The assistant's dialogue half works in every browser - it is an ordinary
+// POST to /api/assistant/dialogue. Only the *listening* half is
+// engine-specific, and on Opera it cannot work at all. So the assistant takes
+// typing as well as speech, which is what actually makes it usable on Opera,
+// on Firefox, and on a Safari session where the microphone misbehaves. It is
+// also the better input in a waiting room with other people in it.
+function bindVaTypedInput() {
+    const form = document.getElementById('va-typed-form');
+    const input = document.getElementById('va-typed-input');
+    if (!form || !input) return;
+
+    form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const text = input.value.trim();
+        if (!text) return;
+        input.value = '';
+        // Stop listening first if the microphone happens to be open, so a
+        // spoken and a typed question cannot arrive at once.
+        if (isListening) stopSpeechRecognition();
+        pushVaBubble('user', text);
+        addVaHistory('user', text);
+        processVoiceCommand(text);
+    });
+
+    // Tell the customer up front when speech is not an option here, rather
+    // than after they click a microphone that cannot work.
+    const profile = vaSpeechProfile();
+    const hint = document.getElementById('va-hint');
+    if (!profile.speechUsable || !(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+        if (hint) hint.textContent = 'Type your question \u2014 voice input needs Google Chrome';
+        const btn = document.getElementById('va-action-btn');
+        if (btn) btn.title = profile.isOpera
+            ? 'Opera has no speech recogniser - type your question instead'
+            : 'This browser has no speech recogniser - type your question instead';
+    }
+}
+
+function focusVaTypedInput() {
+    const input = document.getElementById('va-typed-input');
+    if (input) input.focus();
 }
 
 // ── CONVERSATION HISTORY ──────────────────────────────────────────
@@ -368,10 +471,18 @@ function stopLipSync() {
 // we stop recognition ourselves rather than waiting on the browser's own cutoff,
 // which is what gives us an exact, predictable 3-second silence window.
 function startSpeechRecognition() {
+    const profile = vaSpeechProfile();
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-        showToast('Speech recognition needs Google Chrome.', 'error');
-        pushVaBubble('assistant', 'Voice input is not supported by this browser. Please use Google Chrome.');
+
+    // Opera is checked before the API is, because it sometimes exposes the
+    // constructor and then fails every session with a network error - which
+    // would otherwise be reported as a lost internet connection the customer
+    // cannot do anything about.
+    if (!SpeechRecognition || !profile.speechUsable) {
+        pushVaBubble('assistant', profile.isOpera
+            ? VA_SPEECH_ERRORS['opera']
+            : VA_SPEECH_ERRORS['unsupported']);
+        focusVaTypedInput();
         return;
     }
     if (isListening) return;
@@ -385,9 +496,12 @@ function startSpeechRecognition() {
     }
 
     recognition = new SpeechRecognition();
-    recognition.continuous = true;
+    // Per engine - see vaSpeechProfile. Chromium holds one continuous session
+    // with live interim text; WebKit is asked for a single utterance and final
+    // results only, because it does neither of the other two correctly.
+    recognition.continuous = profile.continuous;
     recognition.lang = 'en-US';
-    recognition.interimResults = true;
+    recognition.interimResults = profile.interimResults;
     recognition.maxAlternatives = 1;
 
     let listeningBubble = null;
@@ -412,7 +526,9 @@ function startSpeechRecognition() {
     const trace = (event, detail) => {
         console.log(`[VA speech #${sessionId}] ${event}${detail ? ': ' + detail : ''}`);
     };
-    trace('session created', `continuous=${recognition.continuous} lang=${recognition.lang}`);
+    speechCancelledByUser = false;
+    trace('session created', `engine=${profile.engine} continuous=${recognition.continuous} `
+        + `interim=${recognition.interimResults} lang=${recognition.lang}`);
 
     const armSilenceTimer = (ms) => {
         clearTimeout(silenceTimer);
@@ -500,6 +616,10 @@ function startSpeechRecognition() {
         // drops back to Idle and the customer is left thinking the assistant
         // switched itself off - which is exactly how this reads today.
         if (errorShown) return; // onerror already explained it
+        // The customer clicked to stop, or double-clicked for history and
+        // cancelled the session that first click started. They know why it
+        // stopped; saying "I didn't hear anything" would be noise.
+        if (speechCancelledByUser) { trace('cancelled by the customer'); return; }
 
         if (!sawStart) {
             // start() resolved but the browser never opened the microphone.
@@ -532,6 +652,10 @@ function startSpeechRecognition() {
 // as the silence timer, so transcript finalization only ever happens in one place: onend.
 function stopSpeechRecognition() {
     clearTimeout(silenceTimer);
+    // Distinguishes "the customer stopped it" from "it went quiet on its own",
+    // which onend needs in order to decide whether silence deserves an
+    // explanation.
+    speechCancelledByUser = true;
     if (recognition) {
         try { recognition.stop(); } catch (e) { /* already stopped */ }
     }
