@@ -237,7 +237,19 @@
                         <label class="form-label" for="login-password">Password</label>
                         <div class="input-icon-wrap">
                             <i class="fa-solid fa-lock input-icon"></i>
-                            <input type="password" id="login-password" class="form-input input-with-icon" placeholder="Enter password" required autocomplete="current-password" maxlength="16">
+                            <!-- No maxlength here on purpose. This field does not create a
+                                 password, it types one that already exists, and it has to accept
+                                 whatever is actually stored. It carried maxlength="16" - the
+                                 registration policy's ceiling - and silently truncated anything
+                                 longer as it was pasted, so the customer saw "Invalid
+                                 credentials" for a password they had entered correctly.
+                                 Reachable three ways: a deployment SEED_PASSWORD, an account
+                                 whose password an administrator set through owner.html or
+                                 admintechnical.html (neither of which caps length), and any
+                                 account created before the policy last changed. The 8-16 rule
+                                 belongs on the fields that set a password, and it is still on
+                                 all four of them. -->
+                            <input type="password" id="login-password" class="form-input input-with-icon" placeholder="Enter password" required autocomplete="current-password">
                         </div>
                     </div>
                     <button type="submit" class="btn btn-primary btn-block btn-lg" id="login-btn">
