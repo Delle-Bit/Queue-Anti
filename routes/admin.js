@@ -396,6 +396,47 @@ router.post('/appointments', async (req, res) => {
         if (slotError) return res.status(400).json({ error: slotError });
         const [medical] = await pool.query('SELECT id FROM medical_records WHERE customer_id=? AND archived=false', [req.user.id]);
         if (medical.length === 0) return res.status(409).json({ error: 'Please complete your medical form before booking.', medical_form_required: true });
+
+        // One service at a time. Every check above this line is about the slot -
+        // whether the date is full, whether that time is taken - and none of
+        // them asked whether this patient is already availing something. So a
+        // customer could hold as many appointments as there were free slots,
+        // and each one mints its own ticket and its own place in the queue on
+        // check-in. The queue path has always refused a second concurrent visit
+        // (startPackageQueue returns alreadyActive); the appointment path never
+        // did.
+        //
+        // 'scheduled' and 'checked-in' are the two statuses that are still
+        // ahead of the patient. 'completed', 'cancelled' and 'no-show' are
+        // finished and must not block a new booking.
+        const [openAppt] = await pool.query(
+            `SELECT id, DATE_FORMAT(appointment_date, '%Y-%m-%d') AS date_text, appointment_time
+             FROM appointments
+             WHERE customer_id = ? AND status IN ('scheduled', 'checked-in') AND archived = false
+             ORDER BY appointment_date, appointment_time LIMIT 1`,
+            [req.user.id]
+        );
+        if (openAppt.length > 0) {
+            return res.status(409).json({
+                error: `You already have an appointment on ${openAppt[0].date_text} at ${openAppt[0].appointment_time}.`
+                    + ' Cancel it first if you want to book a different service.',
+                already_booked: true
+            });
+        }
+
+        // Mid-visit counts too: a patient standing at a station is availing a
+        // service, and the same 'in_progress' row is what startPackageQueue
+        // checks, so the two doors agree.
+        const [activeVisit] = await pool.query(
+            `SELECT id FROM queue_sequences WHERE customer_id = ? AND status = 'in_progress' AND archived = false LIMIT 1`,
+            [req.user.id]
+        );
+        if (activeVisit.length > 0) {
+            return res.status(409).json({
+                error: 'You are in the queue right now. Finish that visit before booking another service.',
+                already_active: true
+            });
+        }
         const [labCount] = await pool.query(
             `SELECT COUNT(*) as cnt FROM package_laboratories pl JOIN laboratories l ON pl.laboratory_id = l.id
              WHERE pl.package_id = ? AND pl.archived = false AND l.archived = false`, [package_id]

@@ -662,3 +662,45 @@
     .appt-step-chip { font-size: 0.7em; }
     .appt-step-sep { min-width: 4px; }
 }
+
+/* -- step 2: the service confirmation ----------------------------- */
+.appt-review {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 14px;
+    background: var(--bg-card);
+    margin-top: 6px;
+}
+.appt-review-name {
+    font-weight: 700;
+    font-size: 1.02em;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+.appt-review-tags {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 8px 0 10px;
+}
+.appt-review-desc {
+    font-size: 0.84em;
+    color: var(--text-secondary);
+    margin: 0 0 12px;
+}
+.appt-review-fees {
+    border-top: 1px solid var(--border-light);
+    padding-top: 10px;
+    margin-bottom: 10px;
+}
+/* Reuses .appt-fee-line from the payment card so the two summaries of the
+   same numbers cannot drift apart visually. */
+.appt-fee-total {
+    border-top: 1px solid var(--border-light);
+    margin-top: 6px;
+    padding-top: 8px;
+    font-weight: 700;
+    font-size: 1.02em;
+    color: var(--primary);
+}

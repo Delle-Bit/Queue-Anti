@@ -583,7 +583,7 @@ setInterval(() => {
 // thing the customer saw was a calendar for a service they had not chosen yet,
 // and the service itself - the decision with a price attached - was a single
 // line of collapsed text. It is now the whole of step one.
-const APPT_LAST_STEP = 3;
+const APPT_LAST_STEP = 4;
 let apptStep = 1;
 let selectedTimeSlot = null;
 let apptPackages = [];
@@ -603,6 +603,7 @@ function selectApptService(id) {
     sel.value = String(id);
     if (sel.onchange) sel.onchange();
     renderApptChosenService();
+    renderApptReview();
     updateApptModalView();
 }
 
@@ -620,6 +621,50 @@ function renderApptChosenService() {
         const el = document.getElementById(id);
         if (el) el.innerHTML = html;
     });
+}
+
+// Step 2. The customer has picked a service; this is what they picked, and
+// what it will cost, before they spend any time choosing a date. The final
+// step restates it alongside the date and the notes - this one is only about
+// the service, so a wrong choice is caught before the calendar rather than
+// after it.
+function renderApptReview() {
+    const el = document.getElementById('appt-review');
+    if (!el) return;
+    const pkg = selectedApptPackage();
+    if (!pkg) { el.innerHTML = ''; return; }
+
+    const base = Number(pkg.price) || 0;
+    const total = Number(pkg.appointment_price ?? pkg.price) || base;
+    const pct = Number(pkg.appointment_surcharge_pct ?? 0);
+    const stepCount = pkg.steps?.length || 0;
+
+    el.innerHTML = `
+        <div class="appt-review-name">${escapeHtml(pkg.name)}</div>
+        <div class="appt-review-tags">
+            <span class="badge badge-neutral">${escapeHtml(pkg.category || 'General')}</span>
+            <span class="text-muted text-sm"><i class="fa-solid fa-clock"></i> ~${pkg.est_time_minutes || 0} min</span>
+            ${stepCount ? `<span class="text-muted text-sm"><i class="fa-solid fa-route"></i> ${stepCount} station(s)</span>` : ''}
+        </div>
+        ${pkg.description ? `<p class="appt-review-desc">${escapeHtml(pkg.description)}</p>` : ''}
+        <div class="appt-review-fees">
+            <div class="appt-fee-line"><span>Service price</span><span>${formatCurrency(base)}</span></div>
+            <div class="appt-fee-line"><span>Priority booking fee (${pct}%)</span><span>${formatCurrency(total - base)}</span></div>
+            <div class="appt-fee-line appt-fee-total"><span>Total due on site</span><span>${formatCurrency(total)}</span></div>
+        </div>
+        <p class="text-sm text-muted">Booking a slot places you ahead of walk-ins, which is what the priority fee covers. You pay at the front desk on the day.</p>`;
+}
+
+// The date and time, restated on the final step next to the service.
+function renderApptWhen() {
+    const el = document.getElementById('appt-chosen-when');
+    if (!el) return;
+    const date = document.getElementById('appt-date').value;
+    el.innerHTML = (date && selectedTimeSlot)
+        ? `<i class="fa-solid fa-calendar-day" aria-hidden="true"></i>
+           <span class="appt-chosen-name">${escapeHtml(date)}</span>
+           <span class="appt-chosen-price">${escapeHtml(selectedTimeSlot)}</span>`
+        : '';
 }
 
 function resetApptModal() {
@@ -642,6 +687,8 @@ function resetApptModal() {
     if (notes) notes.value = '';
 
     renderApptChosenService();
+    renderApptReview();
+    renderApptWhen();
     renderAppointmentCalendar();
     updateApptModalView();
 }
@@ -650,11 +697,12 @@ function apptNextStep() {
     if (apptStep === 1 && !selectedApptPackage()) {
         return showToast('Please choose a service first', 'warning');
     }
-    if (apptStep === 2) {
+    if (apptStep === 3) {
         if (!document.getElementById('appt-date').value) {
             return showToast('Please pick a date', 'warning');
         }
         if (!selectedTimeSlot) return showToast('Please select a time slot', 'warning');
+        renderApptWhen();
     }
     if (apptStep < APPT_LAST_STEP) apptStep++;
     updateApptModalView();
@@ -684,14 +732,16 @@ function updateApptModalView() {
     next.style.display = apptStep < APPT_LAST_STEP ? 'inline-flex' : 'none';
     confirm.style.display = apptStep === APPT_LAST_STEP ? 'inline-flex' : 'none';
 
-    // "Proceed" on the service step, because that is the word the step is
-    // asking for; "Next" once the customer is inside the date and time.
-    next.textContent = apptStep === 1 ? 'Proceed' : 'Next';
+    // Each label names what the button does next, rather than a generic Next
+    // repeated three times.
+    next.textContent = apptStep === 1 ? 'Proceed'
+        : apptStep === 2 ? 'Choose a date'
+        : 'Review booking';
 
     // Disabled rather than hidden, so the button stays where the thumb expects
     // it and its tooltip can say what is missing.
     const blocked = (apptStep === 1 && !selectedApptPackage())
-        || (apptStep === 2 && !selectedTimeSlot);
+        || (apptStep === 3 && !selectedTimeSlot);
     next.disabled = blocked;
     next.title = !blocked ? ''
         : (apptStep === 1 ? 'Choose a service to continue' : 'Pick a date and time to continue');
@@ -1171,10 +1221,44 @@ async function populateMedicalFormFromRecord() {
     }
 }
 
+// One service at a time, checked before the modal opens rather than on the
+// Confirm button. The server is the boundary and refuses either way (see
+// POST /appointments), but finding out at the end means having chosen a
+// service, a date and a time for nothing.
+//
+// A failed check does not block: if these requests error, the modal opens and
+// the server still refuses. Better a wasted booking attempt than a customer
+// who cannot reach the form because a status endpoint was slow.
+async function apptBookingBlocker() {
+    try {
+        const [apptRes, queueRes] = await Promise.all([
+            fetch('/api/appointments/my', { headers: authHeaders() }),
+            fetch('/api/queue/my-status', { headers: authHeaders() })
+        ]);
+        const appts = await apptRes.json();
+        // 'scheduled' and 'checked-in' are still ahead of the patient;
+        // completed, cancelled and no-show are finished and block nothing.
+        const open = (appts || []).find(a => a.status === 'scheduled' || a.status === 'checked-in');
+        if (open) {
+            return `You already have an appointment on ${open.appointment_date} at ${open.appointment_time}.`
+                + ' Cancel it first if you want to book a different service.';
+        }
+        const status = await queueRes.json();
+        if (status && status.active) {
+            return 'You are in the queue right now. Finish that visit before booking another service.';
+        }
+    } catch (err) {
+        console.warn('Could not check for an existing booking; the server will still enforce it.', err);
+    }
+    return null;
+}
+
 const origOpenModal = window.openModal;
 window.openModal = async function(id) {
     if (id === 'appt-modal') {
         if (!(await ensureMedicalFormComplete(true))) return;
+        const blocker = await apptBookingBlocker();
+        if (blocker) return showToast(blocker, 'warning');
         // resetApptModal renders the calendar itself; calling it again here
         // just fetched /api/queue/booked-dates twice on every open.
         resetApptModal();

@@ -302,9 +302,11 @@
                 <div class="appt-steps" id="appt-steps" aria-live="polite">
                     <span class="appt-step-chip" data-step="1"><span class="appt-step-num">1</span> Service</span>
                     <span class="appt-step-sep" aria-hidden="true"></span>
-                    <span class="appt-step-chip" data-step="2"><span class="appt-step-num">2</span> Date &amp; time</span>
+                    <span class="appt-step-chip" data-step="2"><span class="appt-step-num">2</span> Review</span>
                     <span class="appt-step-sep" aria-hidden="true"></span>
-                    <span class="appt-step-chip" data-step="3"><span class="appt-step-num">3</span> Confirm</span>
+                    <span class="appt-step-chip" data-step="3"><span class="appt-step-num">3</span> Date &amp; time</span>
+                    <span class="appt-step-sep" aria-hidden="true"></span>
+                    <span class="appt-step-chip" data-step="4"><span class="appt-step-num">4</span> Confirm</span>
                 </div>
 
                 <!-- Step 1: pick the service -->
@@ -319,8 +321,14 @@
                         aria-labelledby="appt-service-legend"></div>
                 </div>
 
-                <!-- Step 2: pick the date, then the time on that date -->
+                <!-- Step 2: confirm the service before spending time on a date -->
                 <div id="appt-step-2" style="display:none;">
+                    <div class="form-label">Confirm your service</div>
+                    <div class="appt-review" id="appt-review"></div>
+                </div>
+
+                <!-- Step 3: pick the date, then the time on that date -->
+                <div id="appt-step-3" style="display:none;">
                     <div class="appt-chosen" id="appt-chosen-service"></div>
                     <div class="appointment-calendar-wrap">
                         <div class="calendar-toolbar">
@@ -344,9 +352,10 @@
                     </div>
                 </div>
 
-                <!-- Step 3: notes and what will be paid -->
-                <div id="appt-step-3" style="display:none;">
+                <!-- Step 4: notes and what will be paid -->
+                <div id="appt-step-4" style="display:none;">
                     <div class="appt-chosen" id="appt-chosen-summary"></div>
+                    <div class="appt-chosen" id="appt-chosen-when"></div>
                     <div class="form-group"><label class="form-label" for="appt-notes">Notes (optional)</label>
                         <input type="text" class="form-input" id="appt-notes" placeholder="Any special notes">
                     </div>
