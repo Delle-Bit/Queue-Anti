@@ -946,8 +946,9 @@ tbody tr:last-child td { border-bottom: none; }
 }
 .va-typed-input::placeholder { color: var(--text-secondary); }
 .va-typed-send {
+    position: relative;
     flex: 0 0 auto;
-    width: 30px; height: 30px;
+    width: 34px; height: 34px;
     border-radius: 50%;
     border: none;
     background: var(--primary);
@@ -958,7 +959,21 @@ tbody tr:last-child td { border-bottom: none; }
     font-size: 0.78em;
     transition: var(--transition);
 }
+/* The circle stays 34px so the pill does not grow, but the tappable area is
+   the 44px touch-target floor. This is a phone-first app: a 34px target on a
+   thumb is a miss, and enlarging the button itself would make the whole input
+   row taller than the dock above it. */
+.va-typed-send::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+}
 .va-typed-send:hover { filter: brightness(1.08); }
+.va-typed-send:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 .va-hint {
     font-size: 0.7em;
