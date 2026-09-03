@@ -555,34 +555,19 @@ async function pytesseractOcrFallback(data) {
   });
 }
 
-/**
- * Mock OCR fallback - returns randomized category detection for testing/offline use.
- * Used when all external OCR services fail.
- */
-function mockOcrFallback(data) {
-  const rand = Math.random();
-  let age, idType, category;
-  if (rand < 0.33) {
-    age = 65 + Math.floor(Math.random() * 15);
-    idType = 'Senior';
-    category = 'Senior';
-  } else if (rand < 0.5) {
-    age = 25 + Math.floor(Math.random() * 30);
-    idType = 'PWD';
-    category = 'PWD';
-  } else {
-    age = 20 + Math.floor(Math.random() * 30);
-    idType = 'Regular';
-    category = 'Regular';
-  }
-  return {
-    name: "Detected Patient",
-    age,
-    idType,
-    category
-  };
-}
-
+// There is deliberately no mock OCR fallback. There was one, and it did not
+// return "unknown" - it rolled a random age and a random category, Senior a
+// third of the time and PWD a sixth. So when every reader was unavailable the
+// registration desk was handed a confident stranger with a place near the
+// front of the queue, on the strength of an ID that nothing had read. It
+// reached a real deployment: "Detected Patient", age 29, born 1997-01-01, for
+// a card printed MARIA CLARA SANTOS, 1957-11-24.
+//
+// ocrScan returns null instead, and the callers register the customer with no
+// prefill and Regular category - which is the safe default precisely because
+// it grants no priority - leaving the front desk to set it when it approves
+// the pending registration. A blank field a human fills in is worth more than
+// a filled one nobody can trust.
 
 async function checkAIToggle(featureName) {
     try {
@@ -1072,7 +1057,7 @@ const aiServices = {
         // Gemini reads the card and returns the fields.
         // First fallback: pytesseract OCR via local Python script (offline).
         // Second fallback (automatic inside callMockAI): NVIDIA Nemotron-3.
-        // Final fallback: mock random category detection.
+        // No final mock: an unreadable card returns null rather than a guess.
         //
         // Gemini sits outside callMockAI because that helper posts one fixed
         // request shape; a multimodal call is a different shape, and threading
@@ -1093,7 +1078,10 @@ const aiServices = {
             process.env.API_ALLAROUND,
             { image: imageData },
             pytesseractOcrFallback,
-            mockOcrFallback,
+            // No mock fallback - see above. null is the shape callMockAI
+            // already expects here; every other feature passes null too and
+            // uses real local logic rather than invented figures.
+            null,
             'ID Scanning OCR'
           );
         }
@@ -1101,6 +1089,17 @@ const aiServices = {
         if (rawResult && rawResult.text && !rawResult.idType) {
           const parsed = parseSimpleOcr(rawResult.text);
           return { ...parsed, text: rawResult.text };
+        }
+        // callMockAI answers { error: 'All AI methods failed' } rather than
+        // null when its whole chain comes up empty, and that object is truthy
+        // - so without this the callers would treat "nothing read the card"
+        // as a successful scan carrying no fields, which is the exact
+        // confusion the mock used to create in a friendlier costume.
+        if (!rawResult || rawResult.error || (!rawResult.name && !rawResult.text && !rawResult.age)) {
+          console.warn('[OCR] No reader could make out the card - returning null.'
+            + ' The customer registers with nothing prefilled and the desk sets'
+            + ' the category at approval.');
+          return null;
         }
         return rawResult;
     },

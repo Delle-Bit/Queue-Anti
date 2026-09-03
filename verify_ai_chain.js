@@ -483,17 +483,28 @@ const IMAGE = 'data:image/jpeg;base64,' + Buffer.alloc(64, 7).toString('base64')
     check('no DeepSeek request at all', calls.some(c => c.url.includes('deepseek')), false);
     check('Gemini answered', scan && scan.source, 'gemini');
 
-    console.log('\n28. both providers down is where the invented patient lives');
-    // Not an assertion of good behaviour - a record of what still happens when
-    // every hosted provider fails: python is absent from the runtime image,
-    // NVIDIA has no key, and mockOcrFallback rolls a random age and category.
+    console.log('\n28. every reader down means null, never an invented patient');
+    // This is the assertion the mock used to make impossible. It rolled a
+    // random age and category - Senior a third of the time - so a total
+    // outage handed the desk a confident stranger with a place near the front
+    // of the queue. There is no mock any more: nothing read the card, and the
+    // answer says so.
     calls.length = 0;
     T.resetDeepseek();
     responder = () => { throw quota(429); };
     scan = await ai.ocrScan(IMAGE);
-    check('both providers were tried', calls.length, 2);
-    check('and the result is fabricated', scan && scan.name, 'Detected Patient');
-    check('with a random age', typeof (scan && scan.age), 'number');
+    check('both hosted providers were tried', calls.length, 2);
+    check('the answer is null, not a name', scan, null);
+
+    // Ten runs, because the point is that there is no longer a random draw
+    // behind this - the old mock would have produced a Senior in roughly
+    // three of them.
+    let fabricated = 0;
+    for (let i = 0; i < 10; i++) {
+        T.resetDeepseek();
+        if (await ai.ocrScan(IMAGE)) fabricated += 1;
+    }
+    check('and it is null every time, not one in three', fabricated, 0);
 
     console.log(`\n${passed} passed, ${failed} failed\n`);
     process.exit(failed ? 1 : 0);

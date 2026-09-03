@@ -219,6 +219,50 @@ router.get('/register/suggest-username', rateLimit(30, 10 * 60 * 1000), async (r
     }
 });
 
+// One mapping from a scan to the fields a registration stores. There are two
+// callers - the early /ocr preview that prefills the form, and the step-1
+// submit that files the pending registration - and they had drifted into two
+// near-identical copies with different comments.
+//
+// A scan that read nothing is null now that the mock is gone, and that must
+// not fail the registration: the customer still registers, with nothing
+// prefilled and Regular category, and the front desk sets the category when it
+// approves them. Regular is the safe default exactly because it grants no
+// priority.
+//
+// `typedName` is the one real difference between the callers. The step-1 submit
+// passes the name the customer typed, which is authoritative because OCR name
+// extraction is the least reliable field on the card; the preview passes
+// nothing, because prefilling that field from the card is its whole purpose.
+function mapIdScan(ocrData, typedName = '') {
+    const mapped = {
+        id_read: false,
+        category: 'Regular',
+        name: String(typedName || '').trim().slice(0, 255),
+        age: null,
+        birthday: null,
+        gender: null
+    };
+    if (!ocrData) return mapped;
+
+    mapped.id_read = true;
+    if (ocrData.idType === 'Senior' || ocrData.idType === 'Elderly') mapped.category = 'Senior';
+    else if (ocrData.idType === 'PWD') mapped.category = 'PWD';
+    if (!mapped.name && ocrData.name) mapped.name = String(ocrData.name).trim().slice(0, 255);
+    mapped.age = ocrData.age || null;
+    // The printed date when the reader could make it out; otherwise the year
+    // implied by the printed age, which is all a text-only reader can offer.
+    // Deriving it from the age when a real date was read put a patient's
+    // birthday a year out and on 1 January.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(ocrData.birthdate || '')) {
+        mapped.birthday = ocrData.birthdate;
+    } else if (ocrData.age) {
+        mapped.birthday = `${new Date().getFullYear() - ocrData.age}-01-01`;
+    }
+    if (ocrData.gender) mapped.gender = ocrData.gender;
+    return mapped;
+}
+
 router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ name: 'frontId', maxCount: 1 }, { name: 'backId', maxCount: 1 }]), async (req, res) => {
     const { username, full_name, email, verification_method, guardian_name, guardian_contact, guardian_relationship } = req.body || {};
     try {
@@ -247,6 +291,9 @@ router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ na
         // is authoritative (OCR name extraction is unreliable); OCR only fills in
         // gaps if the client somehow sent a blank name.
         let category = 'Regular', gender = null, birthday = null, detectedName = full_name.trim().slice(0, 255);
+        // Underage registrations upload no ID at all, so nothing was read and
+        // nothing claims to have been.
+        let idRead = false;
         // The ID images are read and discarded within this request - nothing
         // about them is stored. They used to be kept on disk and their paths
         // written to pending_registrations, but no screen ever displayed them:
@@ -260,20 +307,18 @@ router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ na
             const frontFile = req.files['frontId'][0];
             const backFile = req.files['backId'][0];
             const ocrData = await aiServices.ocrScan(frontFile.path);
-            if (ocrData.idType === 'Senior' || ocrData.idType === 'Elderly') category = 'Senior';
-            else if (ocrData.idType === 'PWD') category = 'PWD';
-            if (!detectedName && ocrData.name) detectedName = ocrData.name;
-            // The printed date when the reader could make it out; otherwise
-            // the year implied by the printed age, which is all the text-only
-            // fallbacks can offer. Deriving it from age when a real date was
-            // read put a patient's birthday a year out and on 1 January.
-            if (/^\d{4}-\d{2}-\d{2}$/.test(ocrData.birthdate || '')) {
-                birthday = ocrData.birthdate;
-            } else if (ocrData.age) {
-                const y = new Date().getFullYear() - ocrData.age;
-                birthday = `${y}-01-01`;
+            const mapped = mapIdScan(ocrData, full_name);
+            category = mapped.category;
+            detectedName = mapped.name;
+            birthday = mapped.birthday;
+            gender = mapped.gender;
+            idRead = mapped.id_read;
+            if (!idRead) {
+                // Recorded so an empty detected_category in the approval queue
+                // is explainable, rather than looking like a lost scan.
+                console.warn(`[Registration] No reader could make out the ID for "${username}"`
+                    + ' - filed as Regular with nothing prefilled, for the desk to set at approval.');
             }
-            if (ocrData.gender) gender = ocrData.gender;
             cleanupUpload(req.files);
         } else {
             cleanupUpload(req.files);
@@ -294,6 +339,9 @@ router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ na
             token,
             category,
             detectedName,
+            // So the client can say the ID was not read instead of leaving the
+            // customer to wonder why nothing was filled in.
+            id_read: idRead,
             requiresGuardian: isUnderage
         });
     } catch (err) {
@@ -483,22 +531,22 @@ router.post('/ocr', upload.single('idImage'), async (req, res) => {
         const ocrData = await aiServices.ocrScan(req.file.path);
         fs.unlink(req.file.path, () => {});
 
-        let category = 'Regular', gender = null, birthday = null, detectedName = '';
-        if (ocrData.idType === 'Senior' || ocrData.idType === 'Elderly') category = 'Senior';
-        else if (ocrData.idType === 'PWD') category = 'PWD';
-        if (ocrData.name) detectedName = ocrData.name;
-        // The printed date when the reader could make it out; otherwise the
-        // year implied by the printed age, which is all the text-only fallbacks
-        // can offer. Deriving it from age when a real date was read put a
-        // patient's birthday a year out and on the 1st of January.
-        if (/^\d{4}-\d{2}-\d{2}$/.test(ocrData.birthdate || '')) {
-            birthday = ocrData.birthdate;
-        } else if (ocrData.age) {
-            const y = new Date().getFullYear() - ocrData.age;
-            birthday = `${y}-01-01`;
-        }
-
-        res.json({ success: true, category, name: detectedName, age: ocrData.age || null, birthday, gender: ocrData.gender || null });
+        // success: true even when nothing was read - the request worked, the
+        // card just could not be made out. id_read is what the client branches
+        // on, so an unreadable ID reads as "type it in yourself" rather than
+        // the "Front and Back ID images are required" this used to produce,
+        // which is a different problem entirely and sends the customer looking
+        // for a file they already attached.
+        const mapped = mapIdScan(ocrData);
+        res.json({
+            success: true,
+            id_read: mapped.id_read,
+            category: mapped.category,
+            name: mapped.name,
+            age: mapped.age,
+            birthday: mapped.birthday,
+            gender: mapped.gender
+        });
     } catch (err) {
         if (req.file) fs.unlink(req.file.path, () => {});
         console.error('OCR error:', err);

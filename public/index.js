@@ -872,6 +872,15 @@ async function runIdOcrPreview(blob, side) {
             fullNameField.dispatchEvent(new Event('input', { bubbles: true }));
         }
         if (status) {
+            // id_read false means every reader was tried and none could make
+            // the card out. The server no longer invents a name and a category
+            // to fill that gap, so the honest thing is to ask for the details
+            // and to say the ID itself is still fine to submit - the front desk
+            // sets the category when it approves the registration.
+            if (!data.id_read) {
+                status.textContent = 'Could not read the ID — please type your details in. The front desk will confirm them.';
+                return;
+            }
             const parts = [];
             if (data.name) parts.push(data.name);
             if (data.category && data.category !== 'Regular') parts.push(data.category);
