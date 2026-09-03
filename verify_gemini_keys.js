@@ -94,6 +94,11 @@ function setKeys(...values) {
     });
 }
 
+// The pause between overload retries is real time, and several scenarios below
+// trip it. The shipped default is checked as a duration in scenario 14; the
+// waiting itself is not what any of the others are testing.
+process.env.GEMINI_OVERLOAD_BACKOFF_MS = '0';
+
 // A 40-byte JPEG-ish buffer standing in for an uploaded ID photo.
 const IMAGE = 'data:image/jpeg;base64,' + Buffer.alloc(64, 7).toString('base64');
 
@@ -142,13 +147,25 @@ const IMAGE = 'data:image/jpeg;base64,' + Buffer.alloc(64, 7).toString('base64')
     check('both keys attempted once each', calls.length, 2);
     check('returns null so the caller falls through', out, null);
 
-    console.log('\n6. a non-key failure is reported, not retried five times');
+    console.log('\n6. a failure that is not the key\'s fault never rotates');
     setKeys('k1', 'k2', 'k3');
+
+    // A 5xx is transient, so it is retried - but on the one key, because three
+    // keys against a busy model is three times the wait and the same answer.
     calls.length = 0;
     responder = () => { throw httpError(500, { error: { message: 'backend error' } }); };
     out = await T.geminiIdScan(IMAGE);
-    check('one attempt only', calls.length, 1);
-    check('still null', out, null);
+    check('retried within its budget', calls.length, 3);
+    check('all on the same key', new Set(calls.map(c => c.key)).size, 1);
+    check('null, not nine attempts', out, null);
+
+    // A schema mistake is neither transient nor the key's doing: attempted
+    // once, reported as itself.
+    calls.length = 0;
+    responder = () => { throw httpError(400, { error: { message: 'Invalid JSON payload received. Unknown name "responseSchemaa"' } }); };
+    out = await T.geminiIdScan(IMAGE);
+    check('our own bug is attempted once', calls.length, 1);
+    check('and reported as null', out, null);
 
     console.log('\n7. no key configured is silence, not a crash');
     setKeys();
@@ -184,6 +201,56 @@ const IMAGE = 'data:image/jpeg;base64,' + Buffer.alloc(64, 7).toString('base64')
     check('reply returned', reply, 'Good morning.');
     check('chat model is not the retired 2.5-flash', T.GEMINI_CHAT_MODEL.includes('2.5'), false);
     check('chat url uses the configured base', calls[0].url.startsWith('https://generativelanguage.googleapis.com/v1beta/models/'), true);
+
+    console.log('\n10. an overloaded model is retried on the same key, not rotated');
+    // Observed in production: 503 "This model is currently experiencing high
+    // demand." A second key cannot help with that, so the same one is retried.
+    const busy = () => httpError(503, { error: { code: 503, status: 'UNAVAILABLE', message: 'This model is currently experiencing high demand.' } });
+
+    setKeys('only-key');
+    calls.length = 0;
+    let n = 0;
+    responder = () => { if (++n === 1) throw busy(); return idPayload('Ana Reyes'); };
+    out = await T.geminiIdScan(IMAGE);
+    check('retried once', calls.length, 2);
+    check('same key both times', new Set(calls.map(c => c.key)).size, 1);
+    check('scan recovered', out && out.name, 'Ana Reyes');
+
+    console.log('\n11. the retry budget is bounded');
+    calls.length = 0;
+    responder = () => { throw busy(); };
+    out = await T.geminiIdScan(IMAGE);
+    check('one attempt plus two retries, then stop', calls.length, 3);
+    check('falls through to the offline chain', out, null);
+
+    console.log('\n12. a busy model does not burn the spare key');
+    setKeys('key-one', 'key-two');
+    calls.length = 0;
+    out = await T.geminiIdScan(IMAGE);
+    check('only the current key was tried', new Set(calls.map(c => c.key)).size, 1);
+    check('three attempts, not six', calls.length, 3);
+
+    console.log('\n13. a quota refusal still rotates, and the retry does not multiply it');
+    setKeys('key-one', 'key-two');
+    calls.length = 0;
+    responder = (key) => { if (key === 'key-one') throw quota(429); return idPayload('Ana Reyes'); };
+    out = await T.geminiIdScan(IMAGE);
+    check('one attempt per key', calls.length, 2);
+    check('recovered on the spare', out && out.name, 'Ana Reyes');
+
+    console.log('\n14. the shipped retry defaults are small enough for a counter');
+    delete process.env.GEMINI_OVERLOAD_BACKOFF_MS;
+    delete process.env.GEMINI_OVERLOAD_RETRIES;
+    setKeys('only-key');
+    calls.length = 0;
+    responder = () => { throw busy(); };
+    const started = Date.now();
+    out = await T.geminiIdScan(IMAGE);
+    const elapsed = Date.now() - started;
+    check('default budget is one attempt plus two retries', calls.length, 3);
+    // 700ms then 1400ms, so a model that is down for everyone costs the desk
+    // about two seconds on top of the requests before the offline result.
+    check('default backoff totals ~2.1s, under 4s', elapsed >= 2000 && elapsed < 4000, true);
 
     console.log(`\n${passed} passed, ${failed} failed\n`);
     process.exit(failed ? 1 : 0);

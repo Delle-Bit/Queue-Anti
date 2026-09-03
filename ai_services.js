@@ -74,6 +74,27 @@ function geminiKeySpent(err) {
     .test(body);
 }
 
+// 5xx is Gemini saying the model is momentarily oversubscribed - the observed
+// wording is "This model is currently experiencing high demand. Spikes in
+// demand are usually temporary." Another key does not help, because it is the
+// model that is busy and not the quota that is spent, so the same key is
+// retried after a short pause. Timeouts are deliberately NOT in here: the
+// request already waited 30 seconds, and retrying that twice would leave a
+// patient at the counter for a minute and a half.
+function geminiRetryable(err) {
+  const status = err.response ? err.response.status : null;
+  return status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+// Read per call rather than captured at module scope, so the harness can turn
+// the pause off. Small on purpose - somebody is standing at the desk.
+function geminiEnvNumber(name, fallback) {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // Runs `attempt(key)` against each configured key in turn, starting from the
 // one that worked last. Returns { ok: true, value } or
 // { ok: false, reason: 'no-key' | 'error' | 'exhausted', error }; callers turn
@@ -89,22 +110,35 @@ async function withGeminiKey(label, attempt) {
   // (1 + 1) % 2 landed back on the key that had just been refused - so the
   // second key was never tried at all.
   const start = geminiKeyCursor;
+  const retries = geminiEnvNumber('GEMINI_OVERLOAD_RETRIES', 2);
+  const backoff = geminiEnvNumber('GEMINI_OVERLOAD_BACKOFF_MS', 700);
   let lastError = null;
+
   for (let n = 0; n < keys.length; n++) {
     const index = (start + n) % keys.length;
-    try {
-      const value = await attempt(keys[index]);
-      geminiKeyCursor = index;
-      return { ok: true, value };
-    } catch (err) {
-      lastError = err;
-      // Anything that is not the key's fault is the caller's to report, and
-      // retrying it on every key only makes the desk wait five times as long.
-      if (!geminiKeySpent(err)) return { ok: false, reason: 'error', error: err };
-      // The slot number, never the key itself.
-      const code = err.response ? err.response.status : err.code;
-      console.warn(`[${label}] key ${index + 1} of ${keys.length} refused (${code}) - trying the next key`);
-      geminiKeyCursor = (index + 1) % keys.length;
+    let rotate = false;
+
+    for (let tries = 0; !rotate; tries++) {
+      try {
+        const value = await attempt(keys[index]);
+        geminiKeyCursor = index;
+        return { ok: true, value };
+      } catch (err) {
+        lastError = err;
+        if (geminiRetryable(err) && tries < retries) {
+          console.warn(`[${label}] model busy (${err.response.status}) - retrying in ${backoff * (tries + 1)}ms`);
+          await sleep(backoff * (tries + 1));
+          continue;
+        }
+        // Anything that is not the key's fault is the caller's to report, and
+        // retrying it on every key only makes the desk wait five times as long.
+        if (!geminiKeySpent(err)) return { ok: false, reason: 'error', error: err };
+        // The slot number, never the key itself.
+        const code = err.response ? err.response.status : err.code;
+        console.warn(`[${label}] key ${index + 1} of ${keys.length} refused (${code}) - trying the next key`);
+        geminiKeyCursor = (index + 1) % keys.length;
+        rotate = true;
+      }
     }
   }
   console.warn(`[${label}] all ${keys.length} configured keys are out of quota or invalid`);
@@ -452,7 +486,10 @@ async function pytesseractOcrFallback(data) {
     py.stderr.on('data', (d) => (stderr += d));
     py.on('close', (code) => {
       if (code !== 0) {
-        console.warn(`[Pytesseract Fallback] Script exited ${code}: ${stderr}`);
+        // A binary that never started also emits 'close', after the 'error'
+        // handler above has already explained itself. Logging "Script exited
+        // -2:" underneath that reads like a second, separate failure.
+        if (!settled) console.warn(`[Pytesseract Fallback] Script exited ${code}: ${stderr}`);
         done(null);
       } else {
         try {
