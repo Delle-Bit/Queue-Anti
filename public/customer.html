@@ -592,8 +592,13 @@
         </div>
 
         <div class="va-dock">
-            <button class="va-dock-btn primary" id="va-action-btn" type="button"
-                aria-label="Talk to the nurse assistant"><i class="fa-solid fa-microphone"></i></button>
+            <!-- Listening indicator, not a control: it reports whether the
+                 microphone is open and does nothing when clicked. The nurse
+                 avatar starts and stops listening; the box below takes typing. -->
+            <div class="va-dock-btn va-dock-status" id="va-action-btn" role="status" aria-live="polite">
+                <i class="fa-solid fa-microphone-slash" aria-hidden="true"></i>
+                <span class="va-sr-only">Not listening</span>
+            </div>
             <button class="va-dock-btn" id="va-mute-btn" type="button" onclick="toggleVaMute()"
                 aria-label="Toggle voice output"><i class="fa-solid fa-volume-high"></i></button>
             <button class="va-dock-btn" id="va-history-btn" type="button" onclick="openVaHistory()"

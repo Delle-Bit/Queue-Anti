@@ -907,6 +907,29 @@ tbody tr:last-child td { border-bottom: none; }
 }
 .va-dock-btn:hover { background: var(--border); color: var(--text-primary); }
 
+/* The listening indicator borrows the dock button's size and shape but is not
+   a control: no pointer, no hover response, and nothing to click. */
+.va-dock-status,
+.va-dock-status:hover {
+    cursor: default;
+    pointer-events: none;
+}
+
+/* Announced to screen readers, invisible on screen. The indicator shows only
+   an icon, so the state needs a text equivalent inside its live region. */
+.va-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
 /* Mic button: literal active/inactive coloring, independent of the avatar's --va-accent.
    Inactive (not listening) = mic-off, red. Active (listening) = mic-on, green. */
 .va-dock-btn.primary {

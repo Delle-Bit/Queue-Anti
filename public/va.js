@@ -131,15 +131,39 @@ function setVaState(state, message) {
     if (state !== 'speaking') setMouthOpen(0);
 }
 
-// Active (listening): mic-on icon, green background. Inactive: mic-off icon, red background.
+// The microphone beside the avatar is an INDICATOR, not a control. It reports
+// one thing - whether the microphone is currently open - and clicking it does
+// nothing. The nurse herself is the control: click her to start and stop, or
+// type in the box. Two controls that did the same job invited the customer to
+// click the small one, and on WebKit only one of the two could ever work.
+//
+// Listening: mic-on icon, green. Not listening: mic-off icon, red.
 function updateMicButtonUI(isActive) {
-    const btn = document.getElementById('va-action-btn');
-    if (!btn) return;
-    btn.classList.toggle('mic-active', isActive);
-    btn.innerHTML = isActive
-        ? '<i class="fa-solid fa-microphone"></i>'
-        : '<i class="fa-solid fa-microphone-slash"></i>';
-    btn.setAttribute('aria-label', isActive ? 'Stop listening' : 'Talk to the nurse assistant');
+    const el = document.getElementById('va-action-btn');
+    if (!el) return;
+    el.classList.toggle('mic-active', isActive);
+    // The icon carries no text, so the state is also written out for screen
+    // readers inside the aria-live region this element declares.
+    el.innerHTML = (isActive
+        ? '<i class="fa-solid fa-microphone" aria-hidden="true"></i>'
+        : '<i class="fa-solid fa-microphone-slash" aria-hidden="true"></i>')
+        + `<span class="va-sr-only">${isActive ? 'Listening' : 'Not listening'}</span>`;
+    // A tooltip that points at the thing that does work, rather than implying
+    // this element is clickable.
+    el.title = vaSpeechSupported()
+        ? (isActive ? 'Listening \u2014 click the nurse to stop' : 'Click the nurse to speak')
+        : 'This browser cannot listen \u2014 type your question instead';
+}
+
+// Cached because it is asked on every state change and cannot change within a
+// page load.
+let vaSpeechSupportedCache = null;
+function vaSpeechSupported() {
+    if (vaSpeechSupportedCache === null) {
+        vaSpeechSupportedCache = !!(window.SpeechRecognition || window.webkitSpeechRecognition)
+            && vaSpeechProfile().speechUsable;
+    }
+    return vaSpeechSupportedCache;
 }
 
 // ── FLOATING SPEECH BUBBLES ───────────────────────────────────────
@@ -213,7 +237,6 @@ function vaSay(text, options = {}) {
 // or a second click stops it early). Double click → conversation history.
 function bindVaListeners() {
     const avatar = document.getElementById('va-avatar');
-    const actionBtn = document.getElementById('va-action-btn');
 
     const toggleListening = () => {
         if (isListening) stopSpeechRecognition();
@@ -253,12 +276,8 @@ function bindVaListeners() {
         });
     }
 
-    if (actionBtn) {
-        actionBtn.addEventListener('click', (event) => {
-            event.preventDefault();
-            toggleListening();
-        });
-    }
+    // #va-action-btn is deliberately not bound: it is the listening indicator,
+    // not a second start button. See updateMicButtonUI.
 
     bindVaTypedInput();
 }
@@ -289,15 +308,12 @@ function bindVaTypedInput() {
     });
 
     // Tell the customer up front when speech is not an option here, rather
-    // than after they click a microphone that cannot work.
-    const profile = vaSpeechProfile();
-    const hint = document.getElementById('va-hint');
-    if (!profile.speechUsable || !(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+    // than after they click the nurse and get an explanation. The indicator's
+    // own tooltip is handled in updateMicButtonUI, which runs on every state
+    // change and would otherwise overwrite anything set here.
+    if (!vaSpeechSupported()) {
+        const hint = document.getElementById('va-hint');
         if (hint) hint.textContent = 'Type your question \u2014 voice input needs Google Chrome';
-        const btn = document.getElementById('va-action-btn');
-        if (btn) btn.title = profile.isOpera
-            ? 'Opera has no speech recogniser - type your question instead'
-            : 'This browser has no speech recogniser - type your question instead';
     }
 }
 
