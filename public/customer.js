@@ -520,7 +520,6 @@ async function loadAppointments() {
                                 ${pct > 0 ? `<span class="text-muted">includes ${pct}% booking fee</span>` : ''}
                             </span>
                         </span>
-                        <i class="fa-solid fa-circle-check appt-service-tick" aria-hidden="true"></i>
                     </label>`;
                 }).join('');
         }

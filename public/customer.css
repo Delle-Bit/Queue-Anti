@@ -547,6 +547,11 @@
     display: flex;
     align-items: flex-start;
     gap: 10px;
+    /* The list is a column flex container with a max-height, where items
+       default to flex-shrink: 1 - so eighteen cards compressed themselves to
+       fit instead of letting the container scroll, and their own content
+       spilled out over the card below. */
+    flex: 0 0 auto;
     padding: 11px 12px;
     min-height: 56px;         /* comfortably over the 44px touch floor */
     border: 1px solid var(--border);
@@ -614,13 +619,6 @@
     flex-wrap: wrap;
     font-size: 0.74em;
 }
-.appt-service-tick {
-    display: none;
-    flex: 0 0 auto;
-    color: var(--primary);
-    margin-top: 2px;
-}
-.appt-service-card:has(.appt-service-radio:checked) .appt-service-tick { display: block; }
 
 /* -- the chosen service, restated on later steps ----------------- */
 .appt-chosen:not(:empty) {
