@@ -120,7 +120,17 @@ function geminiRetryable(err) {
 // Read per call rather than captured at module scope, so the harness can turn
 // the pause off. Small on purpose - somebody is standing at the desk.
 function geminiEnvNumber(name, fallback) {
-  const n = Number(process.env[name]);
+  const raw = process.env[name];
+  // An empty variable means "not configured", not zero. A hosting dashboard
+  // makes a blank value very easy to create by accident, and Number('') is 0,
+  // so reading it literally would silently switch the retries off. Somebody
+  // who actually wants none writes 0, which still works.
+  //
+  // Note this differs from GEMINI_OCR_MODEL_FALLBACK on purpose: an empty
+  // *list* is the only way to say "no fallback model", so there, blank means
+  // blank.
+  if (raw === undefined || String(raw).trim() === '') return fallback;
+  const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
@@ -727,6 +737,13 @@ const GEMINI_ID_PROMPT = [
   'any other valid ID is "Regular".'
 ].join(' ');
 
+// Arithmetic is ours, not the model's. A Philippine senior citizen card prints
+// a birth date and no age, so the model derives one - and on a card reading
+// 1957-11-24 Gemini answered 66 when the answer was 68. It is a language model
+// doing date subtraction against its own idea of today, and the number it
+// produces goes onto a medical intake form. When the card gives a date we
+// count the years ourselves, and fall back to the model only when it does not.
+//
 // Whole years between an ISO yyyy-mm-dd and today, or null if the string is
 // not a usable date. Rejects the impossible rather than returning a number
 // from it: a misread digit can turn 1957 into 1057, and an age of 969 on a
@@ -749,21 +766,166 @@ function ageFromBirthdate(value) {
 
 // Accepts a file path (what routes/auth.js passes) or a raw base64 string, the
 // same two shapes pytesseract_ocr.py tolerates.
-function geminiImagePart(imageData) {
+function readImageBase64(imageData) {
   if (typeof imageData !== 'string') return null;
   if (fs.existsSync(imageData)) {
     const ext = path.extname(imageData).toLowerCase();
     return {
-      inline_data: {
-        mime_type: GEMINI_MIME_BY_EXT[ext] || 'image/jpeg',
-        data: fs.readFileSync(imageData).toString('base64')
-      }
+      mimeType: GEMINI_MIME_BY_EXT[ext] || 'image/jpeg',
+      base64: fs.readFileSync(imageData).toString('base64')
     };
   }
-  // Strips a data: URL prefix if one came through.
+  // Strips a data: URL prefix if one came through, keeping its declared type.
+  const declared = /^data:([^;]+);base64,/.exec(imageData);
   const base64 = imageData.replace(/^data:[^;]+;base64,/, '');
   if (base64.length < 32) return null;
-  return { inline_data: { mime_type: 'image/jpeg', data: base64 } };
+  return { mimeType: declared ? declared[1] : 'image/jpeg', base64 };
+}
+
+// Gemini's own wire shape for an image.
+function geminiImagePart(imageData) {
+  const image = readImageBase64(imageData);
+  if (!image) return null;
+  return { inline_data: { mime_type: image.mimeType, data: image.base64 } };
+}
+
+// The one place a scanned card becomes the record the registration desk reads
+// back. Shared by every provider on purpose: two copies of this drift, and the
+// two fields it normalises hardest - the category that decides a patient's
+// priority in the queue, and the age that goes on a medical form - are not
+// fields to normalise two different ways.
+const ID_CATEGORIES = ['Senior', 'PWD', 'Pregnant', 'Regular'];
+
+function normaliseIdScan(parsed, source) {
+  const result = {
+    name: String(parsed.name || '').trim(),
+    // Validated against the list rather than trusted. Only Gemini is held to
+    // an enum by its responseSchema; a provider answering in prose can return
+    // whatever it likes, and "Senior Citizen" must not become a category. The
+    // model's own 'Unknown' lands here too - it means the model could not
+    // tell, which is not a category either, so the desk gets Regular and can
+    // correct it.
+    idType: ID_CATEGORIES.includes(parsed.idType) ? parsed.idType : 'Regular',
+    // Ours, not the model's - see ageFromBirthdate.
+    age: ageFromBirthdate(parsed.birthdate) ?? (Number(parsed.age) || 0),
+    gender: ['Male', 'Female'].includes(parsed.gender) ? parsed.gender : null,
+    birthdate: parsed.birthdate || null,
+    idNumber: parsed.idNumber || null,
+    address: parsed.address || null,
+    text: parsed.text || '',
+    source
+  };
+  result.category = result.idType;
+  return result;
+}
+
+// -- DeepSeek vision: the second opinion ------------------------------------
+//
+// Second in the OCR chain, between Gemini and the offline fallbacks, because
+// the offline chain is not a second opinion at all: the runtime image ships no
+// python, no NVIDIA key is configured, and what is left of the chain invents a
+// patient. A hosted model that actually reads the card belongs in front of
+// that.
+//
+// OpenAI wire format against api.deepseek.com, which is what DeepSeek's own
+// docs show, so this is the request shape nvidiaChat already uses rather than a
+// third one.
+const DEEPSEEK_BASE = process.env.DEEPSEEK_BASE || 'https://api.deepseek.com';
+// The only model on the account that accepts an image; deepseek-v4-pro and
+// -flash are text-only. Note this is NOT the separately released DeepSeek-OCR,
+// which ships as open weights with no hosted endpoint anywhere - Hugging Face
+// lists no inference provider for it and OpenRouter does not carry it - so
+// using that one would mean self-hosting a vision model on a GPU.
+const DEEPSEEK_VISION_MODEL = process.env.DEEPSEEK_VISION_MODEL || 'deepseek-v4-flash-vision-exp';
+
+// DeepSeek has no free tier. An unfunded key authenticates perfectly and then
+// answers 402 Insufficient Balance to every request, including the cheapest
+// text one, so leaving it unguarded puts a guaranteed-failing round trip in
+// front of every registration. The first 402, 401 or 403 switches the provider
+// off for the life of the process and says why once, rather than once per
+// scan. Topping the account up and restarting turns it back on.
+let deepseekOffReason = null;
+
+const DEEPSEEK_ID_PROMPT = GEMINI_ID_PROMPT + ' Reply with only a JSON object, no'
+  + ' code fence, with the keys name, idType, age, birthdate, gender, idNumber,'
+  + ' address and text. idType must be exactly one of Senior, PWD, Pregnant,'
+  + ' Regular or Unknown; gender exactly Male, Female or Unknown; birthdate as'
+  + ' yyyy-mm-dd; age as a number, 0 if unknown; text is every word visible on'
+  + ' the card.';
+
+async function deepseekIdScan(imageData) {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey || deepseekOffReason) return null;
+
+  const image = readImageBase64(imageData);
+  if (!image) return null;
+
+  try {
+    const res = await axios.post(
+      `${DEEPSEEK_BASE}/chat/completions`,
+      {
+        model: DEEPSEEK_VISION_MODEL,
+        stream: false,
+        temperature: 0,
+        max_tokens: 800,
+        // DeepSeek honours OpenAI's JSON mode. The prompt still spells the
+        // shape out, because JSON mode guarantees valid JSON, not the keys.
+        response_format: { type: 'json_object' },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: DEEPSEEK_ID_PROMPT },
+            { type: 'image_url', image_url: { url: `data:${image.mimeType};base64,${image.base64}` } }
+          ]
+        }]
+      },
+      {
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        timeout: 30000
+      }
+    );
+
+    const raw = res.data?.choices?.[0]?.message?.content;
+    if (!raw) {
+      console.warn('[DeepSeek OCR] Empty response');
+      return null;
+    }
+
+    // JSON mode should make this exact, but a stray fence here would cost a
+    // registration, so it is stripped the way the assistant's reply is.
+    const cleaned = String(raw).replace(/```json|```/g, '').trim();
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start === -1 || end <= start) {
+      console.warn('[DeepSeek OCR] No JSON object in the reply');
+      return null;
+    }
+
+    const result = normaliseIdScan(JSON.parse(cleaned.slice(start, end + 1)), 'deepseek');
+    if (!result.name && !result.age && !result.text) {
+      console.warn('[DeepSeek OCR] Nothing legible on the card');
+      return null;
+    }
+
+    // logAI redacts identity payloads - see IDENTITY_FEATURES.
+    await logAI('ID Scanning OCR (DeepSeek)', { model: DEEPSEEK_VISION_MODEL }, result);
+    return result;
+  } catch (err) {
+    const status = err.response ? err.response.status : err.code;
+    const detail = err.response?.data?.error?.message || err.message;
+
+    if (status === 402 || status === 401 || status === 403) {
+      deepseekOffReason = `${status} ${String(detail).slice(0, 120)}`;
+      console.warn(`[DeepSeek OCR] Disabled for this process - ${deepseekOffReason}.`
+        + (status === 402
+          ? ' DeepSeek has no free tier: top the account up at platform.deepseek.com and restart.'
+          : ' Check DEEPSEEK_API_KEY.'));
+      return null;
+    }
+
+    console.warn(`[DeepSeek OCR] Failed (${status}): ${String(detail).slice(0, 160)}`);
+    return null;
+  }
 }
 
 // Returns the parsed fields, or null so the caller falls through to the local
@@ -818,29 +980,7 @@ async function geminiIdScan(imageData) {
       return null;
     }
 
-    const parsed = JSON.parse(raw);
-    // Arithmetic is ours, not the model's. A Philippine senior citizen card
-    // prints a birth date and no age, so the model derives one - and on a card
-    // reading 1957-11-24 it answered 66 when the answer was 68. It is a
-    // language model doing date subtraction against its own idea of today,
-    // and the age it produces goes onto a medical intake form. When the card
-    // gives us a date, we count the years ourselves and only fall back to what
-    // the model said when it does not.
-    const age = ageFromBirthdate(parsed.birthdate) ?? (Number(parsed.age) || 0);
-    const result = {
-      name: (parsed.name || '').trim(),
-      // 'Unknown' is the model saying it could not tell, which is not a
-      // customer category - the desk treats it as Regular and can correct it.
-      idType: parsed.idType && parsed.idType !== 'Unknown' ? parsed.idType : 'Regular',
-      age,
-      gender: parsed.gender && parsed.gender !== 'Unknown' ? parsed.gender : null,
-      birthdate: parsed.birthdate || null,
-      idNumber: parsed.idNumber || null,
-      address: parsed.address || null,
-      text: parsed.text || '',
-      source: 'gemini'
-    };
-    result.category = result.idType;
+    const result = normaliseIdScan(JSON.parse(raw), 'gemini');
 
     // Nothing legible means nothing to prefill; better to hand over to
     // pytesseract than to return a confidently empty form.
@@ -942,6 +1082,9 @@ const aiServices = {
         let rawResult = null;
         if (await checkAIToggle('ocr')) {
           rawResult = await geminiIdScan(imageData);
+          // A hosted second opinion before the offline chain, which on a
+          // container with no python degrades to inventing a patient.
+          if (!rawResult) rawResult = await deepseekIdScan(imageData);
         }
         if (!rawResult) {
           rawResult = await callMockAI(

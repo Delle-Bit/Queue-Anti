@@ -1,6 +1,6 @@
-// The Gemini fallback chain, asserted. Run by `npm test`, or on its own:
+// The OCR and assistant fallback chains, asserted. Run by `npm test`, or on its own:
 //
-//   npm run verify:gemini
+//   npm run verify:ai
 //
 // It stubs axios and the connection pool and loads a copy of ai_services.js
 // that also exports its private helpers, so it needs no API key, no network
@@ -78,11 +78,40 @@ stub('axios', {
 });
 stub(path.join(__dirname, 'database.js'), { pool: { query: async () => [[]] } });
 
+// -- keep the developer's own .env out of the results ------------------------
+// ai_services.js calls dotenv.config() as it loads, so without this the suite
+// asserts different things on different machines: a real NVIDIA_API_KEY adds a
+// third provider to the chain, a GEMINI_OCR_MODEL override changes the model
+// names in the URLs, and a real GEMINI_API_KEY would be sent to Google if a
+// scenario ever stopped stubbing axios.
+//
+// Set rather than deleted, because deleting is useless here - dotenv is about
+// to run and will happily fill an absent key in from .env, while it leaves a
+// variable that is already present alone. Empty string is falsy, so every
+// `process.env.X || default` in the module resolves to its shipped default,
+// which is what these scenarios are meant to be testing. Scenarios that want
+// a real value set it, and scenario 25 deletes its two to get the defaults
+// back - safe by then, because dotenv has already run and will not re-run.
+for (const name of [
+    'GEMINI_API_KEY', 'GEMINI_API_KEY_2', 'GEMINI_API_KEY_3',
+    'GEMINI_API_KEY_4', 'GEMINI_API_KEY_5',
+    'GEMINI_BASE', 'GEMINI_OCR_MODEL', 'GEMINI_CHAT_MODEL',
+    'GEMINI_OCR_MODEL_FALLBACK', 'GEMINI_OVERLOAD_RETRIES',
+    'DEEPSEEK_API_KEY', 'DEEPSEEK_BASE', 'DEEPSEEK_VISION_MODEL',
+    'NVIDIA_API_KEY', 'API_ALLAROUND'
+]) {
+    process.env[name] = '';
+}
+
 // -- load a copy that exports the private helpers ----------------------------
 const source = fs.readFileSync(SRC, 'utf8').replace(
     'module.exports = aiServices;',
     'module.exports = aiServices;\n'
-    + 'module.exports.__test = { geminiApiKeys, geminiKeySpent, withGeminiKey, geminiIdScan, geminiChat, ageFromBirthdate, GEMINI_OCR_MODEL, GEMINI_CHAT_MODEL };'
+    + 'module.exports.__test = { geminiApiKeys, geminiKeySpent, withGeminiKey,'
+    + ' geminiIdScan, geminiChat, ageFromBirthdate, GEMINI_OCR_MODEL, GEMINI_CHAT_MODEL,'
+    + ' deepseekIdScan, normaliseIdScan, readImageBase64, DEEPSEEK_VISION_MODEL,'
+    + ' deepseekState: () => deepseekOffReason,'
+    + ' resetDeepseek: () => { deepseekOffReason = null; } };'
 );
 fs.writeFileSync(COPY, source);
 
@@ -108,7 +137,7 @@ process.env.GEMINI_OVERLOAD_BACKOFF_MS = '0';
 // Scenarios 1-13 are about keys, and count requests to prove it. The shipped
 // fallback model would double every one of those counts for reasons that have
 // nothing to do with keys, so it is off here and turned on deliberately in 14
-// and 15. Scenario 18 clears both of these and asserts the real defaults.
+// and 15. Scenario 25 clears both of these and asserts the real defaults.
 process.env.GEMINI_OCR_MODEL_FALLBACK = '';
 
 // A 40-byte JPEG-ish buffer standing in for an uploaded ID photo.
@@ -319,7 +348,92 @@ const IMAGE = 'data:image/jpeg;base64,' + Buffer.alloc(64, 7).toString('base64')
     out = await T.geminiIdScan(IMAGE);
     check('no printed date falls back to the model', out && out.age, 41);
 
-    console.log('\n18. the shipped defaults are small enough for a counter');
+    console.log('\n18. DeepSeek is the second opinion when Gemini cannot read the card');
+    // NOTE: this provider cannot be verified against the live API - the key on
+    // the account answers 402 Insufficient Balance to every request, including
+    // the cheapest text one, because DeepSeek has no free tier. So these are
+    // the verification, driven through the same stubbed axios.
+    process.env.DEEPSEEK_API_KEY = 'ds-test-key';
+    process.env.GEMINI_OCR_MODEL_FALLBACK = '';
+
+    const dsReply = (obj, wrap) => ({
+        data: { choices: [{ message: { content: wrap ? '```json\n' + JSON.stringify(obj) + '\n```' : JSON.stringify(obj) } }] }
+    });
+    const card = {
+        name: 'MARIA CLARA SANTOS', idType: 'Senior', age: 0, gender: 'Female',
+        birthdate: '1957-11-24', idNumber: 'OSCA-2024-004871',
+        address: 'Cebu City', text: 'OSCA SENIOR CITIZEN'
+    };
+
+    setKeys('only-key');
+    T.resetDeepseek();
+    calls.length = 0;
+    responder = (key, url) => {
+        if (url.includes('deepseek')) return dsReply(card);
+        throw quota(429);            // Gemini out of quota
+    };
+    out = await T.geminiIdScan(IMAGE) || await T.deepseekIdScan(IMAGE);
+    check('DeepSeek was asked after Gemini gave up', calls.filter(c => c.url.includes('deepseek')).length, 1);
+    check('the card was read', out && out.name, 'MARIA CLARA SANTOS');
+    check('source is attributed to DeepSeek', out && out.source, 'deepseek');
+    check('priority category came through', out && out.category, 'Senior');
+    check('age counted from the date, not the model 0', out && out.age, T.ageFromBirthdate('1957-11-24'));
+
+    console.log('\n19. a fenced reply is still read');
+    calls.length = 0;
+    responder = () => dsReply(card, true);
+    out = await T.deepseekIdScan(IMAGE);
+    check('code fence stripped', out && out.name, 'MARIA CLARA SANTOS');
+
+    console.log('\n20. an unfunded account switches the provider off, once');
+    T.resetDeepseek();
+    calls.length = 0;
+    responder = () => { throw httpError(402, { error: { message: 'Insufficient Balance', code: 'invalid_request_error' } }); };
+    check('before the first call it is armed', T.deepseekState(), null);
+    out = await T.deepseekIdScan(IMAGE);
+    check('first call attempted and failed', calls.length, 1);
+    check('null, so the chain carries on', out, null);
+    check('and it recorded why', String(T.deepseekState()).includes('402'), true);
+    // The whole point: no further round trips in front of any registration.
+    out = await T.deepseekIdScan(IMAGE);
+    out = await T.deepseekIdScan(IMAGE);
+    check('no further requests are made', calls.length, 1);
+
+    console.log('\n21. a transient failure does NOT switch it off');
+    T.resetDeepseek();
+    calls.length = 0;
+    responder = () => { throw httpError(503, { error: { message: 'busy' } }); };
+    await T.deepseekIdScan(IMAGE);
+    check('still armed after a 503', T.deepseekState(), null);
+    await T.deepseekIdScan(IMAGE);
+    check('so it is tried again next scan', calls.length, 2);
+
+    console.log('\n22. a provider answering in prose cannot invent a category');
+    // Only Gemini is held to an enum by responseSchema. normaliseIdScan is
+    // what stops "Senior Citizen" or "vip" becoming a queue priority.
+    check('a made-up category becomes Regular', T.normaliseIdScan({ idType: 'Senior Citizen', name: 'X' }, 'deepseek').category, 'Regular');
+    check('lower case is not a category either', T.normaliseIdScan({ idType: 'senior', name: 'X' }, 'deepseek').category, 'Regular');
+    check('Unknown becomes Regular', T.normaliseIdScan({ idType: 'Unknown', name: 'X' }, 'deepseek').category, 'Regular');
+    check('a real one is kept', T.normaliseIdScan({ idType: 'PWD', name: 'X' }, 'deepseek').category, 'PWD');
+    check('Pregnant is kept', T.normaliseIdScan({ idType: 'Pregnant', name: 'X' }, 'deepseek').category, 'Pregnant');
+    check('a junk gender is dropped, not passed on', T.normaliseIdScan({ gender: 'F', name: 'X' }, 'deepseek').gender, null);
+    check('a real gender is kept', T.normaliseIdScan({ gender: 'Female', name: 'X' }, 'deepseek').gender, 'Female');
+
+    console.log('\n23. no DeepSeek key means no DeepSeek request');
+    delete process.env.DEEPSEEK_API_KEY;
+    T.resetDeepseek();
+    calls.length = 0;
+    out = await T.deepseekIdScan(IMAGE);
+    check('nothing attempted', calls.length, 0);
+    check('null', out, null);
+
+    console.log('\n24. the image reader keeps the declared type');
+    check('png data URL', T.readImageBase64('data:image/png;base64,' + 'A'.repeat(64)).mimeType, 'image/png');
+    check('bare base64 assumes jpeg', T.readImageBase64('B'.repeat(64)).mimeType, 'image/jpeg');
+    check('too short to be an image', T.readImageBase64('short'), null);
+    check('not a string', T.readImageBase64(null), null);
+
+    console.log('\n25. the shipped defaults are small enough for a counter');
     // Nothing overridden from here down: this is what the clinic actually runs
     // when Gemini is unreachable for everyone.
     delete process.env.GEMINI_OVERLOAD_BACKOFF_MS;
@@ -338,6 +452,48 @@ const IMAGE = 'data:image/jpeg;base64,' + Buffer.alloc(64, 7).toString('base64')
     // themselves, before it gets the offline answer.
     check('default backoff totals ~4.2s, under 8s', elapsed >= 4000 && elapsed < 8000, true);
     check('and it ends in null, never a throw', out, null);
+
+    console.log('\n26. the whole chain, through the entry point the route calls');
+    // ocrScan is what POST /api/auth/ocr reaches. The scenarios above drive the
+    // two providers directly, which does not prove they are wired together.
+    process.env.GEMINI_OVERLOAD_BACKOFF_MS = '0';
+    process.env.GEMINI_OCR_MODEL_FALLBACK = '';
+    process.env.DEEPSEEK_API_KEY = 'ds-test-key';
+    setKeys('gem-key');
+    T.resetDeepseek();
+
+    calls.length = 0;
+    responder = (key, url) => {
+        if (url.includes('deepseek')) return dsReply(card);
+        throw quota(429);
+    };
+    let scan = await ai.ocrScan(IMAGE);
+    check('Gemini asked first', calls[0].url.includes('generativelanguage'), true);
+    check('DeepSeek asked second', calls[1].url.includes('deepseek'), true);
+    check('two providers, no more', calls.length, 2);
+    check('the desk gets the real name', scan && scan.name, 'MARIA CLARA SANTOS');
+    check('not the invented one', scan && scan.name === 'Detected Patient', false);
+    check('and it is attributed', scan && scan.source, 'deepseek');
+
+    console.log('\n27. Gemini working means DeepSeek is never billed');
+    calls.length = 0;
+    responder = () => idPayload('Ana Reyes');
+    scan = await ai.ocrScan(IMAGE);
+    check('one request only', calls.length, 1);
+    check('no DeepSeek request at all', calls.some(c => c.url.includes('deepseek')), false);
+    check('Gemini answered', scan && scan.source, 'gemini');
+
+    console.log('\n28. both providers down is where the invented patient lives');
+    // Not an assertion of good behaviour - a record of what still happens when
+    // every hosted provider fails: python is absent from the runtime image,
+    // NVIDIA has no key, and mockOcrFallback rolls a random age and category.
+    calls.length = 0;
+    T.resetDeepseek();
+    responder = () => { throw quota(429); };
+    scan = await ai.ocrScan(IMAGE);
+    check('both providers were tried', calls.length, 2);
+    check('and the result is fabricated', scan && scan.name, 'Detected Patient');
+    check('with a random age', typeof (scan && scan.age), 'number');
 
     console.log(`\n${passed} passed, ${failed} failed\n`);
     process.exit(failed ? 1 : 0);
