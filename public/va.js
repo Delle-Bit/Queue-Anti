@@ -19,6 +19,14 @@ const VA_SPEECH_ERRORS = {
     'service-not-allowed': 'Microphone access is blocked. Allow the microphone for this site, then click the nurse again.',
     'audio-capture': "I can't find a microphone. Check that one is connected and selected, then try again.",
     'network': 'I lost the connection to the speech service. Check your internet and try again.',
+    // The microphone never actually opened. Reported when start() resolved but
+    // onstart never fired - Safari and some mobile browsers expose
+    // webkitSpeechRecognition and then do exactly this.
+    'mic-never-opened': 'My microphone would not open in this browser. Voice input needs Google Chrome on a computer \u2014 you can type to me instead.',
+    // It opened, and no audio ever registered as speech.
+    'heard-nothing': "I didn't hear anything. Click the nurse again and start speaking once the badge says Listening.",
+    // It heard something but nothing survived as text.
+    'nothing-usable': "I heard you but couldn't make out the words. Click the nurse and try again, a little slower.",
     'default': "I couldn't hear that clearly. Click the nurse and try again."
 };
 
@@ -27,6 +35,9 @@ let vaMuted = localStorage.getItem('vaMuted') === 'true';
 let recognition = null;
 let isListening = false;
 let silenceTimer = null;
+// Numbers the speech sessions in the console trace, so overlapping or repeated
+// sessions can be told apart when diagnosing a microphone that will not stay on.
+let sessionSerial = 0;
 let synthesisSpeech = null;
 let vaHistory = loadVaHistory();
 
@@ -382,15 +393,47 @@ function startSpeechRecognition() {
     let listeningBubble = null;
     let finalTranscript = '';
     let errorShown = false;
+    // Enough state to explain, at the end, why a session produced nothing.
+    // Without these, four different outcomes - the browser heard nothing, the
+    // session was aborted, our own grace timer ran out, or it simply ended -
+    // are indistinguishable to the customer from the microphone switching
+    // itself off, which is the whole reason this has been hard to pin down.
+    let sawStart = false;      // did onstart ever fire, i.e. did the mic open
+    let sawSpeech = false;     // did the browser report any audio it took for speech
+    let lastError = null;      // the last error code raised on this session
+    let stoppedOnPurpose = false; // our own stop(), from the silence timer or a click
+    sessionSerial += 1;
+    const sessionId = sessionSerial;
+
+    // One line per lifecycle event, prefixed so it can be filtered in the
+    // console. Speech capture is device- and browser-specific and cannot be
+    // reproduced from here, so this trace is how a failing session is
+    // diagnosed on the machine that actually has the microphone.
+    const trace = (event, detail) => {
+        console.log(`[VA speech #${sessionId}] ${event}${detail ? ': ' + detail : ''}`);
+    };
+    trace('session created', `continuous=${recognition.continuous} lang=${recognition.lang}`);
 
     const armSilenceTimer = (ms) => {
         clearTimeout(silenceTimer);
         silenceTimer = setTimeout(() => {
+            trace('silence timeout', `${ms}ms elapsed - stopping`);
+            stoppedOnPurpose = true;
             if (recognition) { try { recognition.stop(); } catch (e) { /* already stopped */ } }
         }, ms);
     };
 
+    // These four are not used by the state machine; they are only here so the
+    // trace can tell "the microphone never opened" apart from "it opened and
+    // heard nothing", which need different advice.
+    recognition.onaudiostart = () => trace('audio capture started');
+    recognition.onspeechstart = () => { sawSpeech = true; trace('speech detected'); };
+    recognition.onspeechend = () => trace('speech ended');
+    recognition.onaudioend = () => trace('audio capture ended');
+
     recognition.onstart = () => {
+        sawStart = true;
+        trace('microphone open');
         isListening = true;
         setVaState('listening');
         // Stop the assistant talking over itself.
@@ -403,6 +446,7 @@ function startSpeechRecognition() {
     };
 
     recognition.onresult = (event) => {
+        sawSpeech = true;
         armSilenceTimer(VA_SILENCE_TIMEOUT_MS); // speech detected — tighten to the 3s post-speech countdown
         let interim = '';
         for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -419,8 +463,14 @@ function startSpeechRecognition() {
 
     // A continuous session can raise several errors in a row (Chrome repeats 'network'
     // and permission failures) — say what went wrong once, then stay quiet.
+    //
+    // 'aborted' and 'no-speech' still say nothing *here*, because they are
+    // normal punctuation for a session that is about to end anyway - but they
+    // are recorded, and onend now accounts for them rather than letting the
+    // assistant go quiet with no explanation.
     recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
+        lastError = event.error;
+        trace('error', event.error);
         if (event.error === 'aborted' || event.error === 'no-speech') return;
         if (errorShown) return;
         errorShown = true;
@@ -435,10 +485,32 @@ function startSpeechRecognition() {
         listeningBubble = null;
 
         const text = finalTranscript.trim();
+        trace('session ended', `heardSpeech=${sawSpeech} micOpened=${sawStart} `
+            + `lastError=${lastError || 'none'} onPurpose=${stoppedOnPurpose} `
+            + `transcript=${text ? JSON.stringify(text) : 'empty'}`);
+
         if (text) {
             pushVaBubble('user', text);
             addVaHistory('user', text);
             processVoiceCommand(text);
+            return;
+        }
+
+        // Nothing was captured. Something has to be said, or the avatar simply
+        // drops back to Idle and the customer is left thinking the assistant
+        // switched itself off - which is exactly how this reads today.
+        if (errorShown) return; // onerror already explained it
+
+        if (!sawStart) {
+            // start() resolved but the browser never opened the microphone.
+            // Safari and older mobile browsers expose webkitSpeechRecognition
+            // and then do this, which is why the support check at the top of
+            // this function is not enough on its own.
+            pushVaBubble('assistant', VA_SPEECH_ERRORS['mic-never-opened']);
+        } else if (!sawSpeech) {
+            pushVaBubble('assistant', VA_SPEECH_ERRORS['heard-nothing']);
+        } else {
+            pushVaBubble('assistant', VA_SPEECH_ERRORS['nothing-usable']);
         }
     };
 
