@@ -711,3 +711,11 @@
     font-size: 1.02em;
     color: var(--primary);
 }
+
+/* Two actions in one appointment row. They wrap rather than widening the
+   table, which on a phone is already the widest thing on the page. */
+.appt-row-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}

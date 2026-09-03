@@ -482,6 +482,46 @@ router.post('/appointments', async (req, res) => {
     }
 });
 
+// A patient cancelling their own booking.
+//
+// This has to exist. The one-service rule above refuses a second appointment
+// and tells the customer to cancel the first, and there was no customer-facing
+// way to cancel one - only staff routes - so booking once would have locked
+// them out of booking ever again. The rule created the requirement.
+//
+// No reason is collected and nothing is audited, matching POST /queue/cancel:
+// a patient dropping their own appointment is routine, not a configuration
+// change. Left as 'cancelled' rather than archived so the slot frees up
+// (every slot query excludes cancelled rows) and the history still shows it
+// happened.
+router.post('/appointments/:id/cancel', async (req, res) => {
+    try {
+        // Scoped to the caller's own row, so an id belonging to somebody else
+        // is indistinguishable from one that does not exist.
+        const [rows] = await pool.query(
+            'SELECT id, status FROM appointments WHERE id = ? AND customer_id = ? AND archived = false',
+            [req.params.id, req.user.id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Appointment not found' });
+
+        const status = rows[0].status;
+        if (status === 'checked-in') {
+            // They are already in the queue; the front desk owns the visit now.
+            return res.status(409).json({ error: 'You have already checked in. Ask the front desk to close this visit.' });
+        }
+        if (status !== 'scheduled') {
+            return res.status(409).json({ error: `This appointment is already ${status}.` });
+        }
+
+        await pool.query("UPDATE appointments SET status='cancelled' WHERE id = ?", [req.params.id]);
+        if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Cancel appointment error:', err);
+        res.status(500).json({ error: 'Failed to cancel' });
+    }
+});
+
 router.post('/appointments/:id/qr', requireStaff, async (req, res) => {
     try {
         const [rows] = await pool.query(

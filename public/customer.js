@@ -459,7 +459,10 @@ async function loadAppointments() {
                 <td><span class="badge ${statusBadge[a.status] || 'badge-neutral'}">${statusLabel[a.status] || a.status}</span></td>
                 <td>${formatCurrency(a.amount_due ?? a.price)}${a.payment_status === 'pending' ? '<br><small class="text-muted">due on site</small>' : ''}</td>
                 <td>
-                    ${a.status === 'scheduled' ? `<button class="btn btn-sm btn-primary" onclick="openCheckInScanner(${a.id})"><i class="fa-solid fa-qrcode"></i> Check-In</button>` : '--'}
+                    ${a.status === 'scheduled' ? `<div class="appt-row-actions">
+                        <button class="btn btn-sm btn-primary" onclick="openCheckInScanner(${a.id})"><i class="fa-solid fa-qrcode"></i> Check-In</button>
+                        <button class="btn btn-sm btn-outline" onclick="cancelAppointment(${a.id})"><i class="fa-solid fa-xmark"></i> Cancel</button>
+                    </div>` : '--'}
                 </td>
             </tr>`).join('');
         }
@@ -574,6 +577,33 @@ loadDashboard();
 setInterval(() => {
     if (document.getElementById('section-dashboard').style.display !== 'none') loadDashboard();
 }, 5000);
+
+// Dropping a booking, which is also how a customer frees themselves to book a
+// different service - only one is allowed at a time.
+async function cancelAppointment(id) {
+    const ok = await confirmAction({
+        title: 'Cancel this appointment?',
+        message: 'Your booked slot will be released and someone else can take it.',
+        detail: 'You can book again straight away, for this or any other service.',
+        icon: 'fa-solid fa-calendar-xmark',
+        confirmLabel: 'Cancel appointment',
+        confirmClass: 'btn-danger',
+        cancelLabel: 'Keep it'
+    });
+    if (!ok) return;
+    try {
+        const res = await fetch(`/api/appointments/${id}/cancel`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() }
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error || 'Could not cancel that appointment', 'error');
+        showToast('Appointment cancelled', 'success');
+        loadAppointments();
+    } catch (err) {
+        showToast('Could not reach the server', 'error');
+    }
+}
 
 // ── APPOINTMENT MULTI-STEP LOGIC ───────────────────────────────
 // Three steps, one modal: choose a service, then a date and a time on that
