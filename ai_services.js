@@ -11,9 +11,105 @@ dotenv.config();
 const NV_INVOKE_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 const NV_API_KEY = process.env.NVIDIA_API_KEY;
 
-// Gemini configuration (store token in .env as GEMINI_API_KEY) - primary provider for the Virtual Assistant
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+// -- Gemini configuration ---------------------------------------------------
+// The key travels in the x-goog-api-key header rather than ?key= in the URL,
+// so it does not end up in an access log or an error message.
+const GEMINI_BASE = process.env.GEMINI_BASE
+  || 'https://generativelanguage.googleapis.com/v1beta';
+
+// Models are pinned rather than `-latest`: an alias can be repointed at a new
+// model underneath a running clinic, and one of these reads identity
+// documents. Google refuses gemini-2.5-flash for keys issued now ("no longer
+// available to new users") and names 3.6-flash as the replacement, so the
+// hardcoded 2.5-flash URL this replaced failed every Virtual Assistant turn on
+// a freshly issued key while OCR carried on working. Overridable per
+// deployment.
+const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-3.6-flash';
+const GEMINI_OCR_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-3.6-flash';
+
+// The key is a LIST, not a value. A free-tier Gemini key carries a per-minute
+// and a per-day request quota; a registration desk photographing IDs through a
+// morning rush hits the first, and the second ends OCR for the rest of the day
+// with nothing to do but wait for midnight Pacific. So a quota refusal moves
+// to the next configured key instead of dropping the clinic to the offline
+// chain, which reads a Philippine ID considerably worse.
+//
+// Write it either as GEMINI_API_KEY plus GEMINI_API_KEY_2 .. _5, or as one
+// comma-separated GEMINI_API_KEY. Two spellings because adding a variable in a
+// hosting dashboard is easier than editing a long existing value, while one
+// .env line is easier locally.
+const GEMINI_KEY_SLOTS = 5;
+
+function geminiApiKeys() {
+  const raw = [];
+  for (let i = 1; i <= GEMINI_KEY_SLOTS; i++) {
+    const value = process.env[i === 1 ? 'GEMINI_API_KEY' : `GEMINI_API_KEY_${i}`];
+    if (value) raw.push(...String(value).split(','));
+  }
+  const keys = [];
+  for (const candidate of raw) {
+    const key = candidate.trim();
+    if (key && !keys.includes(key)) keys.push(key);
+  }
+  return keys;
+}
+
+// Which key to try first. Advanced only when a key is actually refused, so an
+// exhausted first key costs one failed request rather than one per scan for
+// the rest of the day.
+let geminiKeyCursor = 0;
+
+// True when the *key* is the problem and another one might work. 429 is the
+// documented quota refusal; a revoked, expired or exhausted key answers
+// 400/403 naming itself in the body. Deliberately a narrow list rather than
+// "any 4xx": a schema mistake is also a 400, and treating that as a spent key
+// would retry it five times and then report a quota problem that does not
+// exist.
+function geminiKeySpent(err) {
+  const status = err.response ? err.response.status : null;
+  if (status === 429) return true;
+  if (status !== 400 && status !== 403) return false;
+  const body = JSON.stringify(err.response.data || '');
+  return /RESOURCE_EXHAUSTED|API_KEY_INVALID|API key not valid|API key expired|quota|suspended/i
+    .test(body);
+}
+
+// Runs `attempt(key)` against each configured key in turn, starting from the
+// one that worked last. Returns { ok: true, value } or
+// { ok: false, reason: 'no-key' | 'error' | 'exhausted', error }; callers turn
+// a failure into null so the surrounding AI chain falls through as before.
+async function withGeminiKey(label, attempt) {
+  const keys = geminiApiKeys();
+  if (!keys.length) return { ok: false, reason: 'no-key' };
+  if (geminiKeyCursor >= keys.length) geminiKeyCursor = 0;
+
+  // Captured before the loop on purpose. The cursor moves as keys are refused,
+  // and reading it as the base on every pass made the offset chase it: with two
+  // keys, a refusal on key 1 advanced the cursor to 1, n became 1, and
+  // (1 + 1) % 2 landed back on the key that had just been refused - so the
+  // second key was never tried at all.
+  const start = geminiKeyCursor;
+  let lastError = null;
+  for (let n = 0; n < keys.length; n++) {
+    const index = (start + n) % keys.length;
+    try {
+      const value = await attempt(keys[index]);
+      geminiKeyCursor = index;
+      return { ok: true, value };
+    } catch (err) {
+      lastError = err;
+      // Anything that is not the key's fault is the caller's to report, and
+      // retrying it on every key only makes the desk wait five times as long.
+      if (!geminiKeySpent(err)) return { ok: false, reason: 'error', error: err };
+      // The slot number, never the key itself.
+      const code = err.response ? err.response.status : err.code;
+      console.warn(`[${label}] key ${index + 1} of ${keys.length} refused (${code}) - trying the next key`);
+      geminiKeyCursor = (index + 1) % keys.length;
+    }
+  }
+  console.warn(`[${label}] all ${keys.length} configured keys are out of quota or invalid`);
+  return { ok: false, reason: 'exhausted', error: lastError };
+}
 
 // Pytesseract OCR script path - configurable via env var, fallback to project-local script
 const PYTESSERACT_SCRIPT = process.env.PYTESSERACT_SCRIPT || path.join(__dirname, 'pytesseract_ocr.py');
@@ -101,11 +197,6 @@ async function nvidiaChat(systemPrompt, messages) {
  * Returns the assistant reply text, or null when unavailable.
  */
 async function geminiChat(systemPrompt, messages) {
-  if (!GEMINI_API_KEY) {
-    console.warn('[Gemini Chat] GEMINI_API_KEY not configured, skipping');
-    return null;
-  }
-
   const contents = messages.map(m => ({
     role: m.role === 'user' ? 'user' : 'model',
     parts: [{ text: m.content }]
@@ -117,18 +208,27 @@ async function geminiChat(systemPrompt, messages) {
     generationConfig: { temperature: 0.3, topP: 0.95, maxOutputTokens: 1024 }
   };
 
-  try {
-    const res = await axios.post(GEMINI_URL, payload, {
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
-      timeout: 15000
-    });
+  const attempt = await withGeminiKey('Gemini Chat', async (apiKey) => {
+    const res = await axios.post(
+      `${GEMINI_BASE}/models/${GEMINI_CHAT_MODEL}:generateContent`,
+      payload,
+      {
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        timeout: 15000
+      }
+    );
     const parts = res.data?.candidates?.[0]?.content?.parts || [];
-    const text = parts.map(p => p.text || '').join('').trim();
-    return text || null;
-  } catch (e) {
+    return parts.map(p => p.text || '').join('').trim() || null;
+  });
+
+  if (attempt.ok) return attempt.value;
+  if (attempt.reason === 'no-key') {
+    console.warn('[Gemini Chat] GEMINI_API_KEY not configured, skipping');
+  } else if (attempt.error) {
+    const e = attempt.error;
     console.error('[Gemini Chat] Request failed:', e.response?.data?.error?.message || e.message);
-    return null;
   }
+  return null;
 }
 
 /**
@@ -516,16 +616,9 @@ function hfPayload(data) {
 // pattern-match. parseSimpleOcr stays for the fallbacks, which still return
 // raw text.
 //
-// The key goes in the x-goog-api-key header rather than ?key= in the URL, so it
-// does not end up in an access log or an error message.
-const GEMINI_BASE = process.env.GEMINI_BASE
-  || 'https://generativelanguage.googleapis.com/v1beta';
-// Pinned, not `gemini-flash-latest`: an alias can be repointed at a new model
-// underneath a running clinic, and this one reads identity documents. Google
-// refuses gemini-2.5-flash for keys issued now ("no longer available to new
-// users") and names 3.6-flash as the replacement. Override per deployment with
-// GEMINI_OCR_MODEL.
-const GEMINI_OCR_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-3.6-flash';
+// GEMINI_BASE, GEMINI_OCR_MODEL and the key list live at the top of this file,
+// next to the chat model, so there is one place to change a model name and one
+// definition of what "the Gemini key" means.
 
 const GEMINI_MIME_BY_EXT = {
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
@@ -588,29 +681,39 @@ function geminiImagePart(imageData) {
 // Returns the parsed fields, or null so the caller falls through to the local
 // chain. Never throws: a registration must not fail because OCR did.
 async function geminiIdScan(imageData) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-
   const imagePart = geminiImagePart(imageData);
   if (!imagePart) {
     console.warn('[Gemini OCR] No readable image supplied');
     return null;
   }
 
-  try {
-    const res = await axios.post(
-      `${GEMINI_BASE}/models/${GEMINI_OCR_MODEL}:generateContent`,
-      {
-        contents: [{ parts: [{ text: GEMINI_ID_PROMPT }, imagePart] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: GEMINI_ID_SCHEMA,
-          temperature: 0
-        }
-      },
-      { headers: { 'x-goog-api-key': apiKey }, timeout: 30000 }
-    );
+  // Tries each configured key until one answers - see withGeminiKey. A
+  // registration in a rush is exactly when the first key runs out of quota.
+  const attempt = await withGeminiKey('Gemini OCR', (apiKey) => axios.post(
+    `${GEMINI_BASE}/models/${GEMINI_OCR_MODEL}:generateContent`,
+    {
+      contents: [{ parts: [{ text: GEMINI_ID_PROMPT }, imagePart] }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: GEMINI_ID_SCHEMA,
+        temperature: 0
+      }
+    },
+    { headers: { 'x-goog-api-key': apiKey }, timeout: 30000 }
+  ));
 
+  if (!attempt.ok) {
+    if (attempt.reason === 'error') {
+      const err = attempt.error;
+      const status = err.response ? err.response.status : err.code;
+      const detail = err.response?.data?.error?.message || err.message;
+      console.warn(`[Gemini OCR] Failed (${status}): ${String(detail).slice(0, 160)}`);
+    }
+    return null;
+  }
+
+  try {
+    const res = attempt.value;
     const raw = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!raw) {
       console.warn('[Gemini OCR] Empty response');
@@ -645,9 +748,9 @@ async function geminiIdScan(imageData) {
     await logAI('ID Scanning OCR (Gemini)', { model: GEMINI_OCR_MODEL }, result);
     return result;
   } catch (err) {
-    const status = err.response ? err.response.status : err.code;
-    const detail = err.response?.data?.error?.message || err.message;
-    console.warn(`[Gemini OCR] Failed (${status}): ${String(detail).slice(0, 160)}`);
+    // The request itself succeeded, so this is a response we could not read -
+    // JSON.parse on a truncated body, or a shape that changed underneath us.
+    console.warn(`[Gemini OCR] Unreadable response: ${String(err.message).slice(0, 160)}`);
     return null;
   }
 }
