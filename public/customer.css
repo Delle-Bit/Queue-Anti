@@ -31,14 +31,20 @@
     display: flex; align-items: center; gap: 10px; padding: 10px 14px;
     background: var(--bg-input); border-radius: var(--radius-sm);
 }
-/* Appointment fee breakdown, inside the dark .payment-card. */
+/* Appointment fee breakdown. The layout is shared; the colours are not -
+   they depend entirely on what the line is sitting on. This rule used to
+   hardcode white text here, which was invisible the moment the same class was
+   reused on a light card. Anything on a dark ground states that below. */
 .appt-fee-line {
     display: flex; align-items: baseline; justify-content: space-between;
     gap: 12px; font-size: 0.85em;
-    color: rgba(255,255,255,0.72);
+    color: var(--text-secondary);
     padding: 4px 0;
 }
-.appt-fee-line + .appt-fee-line { border-top: 1px solid rgba(255,255,255,0.1); }
+.appt-fee-line + .appt-fee-line { border-top: 1px solid var(--border-light); }
+
+.payment-card .appt-fee-line { color: rgba(255,255,255,0.72); }
+.payment-card .appt-fee-line + .appt-fee-line { border-top-color: rgba(255,255,255,0.1); }
 
 .appt-pay-note {
     display: flex; align-items: flex-start; gap: 10px;
@@ -694,8 +700,9 @@
     padding-top: 10px;
     margin-bottom: 10px;
 }
-/* Reuses .appt-fee-line from the payment card so the two summaries of the
-   same numbers cannot drift apart visually. */
+/* Shares .appt-fee-line's layout with the payment card, so the two summaries
+   of the same numbers cannot drift apart - but not its colours, which belong
+   to whatever each one is sitting on. */
 .appt-fee-total {
     border-top: 1px solid var(--border-light);
     margin-top: 6px;
