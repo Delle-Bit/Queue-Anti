@@ -1097,8 +1097,8 @@ const aiServices = {
         // confusion the mock used to create in a friendlier costume.
         if (!rawResult || rawResult.error || (!rawResult.name && !rawResult.text && !rawResult.age)) {
           console.warn('[OCR] No reader could make out the card - returning null.'
-            + ' The customer registers with nothing prefilled and the desk sets'
-            + ' the category at approval.');
+            + ' The customer registers as Regular with nothing prefilled; an'
+            + ' administrator corrects the category in Manage Accounts.');
           return null;
         }
         return rawResult;

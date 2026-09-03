@@ -160,6 +160,17 @@ app.use('/api/test-structures', authenticateToken, idleTimeout, testStructureRou
 app.use('/api/assistant', authenticateToken, idleTimeout, assistantRoutes);
 app.use('/api/reports', authenticateToken, idleTimeout, verifyRoles('owner'), reportRoutes);
 app.use('/api/admin', authenticateToken, idleTimeout, requireAdmin, adminRoutes);
+// routes/admin.js a second time, at the bare /api prefix and WITHOUT
+// requireAdmin. Not a loophole - it is what serves the customer-facing routes
+// that live in that file (GET /appointments/my, POST /appointments,
+// POST /appointments/:id/cancel, /medical-records/my, /clinical-records/my,
+// GET /faqs), which a patient has to be able to reach.
+//
+// So this mount is authenticated only, and the real guard is per-route: every
+// administrator or staff route in admin.js carries its own requireAdmin /
+// requireStaff, because the same handler is also reachable here without one.
+// A new route added to that file with no guard is published to every signed-in
+// account, patients included.
 app.use('/api', authenticateToken, idleTimeout, adminRoutes);
 
 async function startQueueFromAppointment(appointment, io) {

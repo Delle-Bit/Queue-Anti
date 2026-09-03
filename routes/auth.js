@@ -314,10 +314,15 @@ router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ na
             gender = mapped.gender;
             idRead = mapped.id_read;
             if (!idRead) {
-                // Recorded so an empty detected_category in the approval queue
-                // is explainable, rather than looking like a lost scan.
+                // Recorded so a Regular account with no birthday or gender on
+                // file is explainable, rather than looking like a lost scan.
+                // There is no approval step to catch it at - verify-otp creates
+                // the account outright - so the only correction is an
+                // administrator editing the category in Manage Accounts, and
+                // this line is what tells them to look.
                 console.warn(`[Registration] No reader could make out the ID for "${username}"`
-                    + ' - filed as Regular with nothing prefilled, for the desk to set at approval.');
+                    + ' - filed as Regular with nothing prefilled; an administrator'
+                    + ' should set the real category in Manage Accounts.');
             }
             cleanupUpload(req.files);
         } else {
