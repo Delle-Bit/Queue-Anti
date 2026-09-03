@@ -296,11 +296,32 @@
                 <button class="modal-close" onclick="closeModal('appt-modal')">&times;</button>
             </div>
             <div class="modal-body">
-                <!-- Step 1: Package & Time slot -->
+                <!-- Where the customer is in the booking, named rather than
+                     numbered alone: "Step 2 of 3" on its own does not say what
+                     is being asked for. -->
+                <div class="appt-steps" id="appt-steps" aria-live="polite">
+                    <span class="appt-step-chip" data-step="1"><span class="appt-step-num">1</span> Service</span>
+                    <span class="appt-step-sep" aria-hidden="true"></span>
+                    <span class="appt-step-chip" data-step="2"><span class="appt-step-num">2</span> Date &amp; time</span>
+                    <span class="appt-step-sep" aria-hidden="true"></span>
+                    <span class="appt-step-chip" data-step="3"><span class="appt-step-num">3</span> Confirm</span>
+                </div>
+
+                <!-- Step 1: pick the service -->
                 <div id="appt-step-1">
-                    <div class="form-group"><label class="form-label">Service Package</label>
-                        <select class="form-select" id="appt-package"></select>
-                    </div>
+                    <div class="form-label" id="appt-service-legend">Choose a service</div>
+                    <!-- The select is the source of truth for the booking and the
+                         price arithmetic; the cards below drive it. Kept as a real
+                         (hidden) form control so the pricing handler, the surcharge
+                         display and bookAppointment() all keep reading one value. -->
+                    <select class="form-select" id="appt-package" hidden aria-hidden="true" tabindex="-1"></select>
+                    <div class="appt-service-list" id="appt-service-list" role="radiogroup"
+                        aria-labelledby="appt-service-legend"></div>
+                </div>
+
+                <!-- Step 2: pick the date, then the time on that date -->
+                <div id="appt-step-2" style="display:none;">
+                    <div class="appt-chosen" id="appt-chosen-service"></div>
                     <div class="appointment-calendar-wrap">
                         <div class="calendar-toolbar">
                             <button class="btn btn-sm btn-secondary btn-icon" id="calendar-prev-btn" onclick="changeCalendarMonth(-1)" aria-label="Previous month"><i class="fa-solid fa-chevron-left"></i></button>
@@ -311,12 +332,22 @@
                         <input type="hidden" id="appt-date">
                         <div class="text-sm text-muted mt-sm">Selected: <span id="selected-appt-date">None</span> <span id="selected-appt-time"></span></div>
                     </div>
+
+                    <!-- Times appear here, under the calendar, once a date is
+                         chosen. They used to open in a second modal stacked on
+                         this one at the same z-index, which on a phone covered
+                         the calendar it was meant to belong to. -->
+                    <div id="appt-slot-section" class="appt-slot-section" style="display:none;">
+                        <div class="form-label" id="appt-slot-legend">Available times</div>
+                        <div id="appt-time-slots" class="time-slots-grid" role="group"
+                            aria-labelledby="appt-slot-legend"></div>
+                    </div>
                 </div>
 
-
-                <!-- Step 2: Payment -->
-                <div id="appt-step-2" style="display:none;">
-                    <div class="form-group"><label class="form-label">Notes (optional)</label>
+                <!-- Step 3: notes and what will be paid -->
+                <div id="appt-step-3" style="display:none;">
+                    <div class="appt-chosen" id="appt-chosen-summary"></div>
+                    <div class="form-group"><label class="form-label" for="appt-notes">Notes (optional)</label>
                         <input type="text" class="form-input" id="appt-notes" placeholder="Any special notes">
                     </div>
                     <div id="appt-payment-section" class="payment-card mt-md">
@@ -340,9 +371,9 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('appt-modal')">Cancel</button>
-                <button class="btn btn-primary" id="appt-prev-btn" style="display:none;"
-                    onclick="apptPrevStep()">Back</button>
-                <button class="btn btn-primary" id="appt-next-btn" onclick="apptNextStep()">Next</button>
+                <button class="btn btn-secondary" id="appt-prev-btn" style="display:none;"
+                    onclick="apptPrevStep()"><i class="fa-solid fa-chevron-left"></i> Back</button>
+                <button class="btn btn-primary" id="appt-next-btn" onclick="apptNextStep()">Proceed</button>
                 <button class="btn btn-success" id="appt-confirm-btn" style="display:none;"
                     onclick="bookAppointment()"><i class="fa-solid fa-check"></i> Confirm Booking</button>
             </div>
@@ -513,20 +544,6 @@
             </div>
         </div>
     </div>
-
-    <!-- Appointment Day Slots Modal -->
-    <div id="slot-modal" class="modal-overlay">
-        <div class="modal-box" style="max-width:460px;">
-            <div class="modal-header">
-                <div class="modal-title"><i class="fa-solid fa-clock"></i> <span id="slot-modal-title">Available Slots</span></div>
-                <button class="modal-close" onclick="closeModal('slot-modal')">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div id="appt-time-slots" class="time-slots-grid"></div>
-            </div>
-        </div>
-    </div>
-
 
 
     <!-- Virtual Nurse Assistant — animated avatar + floating speech bubbles -->

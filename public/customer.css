@@ -482,3 +482,185 @@
     flex-wrap: wrap;
     margin: 6px 0 10px;
 }
+
+/* ================================================================
+   APPOINTMENT BOOKING - three steps in one modal
+   Service -> date & time -> confirm. Sized so the whole thing fits a
+   375px phone without a second stacked modal and without the footer
+   colliding with the content above it.
+   ================================================================ */
+
+.appt-steps {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;          /* three chips will not fit one 375px line */
+    margin-bottom: 14px;
+}
+.appt-step-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.76em;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.appt-step-num {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    font-size: 0.9em;
+    font-weight: 700;
+    flex: 0 0 auto;
+}
+.appt-step-chip.current { color: var(--primary); }
+.appt-step-chip.current .appt-step-num { background: var(--primary); color: #fff; }
+.appt-step-chip.done .appt-step-num { background: var(--success, #2e7d32); color: #fff; }
+.appt-step-sep {
+    flex: 1 1 10px;
+    min-width: 8px;
+    height: 1px;
+    background: var(--border);
+}
+
+/* -- step 1: the service list ------------------------------------ */
+/* Scrolls inside the modal rather than making the modal itself taller than
+   the screen: with ~18 services an unbounded list pushes the Proceed button
+   below the fold, where nothing suggests it exists. */
+.appt-service-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 46vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 2px;             /* room for the focus ring, which would clip */
+    margin-top: 6px;
+}
+
+.appt-service-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 11px 12px;
+    min-height: 56px;         /* comfortably over the 44px touch floor */
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-card);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.appt-service-card:hover { border-color: var(--primary); }
+
+/* The radio stays visible on purpose. The selected emphasis below uses :has(),
+   which is only in browsers from 2022 on; if it does not apply, a visible
+   radio still shows which service is chosen. Hiding it would have left older
+   Safari with no selected state at all. */
+.appt-service-radio {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    margin: 2px 0 0;
+    accent-color: var(--primary);
+}
+
+.appt-service-card:has(.appt-service-radio:checked) {
+    border-color: var(--primary);
+    background: rgba(198, 40, 40, 0.04);
+    box-shadow: 0 0 0 3px rgba(198, 40, 40, 0.12);
+}
+/* Keyboard focus has to be visible on the card, since the radio it belongs to
+   is small and sits at the edge. */
+.appt-service-card:focus-within {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+}
+
+.appt-service-body {
+    flex: 1 1 auto;
+    min-width: 0;             /* lets long names wrap instead of overflowing */
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.appt-service-top {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;          /* name and price never sit on top of each other */
+}
+.appt-service-name {
+    font-weight: 600;
+    font-size: 0.92em;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;  /* "24-Hour Ambulatory BP Monitoring" on a phone */
+}
+.appt-service-price {
+    margin-left: auto;
+    font-weight: 700;
+    font-size: 0.92em;
+    color: var(--primary);
+    white-space: nowrap;
+}
+.appt-service-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 0.74em;
+}
+.appt-service-tick {
+    display: none;
+    flex: 0 0 auto;
+    color: var(--primary);
+    margin-top: 2px;
+}
+.appt-service-card:has(.appt-service-radio:checked) .appt-service-tick { display: block; }
+
+/* -- the chosen service, restated on later steps ----------------- */
+.appt-chosen:not(:empty) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 9px 12px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border-light);
+    border-left: 3px solid var(--primary);
+    border-radius: var(--radius-sm);
+    background: var(--bg-input);
+    font-size: 0.82em;
+}
+.appt-chosen-name { font-weight: 600; overflow-wrap: anywhere; }
+.appt-chosen-price { margin-left: auto; font-weight: 700; color: var(--primary); white-space: nowrap; }
+
+/* -- step 2: times, in place under the calendar ------------------ */
+.appt-slot-section {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-light);
+}
+
+/* -- phones ------------------------------------------------------- */
+@media (max-width: 640px) {
+    /* Shorter, because the modal also has to hold the step chips, the footer
+       and the browser's own chrome. */
+    .appt-service-list { max-height: 38vh; }
+
+    /* Seven columns in ~290px of usable width: a smaller gap buys each cell
+       the width it needs to stay a square tap target rather than a sliver. */
+    .appointment-calendar { gap: 4px; }
+    .calendar-head, .calendar-day { min-height: 44px; font-size: 0.78em; }
+
+    .time-slots-grid { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
+    .time-slot { min-height: 44px; display: grid; place-items: center; }
+
+    .appt-steps { gap: 4px; margin-bottom: 10px; }
+    .appt-step-chip { font-size: 0.7em; }
+    .appt-step-sep { min-width: 4px; }
+}

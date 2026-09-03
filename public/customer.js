@@ -486,7 +486,47 @@ async function loadAppointments() {
             document.getElementById('appt-surcharge').textContent = formatCurrency(total - base);
             document.getElementById('appt-amount').textContent = formatCurrency(total);
         };
-        if (sel.options.length > 0) sel.onchange();
+
+        // The cards the customer actually picks from. They drive the hidden
+        // select above rather than replacing it, so the price arithmetic and
+        // bookAppointment() keep reading one value and cannot disagree with
+        // what is on screen.
+        //
+        // A radio inside each label, rather than clickable divs: it gives
+        // arrow-key movement within the group, one tab stop for the whole
+        // group, and the checked state announced - all of which a div with an
+        // onclick has to reimplement and usually does not.
+        apptPackages = pkgs;
+        const list = document.getElementById('appt-service-list');
+        if (list) {
+            const bookable = pkgs.filter(p => p.is_available !== false);
+            list.innerHTML = bookable.length === 0
+                ? '<p class="text-muted text-sm">No services are open for booking right now.</p>'
+                : bookable.map(p => {
+                    const total = p.appointment_price ?? p.price;
+                    const pct = Number(p.appointment_surcharge_pct ?? 0);
+                    return `
+                    <label class="appt-service-card" for="appt-svc-${p.id}">
+                        <input type="radio" name="appt-service" id="appt-svc-${p.id}" value="${p.id}"
+                            class="appt-service-radio" onchange="selectApptService(${p.id})">
+                        <span class="appt-service-body">
+                            <span class="appt-service-top">
+                                <span class="appt-service-name">${escapeHtml(p.name)}</span>
+                                <span class="appt-service-price">${formatCurrency(total)}</span>
+                            </span>
+                            <span class="appt-service-meta">
+                                <span class="badge badge-neutral">${escapeHtml(p.category || 'General')}</span>
+                                <span class="text-muted"><i class="fa-solid fa-clock"></i> ~${p.est_time_minutes || 0} min</span>
+                                ${pct > 0 ? `<span class="text-muted">includes ${pct}% booking fee</span>` : ''}
+                            </span>
+                        </span>
+                        <i class="fa-solid fa-circle-check appt-service-tick" aria-hidden="true"></i>
+                    </label>`;
+                }).join('');
+        }
+        // Nothing is preselected: the first step is a decision, and a default
+        // selection is one the customer never actually made.
+        sel.selectedIndex = -1;
 
         renderAppointmentCalendar();
     } catch (err) { console.error(err); }
@@ -537,25 +577,87 @@ setInterval(() => {
 }, 5000);
 
 // ── APPOINTMENT MULTI-STEP LOGIC ───────────────────────────────
+// Three steps, one modal: choose a service, then a date and a time on that
+// date, then confirm what will be paid.
+//
+// The service used to be a dropdown sitting above the calendar, so the first
+// thing the customer saw was a calendar for a service they had not chosen yet,
+// and the service itself - the decision with a price attached - was a single
+// line of collapsed text. It is now the whole of step one.
+const APPT_LAST_STEP = 3;
 let apptStep = 1;
 let selectedTimeSlot = null;
+let apptPackages = [];
+
+function selectedApptPackage() {
+    const sel = document.getElementById('appt-package');
+    if (!sel || sel.selectedIndex < 0) return null;
+    const id = Number(sel.value);
+    return apptPackages.find(p => Number(p.id) === id) || null;
+}
+
+// Called by the radio in each service card. The hidden select stays the source
+// of truth, and its onchange recalculates the fee lines.
+function selectApptService(id) {
+    const sel = document.getElementById('appt-package');
+    if (!sel) return;
+    sel.value = String(id);
+    if (sel.onchange) sel.onchange();
+    renderApptChosenService();
+    updateApptModalView();
+}
+
+// The service, restated at the top of the later steps. Once the cards are out
+// of view there is otherwise nothing on screen naming what is being booked.
+function renderApptChosenService() {
+    const pkg = selectedApptPackage();
+    const total = pkg ? (pkg.appointment_price ?? pkg.price) : 0;
+    const html = pkg
+        ? `<i class="fa-solid fa-flask" aria-hidden="true"></i>
+           <span class="appt-chosen-name">${escapeHtml(pkg.name)}</span>
+           <span class="appt-chosen-price">${formatCurrency(total)}</span>`
+        : '';
+    ['appt-chosen-service', 'appt-chosen-summary'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = html;
+    });
+}
 
 function resetApptModal() {
     apptStep = 1;
     selectedTimeSlot = null;
+
+    const sel = document.getElementById('appt-package');
+    if (sel) sel.selectedIndex = -1;
+    document.querySelectorAll('input[name="appt-service"]').forEach(r => { r.checked = false; });
+
+    const date = document.getElementById('appt-date');
+    if (date) date.value = '';
+    document.getElementById('selected-appt-date').textContent = 'None';
     document.getElementById('selected-appt-time').textContent = '';
-    document.getElementById('appt-step-1').style.display = 'block';
-    document.getElementById('appt-step-2').style.display = 'none';
-    document.getElementById('appt-prev-btn').style.display = 'none';
-    document.getElementById('appt-next-btn').style.display = 'inline-block';
-    document.getElementById('appt-confirm-btn').style.display = 'none';
+    // A date from a previous booking would otherwise leave yesterday's times
+    // sitting under a calendar with nothing selected.
+    document.getElementById('appt-slot-section').style.display = 'none';
+    document.getElementById('appt-time-slots').innerHTML = '';
+    const notes = document.getElementById('appt-notes');
+    if (notes) notes.value = '';
+
+    renderApptChosenService();
+    renderAppointmentCalendar();
+    updateApptModalView();
 }
 
 function apptNextStep() {
-    if (apptStep === 1) {
-        if (!selectedTimeSlot) return showToast('Please select a time slot', 'warning');
-        apptStep = 2;
+    if (apptStep === 1 && !selectedApptPackage()) {
+        return showToast('Please choose a service first', 'warning');
     }
+    if (apptStep === 2) {
+        if (!document.getElementById('appt-date').value) {
+            return showToast('Please pick a date', 'warning');
+        }
+        if (!selectedTimeSlot) return showToast('Please select a time slot', 'warning');
+    }
+    if (apptStep < APPT_LAST_STEP) apptStep++;
     updateApptModalView();
 }
 
@@ -565,12 +667,40 @@ function apptPrevStep() {
 }
 
 function updateApptModalView() {
-    document.getElementById('appt-step-1').style.display = apptStep === 1 ? 'block' : 'none';
-    document.getElementById('appt-step-2').style.display = apptStep === 2 ? 'block' : 'none';
+    for (let n = 1; n <= APPT_LAST_STEP; n++) {
+        const pane = document.getElementById(`appt-step-${n}`);
+        if (pane) pane.style.display = apptStep === n ? 'block' : 'none';
+        const chip = document.querySelector(`.appt-step-chip[data-step="${n}"]`);
+        if (chip) {
+            chip.classList.toggle('current', n === apptStep);
+            chip.classList.toggle('done', n < apptStep);
+        }
+    }
 
-    document.getElementById('appt-prev-btn').style.display = apptStep > 1 ? 'inline-block' : 'none';
-    document.getElementById('appt-next-btn').style.display = apptStep < 2 ? 'inline-block' : 'none';
-    document.getElementById('appt-confirm-btn').style.display = apptStep === 2 ? 'inline-block' : 'none';
+    const prev = document.getElementById('appt-prev-btn');
+    const next = document.getElementById('appt-next-btn');
+    const confirm = document.getElementById('appt-confirm-btn');
+
+    prev.style.display = apptStep > 1 ? 'inline-flex' : 'none';
+    next.style.display = apptStep < APPT_LAST_STEP ? 'inline-flex' : 'none';
+    confirm.style.display = apptStep === APPT_LAST_STEP ? 'inline-flex' : 'none';
+
+    // "Proceed" on the service step, because that is the word the step is
+    // asking for; "Next" once the customer is inside the date and time.
+    next.textContent = apptStep === 1 ? 'Proceed' : 'Next';
+
+    // Disabled rather than hidden, so the button stays where the thumb expects
+    // it and its tooltip can say what is missing.
+    const blocked = (apptStep === 1 && !selectedApptPackage())
+        || (apptStep === 2 && !selectedTimeSlot);
+    next.disabled = blocked;
+    next.title = !blocked ? ''
+        : (apptStep === 1 ? 'Choose a service to continue' : 'Pick a date and time to continue');
+
+    // Each step starts at its own top; a modal that keeps the previous step's
+    // scroll position opens halfway down its own content.
+    const box = document.querySelector('#appt-modal .modal-box');
+    if (box) box.scrollTop = 0;
 }
 
 async function fetchTimeSlots() {
@@ -612,7 +742,7 @@ function selectTimeSlot(timeStr) {
     document.getElementById(`ts-${timeStr}`).classList.add('selected');
     selectedTimeSlot = timeStr;
     document.getElementById('selected-appt-time').textContent = `at ${timeStr}`;
-    closeModal('slot-modal');
+    updateApptModalView();
 }
 
 // ── APPOINTMENT DATE/TIME RULES ────────────────────────────────
@@ -709,9 +839,11 @@ function selectAppointmentDate(iso) {
     selectedTimeSlot = null;
     document.getElementById('selected-appt-time').textContent = '';
     renderAppointmentCalendar();
-    document.getElementById('slot-modal-title').textContent = `Slots for ${iso}`;
-    openModal('slot-modal');
+    // Revealed in place, under the calendar, rather than opened as a second
+    // modal on top of this one.
+    document.getElementById('appt-slot-section').style.display = 'block';
     fetchTimeSlots();
+    updateApptModalView();
 }
 
 // ── MANDATORY MEDICAL FORM ─────────────────────────────────────────
@@ -1044,8 +1176,9 @@ const origOpenModal = window.openModal;
 window.openModal = async function(id) {
     if (id === 'appt-modal') {
         if (!(await ensureMedicalFormComplete(true))) return;
+        // resetApptModal renders the calendar itself; calling it again here
+        // just fetched /api/queue/booked-dates twice on every open.
         resetApptModal();
-        renderAppointmentCalendar();
     }
     if (id === 'mandatory-med-modal') {
         await populateMedicalFormFromRecord();
