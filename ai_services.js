@@ -727,6 +727,26 @@ const GEMINI_ID_PROMPT = [
   'any other valid ID is "Regular".'
 ].join(' ');
 
+// Whole years between an ISO yyyy-mm-dd and today, or null if the string is
+// not a usable date. Rejects the impossible rather than returning a number
+// from it: a misread digit can turn 1957 into 1057, and an age of 969 on a
+// registration form is worse than no age at all.
+function ageFromBirthdate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').trim());
+  if (!match) return null;
+  const [year, month, day] = match.slice(1).map(Number);
+  const born = new Date(Date.UTC(year, month - 1, day));
+  // Catches 2026-02-30, which Date would roll forward to March.
+  if (born.getUTCFullYear() !== year || born.getUTCMonth() !== month - 1
+      || born.getUTCDate() !== day) return null;
+
+  const now = new Date();
+  let age = now.getUTCFullYear() - year;
+  const monthDiff = (now.getUTCMonth() + 1) - month;
+  if (monthDiff < 0 || (monthDiff === 0 && now.getUTCDate() < day)) age -= 1;
+  return age >= 0 && age <= 130 ? age : null;
+}
+
 // Accepts a file path (what routes/auth.js passes) or a raw base64 string, the
 // same two shapes pytesseract_ocr.py tolerates.
 function geminiImagePart(imageData) {
@@ -799,7 +819,14 @@ async function geminiIdScan(imageData) {
     }
 
     const parsed = JSON.parse(raw);
-    const age = Number(parsed.age) || 0;
+    // Arithmetic is ours, not the model's. A Philippine senior citizen card
+    // prints a birth date and no age, so the model derives one - and on a card
+    // reading 1957-11-24 it answered 66 when the answer was 68. It is a
+    // language model doing date subtraction against its own idea of today,
+    // and the age it produces goes onto a medical intake form. When the card
+    // gives us a date, we count the years ourselves and only fall back to what
+    // the model said when it does not.
+    const age = ageFromBirthdate(parsed.birthdate) ?? (Number(parsed.age) || 0);
     const result = {
       name: (parsed.name || '').trim(),
       // 'Unknown' is the model saying it could not tell, which is not a

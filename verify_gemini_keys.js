@@ -82,7 +82,7 @@ stub(path.join(__dirname, 'database.js'), { pool: { query: async () => [[]] } })
 const source = fs.readFileSync(SRC, 'utf8').replace(
     'module.exports = aiServices;',
     'module.exports = aiServices;\n'
-    + 'module.exports.__test = { geminiApiKeys, geminiKeySpent, withGeminiKey, geminiIdScan, geminiChat, GEMINI_OCR_MODEL, GEMINI_CHAT_MODEL };'
+    + 'module.exports.__test = { geminiApiKeys, geminiKeySpent, withGeminiKey, geminiIdScan, geminiChat, ageFromBirthdate, GEMINI_OCR_MODEL, GEMINI_CHAT_MODEL };'
 );
 fs.writeFileSync(COPY, source);
 
@@ -108,7 +108,7 @@ process.env.GEMINI_OVERLOAD_BACKOFF_MS = '0';
 // Scenarios 1-13 are about keys, and count requests to prove it. The shipped
 // fallback model would double every one of those counts for reasons that have
 // nothing to do with keys, so it is off here and turned on deliberately in 14
-// and 15. Scenario 17 clears both of these and asserts the real defaults.
+// and 15. Scenario 18 clears both of these and asserts the real defaults.
 process.env.GEMINI_OCR_MODEL_FALLBACK = '';
 
 // A 40-byte JPEG-ish buffer standing in for an uploaded ID photo.
@@ -282,7 +282,44 @@ const IMAGE = 'data:image/jpeg;base64,' + Buffer.alloc(64, 7).toString('base64')
     check('null', out, null);
     delete process.env.GEMINI_OCR_MODEL_FALLBACK;
 
-    console.log('\n17. the shipped defaults are small enough for a counter');
+    console.log('\n17. age is counted from the card, not taken from the model');
+    // Observed live: the card read 1957-11-24 and the model answered 66.
+    const thisYear = new Date().getUTCFullYear();
+    check('a birthday already past this year', T.ageFromBirthdate(`${thisYear - 40}-01-01`), 40);
+    check('a birthday still to come', T.ageFromBirthdate(`${thisYear - 40}-12-31`), 39);
+    check('born today', T.ageFromBirthdate(new Date().toISOString().slice(0, 10)), 0);
+    check('empty', T.ageFromBirthdate(''), null);
+    check('not an ISO date', T.ageFromBirthdate('24 November 1957'), null);
+    check('impossible day refused, not rolled forward', T.ageFromBirthdate('2020-02-30'), null);
+    check('a misread century is refused', T.ageFromBirthdate('1057-11-24'), null);
+    check('the future is refused', T.ageFromBirthdate(`${thisYear + 2}-01-01`), null);
+
+    setKeys('only-key');
+    process.env.GEMINI_OCR_MODEL_FALLBACK = '';
+    calls.length = 0;
+    responder = () => ({
+        data: { candidates: [{ content: { parts: [{ text: JSON.stringify({
+            name: 'MARIA CLARA SANTOS', idType: 'Senior', age: 66,
+            gender: 'Female', birthdate: `${thisYear - 68}-01-01`,
+            idNumber: 'OSCA-2024-004871', address: 'Cebu City', text: 'OSCA'
+        }) }] } }] }
+    });
+    out = await T.geminiIdScan(IMAGE);
+    check('the printed date wins over the model arithmetic', out && out.age, 68);
+    check('the rest of the card is untouched', out && out.birthdate, `${thisYear - 68}-01-01`);
+
+    // With no date printed there is nothing to count, so the model's own
+    // answer stands rather than being replaced with a zero.
+    responder = () => ({
+        data: { candidates: [{ content: { parts: [{ text: JSON.stringify({
+            name: 'JUAN CRUZ', idType: 'Regular', age: 41, gender: 'Male',
+            birthdate: '', idNumber: 'N-1', address: '', text: 'ID'
+        }) }] } }] }
+    });
+    out = await T.geminiIdScan(IMAGE);
+    check('no printed date falls back to the model', out && out.age, 41);
+
+    console.log('\n18. the shipped defaults are small enough for a counter');
     // Nothing overridden from here down: this is what the clinic actually runs
     // when Gemini is unreachable for everyone.
     delete process.env.GEMINI_OVERLOAD_BACKOFF_MS;
