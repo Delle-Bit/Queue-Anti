@@ -617,6 +617,11 @@ const APPT_LAST_STEP = 4;
 let apptStep = 1;
 let selectedTimeSlot = null;
 let apptPackages = [];
+// Which step the modal is currently showing, as opposed to which step the
+// customer is on. They are the same except for the instant between a step
+// change and the repaint, which is exactly when the scroll position has to be
+// reset - see updateApptModalView.
+let apptRenderedStep = null;
 
 function selectedApptPackage() {
     const sel = document.getElementById('appt-package');
@@ -699,6 +704,7 @@ function renderApptWhen() {
 
 function resetApptModal() {
     apptStep = 1;
+    apptRenderedStep = null;
     selectedTimeSlot = null;
 
     const sel = document.getElementById('appt-package');
@@ -778,8 +784,17 @@ function updateApptModalView() {
 
     // Each step starts at its own top; a modal that keeps the previous step's
     // scroll position opens halfway down its own content.
-    const box = document.querySelector('#appt-modal .modal-box');
-    if (box) box.scrollTop = 0;
+    //
+    // Only on an actual step change. This function is the repaint for the whole
+    // modal, so it also runs when a service card, a date or a time slot is
+    // picked - and scrolling on those threw the customer back to the top of the
+    // calendar the moment they tapped a time, away from the button they were
+    // reaching for and with no sign their tap had registered.
+    if (apptRenderedStep !== apptStep) {
+        apptRenderedStep = apptStep;
+        const box = document.querySelector('#appt-modal .modal-box');
+        if (box) box.scrollTop = 0;
+    }
 }
 
 async function fetchTimeSlots() {
