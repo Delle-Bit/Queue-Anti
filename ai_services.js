@@ -319,8 +319,33 @@ async function pytesseractOcrFallback(data) {
     return null;
   }
 
-  return new Promise((resolve, reject) => {
-    const py = spawn('python', [PYTESSERACT_SCRIPT]);
+  return new Promise((resolve) => {
+    // Settled once, from whichever of the three paths below fires first.
+    let settled = false;
+    const done = (value) => { if (!settled) { settled = true; resolve(value); } };
+
+    let py;
+    try {
+      py = spawn('python', [PYTESSERACT_SCRIPT]);
+    } catch (err) {
+      console.warn(`[Pytesseract Fallback] Could not start python: ${err.message}`);
+      return done(null);
+    }
+
+    // The important one. Without an 'error' listener, a missing `python`
+    // binary makes spawn emit an unhandled 'error' event, and an unhandled
+    // 'error' on an EventEmitter throws - which crashed the whole server.
+    //
+    // That is not hypothetical on a deployment: the runtime image has no
+    // python at all (the toolchain lives in the build stage and is
+    // deliberately left behind), so any registration that got this far - a
+    // failed Gemini call, or no GEMINI_API_KEY - took the site down. This
+    // fallback is meant to be the safety net, not a second way to fail.
+    py.on('error', (err) => {
+      console.warn(`[Pytesseract Fallback] python unavailable (${err.code || err.message}) - skipping to the next fallback.`);
+      done(null);
+    });
+
     let stdout = '';
     let stderr = '';
     py.stdout.on('data', (d) => (stdout += d));
@@ -328,18 +353,27 @@ async function pytesseractOcrFallback(data) {
     py.on('close', (code) => {
       if (code !== 0) {
         console.warn(`[Pytesseract Fallback] Script exited ${code}: ${stderr}`);
-        resolve(null);
+        done(null);
       } else {
         try {
-          resolve(JSON.parse(stdout));
+          done(JSON.parse(stdout));
         } catch (e) {
           console.warn('[Pytesseract Fallback] Failed to parse output:', e.message);
-          resolve(null);
+          done(null);
         }
       }
     });
-    py.stdin.write(JSON.stringify(data));
-    py.stdin.end();
+
+    // Writing to the stdin of a process that never started throws EPIPE, so
+    // this needs the same protection as the spawn itself.
+    try {
+      py.stdin.on('error', () => { /* the 'error' handler above reports it */ });
+      py.stdin.write(JSON.stringify(data));
+      py.stdin.end();
+    } catch (err) {
+      console.warn(`[Pytesseract Fallback] Could not write to python: ${err.message}`);
+      done(null);
+    }
   });
 }
 
