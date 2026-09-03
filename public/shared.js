@@ -886,6 +886,25 @@ function stripWhitespace(value) {
 
 function enforcePasswordPolicy(root = document) {
     root.querySelectorAll('input[type="password"]').forEach((input) => {
+        // A field that types an EXISTING password is not a field that creates
+        // one, and the policy must not touch it. autocomplete="current-password"
+        // is the standard marker for that; every field that sets a password
+        // carries "new-password" instead, so this needs no bespoke attribute.
+        //
+        // Applied to the sign-in box, this policy silently destroyed correct
+        // passwords: maxLength cut them to 16 as they were typed, and the paste
+        // handler below sliced pasted text to 16 before inserting it. The
+        // request then went out with the truncated value and the customer was
+        // told "Invalid credentials" for a password they had entered exactly
+        // right, with nothing anywhere saying it had been shortened.
+        //
+        // The 16-character ceiling is this app's own product choice - NIST SP
+        // 800-63B suggests allowing at least 64 - so it will not always match
+        // what is already stored. SEED_PASSWORD on a deployment is the case
+        // that found this: a 20-character password that made every account on
+        // the live site unreachable through its own login form.
+        if (input.getAttribute('autocomplete') === 'current-password') return;
+
         if (input.dataset.pwPolicyEnhanced) return;
         input.dataset.pwPolicyEnhanced = 'true';
 
