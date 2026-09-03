@@ -20,12 +20,43 @@ const GEMINI_BASE = process.env.GEMINI_BASE
 // Models are pinned rather than `-latest`: an alias can be repointed at a new
 // model underneath a running clinic, and one of these reads identity
 // documents. Google refuses gemini-2.5-flash for keys issued now ("no longer
-// available to new users") and names 3.6-flash as the replacement, so the
-// hardcoded 2.5-flash URL this replaced failed every Virtual Assistant turn on
-// a freshly issued key while OCR carried on working. Overridable per
-// deployment.
-const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-3.6-flash';
-const GEMINI_OCR_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-3.6-flash';
+// available to new users"), so the hardcoded 2.5-flash URL this replaced
+// failed every Virtual Assistant turn on a freshly issued key while OCR
+// carried on working.
+//
+// 3.5-flash rather than the 3.6-flash Google names as the 2.5 replacement,
+// because 3.6 does not currently answer fast enough to be in front of a
+// patient. Measured on the same ID photograph, same key, same schema:
+//
+//   gemini-3.6-flash          64.0s, then 503 high demand
+//   gemini-3.5-flash           6.8s / 8.4s
+//   gemini-3-flash-preview     9.1s / 7.8s
+//   gemini-3.1-flash-lite      4.9s / 6.3s
+//   gemini-flash-lite-latest   1.8s / 2.1s
+//
+// Every one of them transcribed the card correctly, so this is a latency
+// choice, not an accuracy one, and 3.6 blew through the 30s request timeout -
+// which is how a live scan came back as mock data. Re-pin with
+// GEMINI_OCR_MODEL if 3.6 settles down.
+const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-3.5-flash';
+const GEMINI_OCR_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-3.5-flash';
+
+// The primary, then whatever GEMINI_OCR_MODEL_FALLBACK names. An
+// oversubscribed model stays oversubscribed for minutes rather than seconds -
+// the short retry inside withGeminiKey covers a blip, and this covers the rest
+// by asking a different model the same question instead of handing the desk a
+// mock patient. Set it empty to disable.
+function geminiOcrModels() {
+  const models = [GEMINI_OCR_MODEL];
+  const extra = process.env.GEMINI_OCR_MODEL_FALLBACK === undefined
+    ? 'gemini-3.1-flash-lite'
+    : process.env.GEMINI_OCR_MODEL_FALLBACK;
+  for (const candidate of String(extra).split(',')) {
+    const name = candidate.trim();
+    if (name && !models.includes(name)) models.push(name);
+  }
+  return models;
+}
 
 // The key is a LIST, not a value. A free-tier Gemini key carries a per-minute
 // and a per-day request quota; a registration desk photographing IDs through a
@@ -724,29 +755,39 @@ async function geminiIdScan(imageData) {
     return null;
   }
 
-  // Tries each configured key until one answers - see withGeminiKey. A
-  // registration in a rush is exactly when the first key runs out of quota.
-  const attempt = await withGeminiKey('Gemini OCR', (apiKey) => axios.post(
-    `${GEMINI_BASE}/models/${GEMINI_OCR_MODEL}:generateContent`,
-    {
-      contents: [{ parts: [{ text: GEMINI_ID_PROMPT }, imagePart] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: GEMINI_ID_SCHEMA,
-        temperature: 0
-      }
-    },
-    { headers: { 'x-goog-api-key': apiKey }, timeout: 30000 }
-  ));
+  // Each model in turn, and within each, each configured key - see
+  // withGeminiKey. A registration in a rush is exactly when the first key runs
+  // out of quota and the popular model is busiest.
+  const models = geminiOcrModels();
+  let attempt = { ok: false, reason: 'no-key' };
+  let usedModel = models[0];
 
-  if (!attempt.ok) {
-    if (attempt.reason === 'error') {
-      const err = attempt.error;
-      const status = err.response ? err.response.status : err.code;
-      const detail = err.response?.data?.error?.message || err.message;
-      console.warn(`[Gemini OCR] Failed (${status}): ${String(detail).slice(0, 160)}`);
-    }
-    return null;
+  for (let i = 0; i < models.length; i++) {
+    usedModel = models[i];
+    attempt = await withGeminiKey('Gemini OCR', (apiKey) => axios.post(
+      `${GEMINI_BASE}/models/${usedModel}:generateContent`,
+      {
+        contents: [{ parts: [{ text: GEMINI_ID_PROMPT }, imagePart] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: GEMINI_ID_SCHEMA,
+          temperature: 0
+        }
+      },
+      { headers: { 'x-goog-api-key': apiKey }, timeout: 30000 }
+    ));
+
+    if (attempt.ok) break;
+    // No key configured is not something a different model fixes.
+    if (attempt.reason === 'no-key') return null;
+
+    const err = attempt.error;
+    const status = err && err.response ? err.response.status : (err && err.code);
+    const detail = (err && (err.response?.data?.error?.message || err.message)) || attempt.reason;
+    const more = i + 1 < models.length;
+    console.warn(`[Gemini OCR] ${usedModel} failed (${status}): ${String(detail).slice(0, 160)}`
+      + (more ? ` - falling back to ${models[i + 1]}` : ''));
+    if (!more) return null;
   }
 
   try {
@@ -782,7 +823,7 @@ async function geminiIdScan(imageData) {
     }
 
     // logAI redacts identity payloads - see IDENTITY_FEATURES.
-    await logAI('ID Scanning OCR (Gemini)', { model: GEMINI_OCR_MODEL }, result);
+    await logAI('ID Scanning OCR (Gemini)', { model: usedModel }, result);
     return result;
   } catch (err) {
     // The request itself succeeded, so this is a response we could not read -

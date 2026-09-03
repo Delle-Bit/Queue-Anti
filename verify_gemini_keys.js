@@ -1,10 +1,17 @@
-// Throwaway harness for the Gemini key-rotation change. Stubs axios and the
-// database pool, then drives geminiIdScan / geminiChat through a copy of
-// ai_services.js that also exports its private helpers.
+// The Gemini fallback chain, asserted. Run by `npm test`, or on its own:
 //
-//   node verify_gemini_keys.js
+//   npm run verify:gemini
 //
-// Delete this file once the change is verified.
+// It stubs axios and the connection pool and loads a copy of ai_services.js
+// that also exports its private helpers, so it needs no API key, no network
+// and no database, and it can force a 429 or a 503 on demand - which is the
+// only practical way to test what happens when a key runs out of quota or a
+// model is oversubscribed.
+//
+// Every scenario here came from something that actually happened: a key
+// exhausted mid-morning, gemini-2.5-flash retired underneath the assistant,
+// gemini-3.6-flash answering 503 after 64 seconds, and a bug in the rotation
+// loop itself that this file caught before it shipped.
 
 const fs = require('fs');
 const path = require('path');
@@ -95,9 +102,14 @@ function setKeys(...values) {
 }
 
 // The pause between overload retries is real time, and several scenarios below
-// trip it. The shipped default is checked as a duration in scenario 14; the
-// waiting itself is not what any of the others are testing.
+// trip it. The waiting itself is not what any of them are testing.
 process.env.GEMINI_OVERLOAD_BACKOFF_MS = '0';
+
+// Scenarios 1-13 are about keys, and count requests to prove it. The shipped
+// fallback model would double every one of those counts for reasons that have
+// nothing to do with keys, so it is off here and turned on deliberately in 14
+// and 15. Scenario 17 clears both of these and asserts the real defaults.
+process.env.GEMINI_OCR_MODEL_FALLBACK = '';
 
 // A 40-byte JPEG-ish buffer standing in for an uploaded ID photo.
 const IMAGE = 'data:image/jpeg;base64,' + Buffer.alloc(64, 7).toString('base64');
@@ -238,19 +250,57 @@ const IMAGE = 'data:image/jpeg;base64,' + Buffer.alloc(64, 7).toString('base64')
     check('one attempt per key', calls.length, 2);
     check('recovered on the spare', out && out.name, 'Ana Reyes');
 
-    console.log('\n14. the shipped retry defaults are small enough for a counter');
+    console.log('\n14. a model that stays busy is swapped for another one');
+    // The retry above covers a blip. This covers what was actually observed:
+    // gemini-3.6-flash taking 64s and then answering 503, for minutes on end.
+    process.env.GEMINI_OVERLOAD_BACKOFF_MS = '0';
+    process.env.GEMINI_OCR_MODEL_FALLBACK = 'spare-model';
+    setKeys('only-key');
+    calls.length = 0;
+    responder = (key, url) => {
+      if (url.includes('spare-model')) return idPayload('Ana Reyes');
+      throw busy();
+    };
+    out = await T.geminiIdScan(IMAGE);
+    check('primary exhausted its retries, then the spare ran', calls.length, 4);
+    check('the spare was the pinned fallback', calls[3].url.includes('spare-model'), true);
+    check('scan recovered on the other model', out && out.name, 'Ana Reyes');
+
+    console.log('\n15. the model list is configuration, and can be emptied');
+    process.env.GEMINI_OCR_MODEL_FALLBACK = '';
+    calls.length = 0;
+    out = await T.geminiIdScan(IMAGE);
+    check('no fallback model attempted', calls.length, 3);
+    check('null', out, null);
+
+    console.log('\n16. a missing key is not something another model fixes');
+    setKeys();
+    calls.length = 0;
+    delete process.env.GEMINI_OCR_MODEL_FALLBACK;
+    out = await T.geminiIdScan(IMAGE);
+    check('nothing attempted', calls.length, 0);
+    check('null', out, null);
+    delete process.env.GEMINI_OCR_MODEL_FALLBACK;
+
+    console.log('\n17. the shipped defaults are small enough for a counter');
+    // Nothing overridden from here down: this is what the clinic actually runs
+    // when Gemini is unreachable for everyone.
     delete process.env.GEMINI_OVERLOAD_BACKOFF_MS;
     delete process.env.GEMINI_OVERLOAD_RETRIES;
+    delete process.env.GEMINI_OCR_MODEL_FALLBACK;
     setKeys('only-key');
     calls.length = 0;
     responder = () => { throw busy(); };
     const started = Date.now();
     out = await T.geminiIdScan(IMAGE);
     const elapsed = Date.now() - started;
-    check('default budget is one attempt plus two retries', calls.length, 3);
-    // 700ms then 1400ms, so a model that is down for everyone costs the desk
-    // about two seconds on top of the requests before the offline result.
-    check('default backoff totals ~2.1s, under 4s', elapsed >= 2000 && elapsed < 4000, true);
+    // Two models, three attempts each: 700ms then 1400ms of backoff per model.
+    check('default budget is two models of three attempts', calls.length, 6);
+    check('the two models were distinct', new Set(calls.map(c => c.url)).size, 2);
+    // So the desk waits about four seconds of backoff, plus the requests
+    // themselves, before it gets the offline answer.
+    check('default backoff totals ~4.2s, under 8s', elapsed >= 4000 && elapsed < 8000, true);
+    check('and it ends in null, never a throw', out, null);
 
     console.log(`\n${passed} passed, ${failed} failed\n`);
     process.exit(failed ? 1 : 0);
