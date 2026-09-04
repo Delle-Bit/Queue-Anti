@@ -792,8 +792,11 @@ function updateApptModalView() {
     // reaching for and with no sign their tap had registered.
     if (apptRenderedStep !== apptStep) {
         apptRenderedStep = apptStep;
-        const box = document.querySelector('#appt-modal .modal-box');
-        if (box) box.scrollTop = 0;
+        // The body is the scroll region (see .modal-box in shared.css); the box
+        // itself no longer scrolls, so resetting it here would reset nothing.
+        const pane = document.querySelector('#appt-modal .modal-body')
+            || document.querySelector('#appt-modal .modal-box');
+        if (pane) pane.scrollTop = 0;
     }
 }
 

@@ -535,8 +535,29 @@ tbody tr:last-child td { border-bottom: none; }
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
     width: 90%; max-width: 520px; max-height: 85dvh;
-    overflow-y: auto; overscroll-behavior: contain; position: relative;
+    position: relative;
     animation: modalIn 0.25s ease;
+    /* A modal has exactly one scroll region, and it is the body.
+       The box used to scroll as well, so a long dialog had two nested
+       scrollers: the body scrolled its own content, and the box scrolled the
+       few pixels by which header + body + footer overran it. Those few pixels
+       carried the header - and the close button with it - up past the box's
+       rounded top edge, where it was clipped. Header and footer are pinned by
+       the flex column instead, and the body takes whatever height is left. */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.modal-header, .modal-footer { flex: 0 0 auto; }
+
+.modal-body {
+    flex: 1 1 auto;
+    /* Flex items refuse to shrink below their content without this, which
+       would push the footer out of the box instead of scrolling the body. */
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 @keyframes modalIn {

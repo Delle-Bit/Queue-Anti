@@ -617,7 +617,10 @@
                 <div class="modal-title" id="terms-modal-title"><i class="fa-solid fa-file-contract"></i> Terms and Conditions</div>
                 <button class="modal-close" onclick="closeModal('terms-modal')" aria-label="Close Terms and Conditions">&times;</button>
             </div>
-            <div class="modal-body" style="font-size: 0.9em; line-height: 1.7; max-height: 60vh; overflow-y: auto;">
+            <!-- No max-height or overflow here: .modal-box is a flex column and
+                 the body is its scroll region, so a fixed 60vh only fought the
+                 box's own 85dvh cap and pushed the header out of view. -->
+            <div class="modal-body" style="font-size: 0.85em; line-height: 1.65;">
                 <p class="text-muted text-sm">Last updated: August 2026</p>
 
                 <h4>1. Acceptance of Terms</h4>
