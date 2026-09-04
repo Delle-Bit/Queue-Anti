@@ -234,6 +234,31 @@ router.get('/register/suggest-username', rateLimit(30, 10 * 60 * 1000), async (r
 // passes the name the customer typed, which is authoritative because OCR name
 // extraction is the least reliable field on the card; the preview passes
 // nothing, because prefilling that field from the card is its whole purpose.
+// Name tokens, comparable across two sources that will never agree on case,
+// accents, punctuation or order. Tokens of one letter are dropped, which
+// removes middle initials from both sides - the typed guardian name carries one
+// by design, and a card may or may not print it.
+function nameTokens(value) {
+    return String(value || '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase().replace(/[^A-Z\s]/g, ' ')
+        .split(/\s+/).filter(t => t.length > 1);
+}
+
+// The guardian's ID has to be the guardian's. First and last name must both
+// appear on the card, in any order - Philippine IDs print "SANTOS, MARIA
+// CLARA" as often as "MARIA CLARA SANTOS", and a middle name may or may not
+// sit between them, so position cannot be relied on.
+//
+// Deliberately not a fuzzy score: a threshold that lets "Maria Santos" pass for
+// "Mario Santos" is worse than an honest refusal the customer can act on.
+function guardianNameMatches(typedName, scannedName) {
+    const typed = nameTokens(typedName);
+    const scanned = new Set(nameTokens(scannedName));
+    if (typed.length === 0 || scanned.size === 0) return false;
+    return [typed[0], typed[typed.length - 1]].every(t => scanned.has(t));
+}
+
 function mapIdScan(ocrData, typedName = '') {
     const mapped = {
         id_read: false,
@@ -263,7 +288,7 @@ function mapIdScan(ocrData, typedName = '') {
     return mapped;
 }
 
-router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ name: 'frontId', maxCount: 1 }, { name: 'backId', maxCount: 1 }]), async (req, res) => {
+router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ name: 'frontId', maxCount: 1 }, { name: 'backId', maxCount: 1 }, { name: 'guardianId', maxCount: 1 }]), async (req, res) => {
     const { username, full_name, email, verification_method, guardian_name, guardian_contact, guardian_relationship } = req.body || {};
     try {
         const isUnderage = verification_method === 'guardian';
@@ -278,6 +303,10 @@ router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ na
         if (isUnderage && (!guardian_name || !guardian_contact || !guardian_relationship)) {
             cleanupUpload(req.files);
             return res.status(400).json({ error: 'Guardian name, contact, and relationship are required for underage registration' });
+        }
+        if (isUnderage && (!req.files || !req.files['guardianId'])) {
+            cleanupUpload(req.files);
+            return res.status(400).json({ error: "A photo of the guardian's valid ID is required for underage registration" });
         }
 
         // Check if username or email already exists
@@ -326,7 +355,37 @@ router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ na
             }
             cleanupUpload(req.files);
         } else {
+            // The guardian's ID is verification, not convenience: it exists to
+            // show that the named guardian is a real person who consented. So
+            // unlike the customer's own card - where an unreadable scan must
+            // never block a registration, because the category it feeds is only
+            // a queue priority - this one is refused rather than waved through.
+            //
+            // Both refusals are retryable and say which problem it is. A pass on
+            // an unreadable photo would make the check bypassable by submitting
+            // a blurry one, which is worse than asking for a better picture.
+            const guardianScan = await aiServices.ocrScan(req.files['guardianId'][0].path);
+            const scannedName = guardianScan && guardianScan.name ? guardianScan.name : '';
             cleanupUpload(req.files);
+
+            if (!scannedName) {
+                console.warn(`[Registration] Guardian ID unreadable for "${username}" - registration refused, retake requested.`);
+                return res.status(400).json({
+                    error: "The guardian's ID could not be read. Please retake the photo in better light,"
+                        + ' with the whole card in frame.',
+                    guardian_id_unreadable: true
+                });
+            }
+            if (!guardianNameMatches(guardian_name, scannedName)) {
+                // The customer is holding this card, so naming what it says is
+                // what makes the error actionable rather than a dead end.
+                console.warn(`[Registration] Guardian ID name did not match for "${username}" - registration refused.`);
+                return res.status(400).json({
+                    error: `The name on the guardian's ID ("${scannedName}") does not match the guardian name you entered`
+                        + ` ("${guardian_name}"). Use the guardian's own ID, or correct the name.`,
+                    guardian_name_mismatch: true
+                });
+            }
         }
 
         // Create pending registration

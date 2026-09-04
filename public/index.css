@@ -1177,6 +1177,13 @@ body {
     color: #4B5563;
 }
 
+/* The Terms and the Forgot-password dialogs are opened from inside the auth
+   panel, and .auth-overlay is z-index 600 while shared.css puts .modal-overlay
+   at 200 - so both opened *behind* the panel that opened them, which reads as a
+   dead link. Raised here rather than per-id: every modal on this page is opened
+   from that panel, so the rule belongs to the page, not to one dialog. */
+.modal-overlay { z-index: 700; }
+
 /* Three name fields on one desktop row; on a phone the surname takes its own
    line rather than squeezing three boxes into 375px. The middle initial is one
    character wide, so it gets a fixed column instead of a share of the space. */

@@ -398,12 +398,13 @@ function switchAuthTab(tab) {
         // Ensure forms are reset
         document.getElementById('reg-step1-form').reset();
     syncTermsGate();
-        syncNoMiddleGate();   // reset() restores the checkbox but not the disabled state it drove
+        syncNoMiddleGate();            // reset() restores the checkbox but not the disabled state it drove
+        syncNoMiddleGate('reg-guardian');
         document.getElementById('reg-step2-form').reset();
         document.getElementById('reg-step3-form').reset();
         document.getElementById('preview-front').innerHTML = '<i class="fa-solid fa-address-card"></i>';
         document.getElementById('preview-back').innerHTML = '<i class="fa-solid fa-address-card"></i>';
-        registrationState.blobs = { front: null, back: null };
+        registrationState.blobs = { front: null, back: null, guardian: null };
         setVerificationMethod('id');
     }
 }
@@ -414,23 +415,39 @@ function switchAuthTab(tab) {
 // `users.full_name` still take one string, so the three are composed here -
 // one field on the wire means nothing downstream (the username suggester, the
 // PDF letterhead, every screen that prints a patient's name) has to change.
+// Both the customer's name and the guardian's name are asked for in three
+// fields, so every helper takes the id prefix: 'reg' for the customer,
+// 'reg-guardian' for the guardian.
 function regNamePart(id) {
     const el = document.getElementById(id);
     return el ? el.value.trim() : '';
 }
 
-function regMiddleInitial() {
-    const box = document.getElementById('reg-no-middle');
+function regMiddleInitial(prefix = 'reg') {
+    const box = document.getElementById(`${prefix}-no-middle`);
     if (box && box.checked) return '';
     // One letter, uppercased; the field is maxlength=1 but a paste can still
     // put punctuation in it.
-    return regNamePart('reg-middleinitial').replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 1);
+    return regNamePart(`${prefix}-middleinitial`).replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 1);
 }
 
-function regFullName() {
-    const mi = regMiddleInitial();
-    return [regNamePart('reg-firstname'), mi ? mi + '.' : '', regNamePart('reg-lastname')]
+function regFullName(prefix = 'reg') {
+    const mi = regMiddleInitial(prefix);
+    return [regNamePart(`${prefix}-firstname`), mi ? mi + '.' : '', regNamePart(`${prefix}-lastname`)]
         .filter(Boolean).join(' ');
+}
+
+// The same three-field rule, for either name: both ends required, and the
+// middle initial either given or explicitly disclaimed.
+function regNameProblem(prefix, label) {
+    if (!regNamePart(`${prefix}-firstname`) || !regNamePart(`${prefix}-lastname`)) {
+        return `${label} first name and last name are required.`;
+    }
+    const box = document.getElementById(`${prefix}-no-middle`);
+    if (!regMiddleInitial(prefix) && !(box && box.checked)) {
+        return `Enter ${label.toLowerCase()} middle initial, or tick "No middle initial".`;
+    }
+    return null;
 }
 
 // Splits a scanned name across the three fields. Prefill only - the patient
@@ -450,9 +467,9 @@ function splitScannedName(name) {
 
 // The checkbox and the initial box are one control: ticking "no middle initial"
 // clears the box and disables it, so the form cannot carry both claims at once.
-function syncNoMiddleGate() {
-    const box = document.getElementById('reg-no-middle');
-    const mi = document.getElementById('reg-middleinitial');
+function syncNoMiddleGate(prefix = 'reg') {
+    const box = document.getElementById(`${prefix}-no-middle`);
+    const mi = document.getElementById(`${prefix}-middleinitial`);
     if (!box || !mi) return;
     mi.disabled = box.checked;
     if (box.checked) mi.value = '';
@@ -575,21 +592,19 @@ function validateCurrentStep() {
     const errEl = document.getElementById('reg-error');
     
     if (step === 1) {
-        const firstName = regNamePart('reg-firstname');
-        const lastName = regNamePart('reg-lastname');
         const username = document.getElementById('reg-username').value.trim();
         const email = document.getElementById('reg-email').value.trim();
-        if (!firstName || !lastName || !username || !email) {
-            errEl.textContent = 'First name, last name, username, and email are required.';
-            errEl.classList.add('show');
-            return false;
-        }
         // An empty initial and "I have no middle name" are different answers,
         // and the desk cannot tell them apart later, so one of them has to be
         // stated here.
-        const noMiddle = document.getElementById('reg-no-middle');
-        if (!regMiddleInitial() && !(noMiddle && noMiddle.checked)) {
-            errEl.textContent = 'Enter your middle initial, or tick "No middle initial".';
+        const nameProblem = regNameProblem('reg', 'Your');
+        if (nameProblem) {
+            errEl.textContent = nameProblem;
+            errEl.classList.add('show');
+            return false;
+        }
+        if (!username || !email) {
+            errEl.textContent = 'Username and email are required.';
             errEl.classList.add('show');
             return false;
         }
@@ -599,10 +614,23 @@ function validateCurrentStep() {
             return false;
         }
         if (registrationState.verificationMethod === 'guardian') {
-            const missing = ['reg-guardian-name', 'reg-guardian-contact', 'reg-guardian-relationship']
+            const guardianProblem = regNameProblem('reg-guardian', "Guardian's");
+            if (guardianProblem) {
+                errEl.textContent = guardianProblem;
+                errEl.classList.add('show');
+                return false;
+            }
+            // The photo is what the server checks the typed name against, so
+            // there is nothing to verify without it.
+            if (!registrationState.blobs.guardian) {
+                errEl.textContent = "A photo of the guardian's valid ID is required.";
+                errEl.classList.add('show');
+                return false;
+            }
+            const missing = ['reg-guardian-contact', 'reg-guardian-relationship']
                 .some(id => !document.getElementById(id).value.trim());
             if (missing) {
-                errEl.textContent = 'Guardian name, contact, and relationship are required.';
+                errEl.textContent = 'Guardian contact and relationship are required.';
                 errEl.classList.add('show');
                 return false;
             }
@@ -684,9 +712,10 @@ async function submitStep1() {
         formData.append('frontId', registrationState.blobs.front, 'front-id.jpg');
         formData.append('backId', registrationState.blobs.back, 'back-id.jpg');
     } else {
-        formData.append('guardian_name', document.getElementById('reg-guardian-name').value.trim());
+        formData.append('guardian_name', regFullName('reg-guardian'));
         formData.append('guardian_contact', document.getElementById('reg-guardian-contact').value.trim());
         formData.append('guardian_relationship', document.getElementById('reg-guardian-relationship').value.trim());
+        formData.append('guardianId', registrationState.blobs.guardian, 'guardian-id.jpg');
     }
     
     try {
@@ -1008,7 +1037,15 @@ async function captureRegID() {
         const preview = document.getElementById(`preview-${currentSide}`);
         const dataUrl = canvas.toDataURL('image/jpeg');
         preview.innerHTML = `<img src="${dataUrl}" alt="${currentSide} id">`;
-        status.textContent = `${currentSide.toUpperCase()} captured ✓`;
+        // The guardian capture has its own hint line; the ID section's status
+        // element is hidden while the guardian path is showing, so writing the
+        // confirmation there would say it to nobody.
+        const target = currentSide === 'guardian'
+            ? (document.getElementById('reg-guardian-id-status') || status)
+            : status;
+        target.textContent = currentSide === 'guardian'
+            ? 'Guardian ID captured ✓ — the name on it must match the guardian name above.'
+            : `${currentSide.toUpperCase()} captured ✓`;
         stopRegCamera();
         runIdOcrPreview(blob, currentSide);
     }, 'image/jpeg', 0.9);
@@ -1194,6 +1231,23 @@ function setupRegisterHandlers() {
     const nameFields = ['reg-firstname', 'reg-middleinitial', 'reg-lastname']
         .map(id => document.getElementById(id)).filter(Boolean);
     nameFields.forEach(f => f.addEventListener('keydown', () => { fullNameManuallyEdited = true; }));
+
+    const guardianNameFields = ['reg-guardian-firstname', 'reg-guardian-middleinitial', 'reg-guardian-lastname']
+        .map(id => document.getElementById(id)).filter(Boolean);
+    const guardianNoMiddle = document.getElementById('reg-guardian-no-middle');
+    if (guardianNoMiddle) {
+        guardianNoMiddle.addEventListener('change', () => syncNoMiddleGate('reg-guardian'));
+        syncNoMiddleGate('reg-guardian');
+    }
+    // Re-typing the guardian's name after a rejected match should clear the
+    // rejection, so the customer is not reading a stale verdict.
+    guardianNameFields.forEach(f => f.addEventListener('input', () => {
+        const status = document.getElementById('reg-guardian-id-status');
+        if (status) {
+            status.textContent = 'The name on this ID must match the guardian name above.';
+            status.classList.remove('text-danger');
+        }
+    }));
 
     const noMiddleBox = document.getElementById('reg-no-middle');
     if (noMiddleBox) {

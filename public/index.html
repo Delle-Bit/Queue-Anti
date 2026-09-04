@@ -400,21 +400,19 @@
                                 </div>
                             </div>
                         </div>
-                        <!-- Camera Overlay -->
-                        <div id="reg-camera-overlay" style="display:none; background:rgba(0,0,0,0.9); border-radius:8px; padding:12px; margin-top:10px;">
-                            <video id="reg-camera-stream" style="width:100%; border-radius:6px; background:black; aspect-ratio:4/3; object-fit:cover;"></video>
-                            <div style="display:flex; gap:8px; margin-top:8px;">
-                                <button type="button" class="btn btn-sm btn-primary" id="reg-camera-capture" onclick="captureRegID()" style="flex:1;">Capture</button>
-                                <button type="button" class="btn btn-sm btn-secondary" onclick="stopRegCamera()" style="flex:1;">Cancel</button>
-                            </div>
-                            <canvas id="reg-capture-canvas" style="display:none;"></canvas>
-                        </div>
                         <small class="text-muted" id="reg-camera-status">Front and Back ID images are required</small>
                     </div>
                     <div id="guardian-verification-section" style="display:none;">
                         <div class="form-group">
-                            <label class="form-label" for="reg-guardian-name">Guardian Full Name</label>
-                            <input type="text" id="reg-guardian-name" class="form-input" placeholder="Parent or guardian name">
+                            <label class="form-label" for="reg-guardian-firstname">Guardian Full Name</label>
+                            <div class="reg-name-grid">
+                                <input type="text" id="reg-guardian-firstname" class="form-input" placeholder="First name" maxlength="100" autocomplete="off" aria-label="Guardian first name">
+                                <input type="text" id="reg-guardian-middleinitial" class="form-input reg-name-mi" placeholder="M.I." maxlength="1" autocomplete="off" aria-label="Guardian middle initial">
+                                <input type="text" id="reg-guardian-lastname" class="form-input reg-name-last" placeholder="Last name" maxlength="100" autocomplete="off" aria-label="Guardian last name">
+                            </div>
+                            <label class="reg-no-mi" for="reg-guardian-no-middle">
+                                <input type="checkbox" id="reg-guardian-no-middle"> No middle initial
+                            </label>
                         </div>
                         <div class="form-group">
                             <label class="form-label" for="reg-guardian-contact">Guardian Contact Number</label>
@@ -424,7 +422,41 @@
                             <label class="form-label" for="reg-guardian-relationship">Relationship to Customer</label>
                             <input type="text" id="reg-guardian-relationship" class="form-input" placeholder="Parent, sibling, legal guardian">
                         </div>
+                        <!-- The guardian's ID is the evidence behind the guardian's
+                             name. The server reads it and refuses the registration
+                             when the name on the card is not the name typed above,
+                             so this is required, not optional. -->
+                        <div class="form-group">
+                            <label class="form-label"><i class="fa-solid fa-id-card"></i> Guardian's Valid ID (Required)</label>
+                            <div class="id-verification-container">
+                                <div class="id-capture-box">
+                                    <span class="id-label">Guardian ID</span>
+                                    <div class="id-preview" id="preview-guardian">
+                                        <i class="fa-solid fa-address-card"></i>
+                                    </div>
+                                    <div class="id-actions">
+                                        <button type="button" class="btn btn-sm btn-outline" onclick="startIdAction('guardian', 'camera')" title="Capture Guardian ID"><i class="fa-solid fa-camera"></i></button>
+                                        <button type="button" class="btn btn-sm btn-outline" onclick="startIdAction('guardian', 'upload')" title="Upload Guardian ID"><i class="fa-solid fa-upload"></i></button>
+                                        <input type="file" id="upload-guardian" hidden accept="image/*" onchange="handleFileUpload(event, 'guardian')">
+                                    </div>
+                                </div>
+                            </div>
+                            <small class="text-muted" id="reg-guardian-id-status">The name on this ID must match the guardian name above.</small>
+                        </div>
                         <small class="text-muted">This account will be marked as underage and verified through guardian information.</small>
+                    </div>
+
+                    <!-- One camera for every capture on this form. It sits outside
+                         both verification sections because either one can open it,
+                         and inside the ID section it was hidden exactly when the
+                         guardian path needed it. -->
+                    <div id="reg-camera-overlay" style="display:none; background:rgba(0,0,0,0.9); border-radius:8px; padding:12px; margin-top:10px;">
+                        <video id="reg-camera-stream" style="width:100%; border-radius:6px; background:black; aspect-ratio:4/3; object-fit:cover;"></video>
+                        <div style="display:flex; gap:8px; margin-top:8px;">
+                            <button type="button" class="btn btn-sm btn-primary" id="reg-camera-capture" onclick="captureRegID()" style="flex:1;">Capture</button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="stopRegCamera()" style="flex:1;">Cancel</button>
+                        </div>
+                        <canvas id="reg-capture-canvas" style="display:none;"></canvas>
                     </div>
                     <div class="form-group">
                         <label class="checkbox-label" for="reg-terms-accept">
