@@ -862,7 +862,13 @@ async function runIdOcrPreview(blob, side) {
         const res = await fetch('/api/auth/ocr', { method: 'POST', body: formData });
         const data = await res.json();
         if (!res.ok || !data.success) {
-            if (status) status.textContent = 'Front and Back ID images are required';
+            // The images are attached - the scan itself failed (the server is
+            // down, every reader is out of quota, the request timed out). Naming
+            // the provider or the status code here would put a quota message in
+            // front of a patient, which is the front desk's problem and not
+            // theirs; "images are required" was worse still, sending them to
+            // look for a file they had already attached.
+            if (status) status.textContent = 'Could not scan the ID right now — please type your details in.';
             return;
         }
         registrationState.ocrResult = data;
@@ -875,10 +881,14 @@ async function runIdOcrPreview(blob, side) {
             // id_read false means every reader was tried and none could make
             // the card out. The server no longer invents a name and a category
             // to fill that gap, so the honest thing is to ask for the details
-            // and to say the ID itself is still fine to submit - the front desk
-            // sets the category when it approves the registration.
+            // and to say the ID itself is still fine to submit.
+            //
+            // It does not promise the front desk will confirm anything: there
+            // is no approval step - verify-otp creates the account outright,
+            // filed as Regular - and correcting a category is an administrator
+            // action in Manage Accounts, which the front desk cannot perform.
             if (!data.id_read) {
-                status.textContent = 'Could not read the ID — please type your details in. The front desk will confirm them.';
+                status.textContent = 'Could not read the ID — please type your details in. You can still continue.';
                 return;
             }
             const parts = [];
@@ -887,7 +897,8 @@ async function runIdOcrPreview(blob, side) {
             status.textContent = parts.length ? `Detected: ${parts.join(' — ')}` : 'ID scanned — no details detected';
         }
     } catch (err) {
-        if (status) status.textContent = 'Front and Back ID images are required';
+        // Network error, same reasoning as the non-ok branch above.
+        if (status) status.textContent = 'Could not scan the ID right now — please type your details in.';
     }
 }
 
