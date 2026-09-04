@@ -1177,6 +1177,33 @@ body {
     color: #4B5563;
 }
 
+/* Three name fields on one desktop row; on a phone the surname takes its own
+   line rather than squeezing three boxes into 375px. The middle initial is one
+   character wide, so it gets a fixed column instead of a share of the space. */
+.reg-name-grid {
+    display: grid;
+    grid-template-columns: 1fr 84px 1fr;
+    gap: 10px;
+}
+.reg-name-mi { text-align: center; text-transform: uppercase; }
+.reg-name-mi:disabled { opacity: 0.5; cursor: not-allowed; }
+.reg-no-mi {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    cursor: pointer;
+    min-height: 44px;          /* the label is the hit area, so it owns the floor */
+}
+.reg-no-mi input { width: 18px; height: 18px; accent-color: var(--primary); }
+
+@media (max-width: 640px) {
+    .reg-name-grid { grid-template-columns: 1fr 84px; }
+    .reg-name-grid .reg-name-last { grid-column: 1 / -1; }
+}
+
 /* Input with icon */
 .input-icon-wrap {
     position: relative;

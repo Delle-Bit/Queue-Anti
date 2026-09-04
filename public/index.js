@@ -398,6 +398,7 @@ function switchAuthTab(tab) {
         // Ensure forms are reset
         document.getElementById('reg-step1-form').reset();
     syncTermsGate();
+        syncNoMiddleGate();   // reset() restores the checkbox but not the disabled state it drove
         document.getElementById('reg-step2-form').reset();
         document.getElementById('reg-step3-form').reset();
         document.getElementById('preview-front').innerHTML = '<i class="fa-solid fa-address-card"></i>';
@@ -405,6 +406,56 @@ function switchAuthTab(tab) {
         registrationState.blobs = { front: null, back: null };
         setVerificationMethod('id');
     }
+}
+
+// ── Register: the name, in three fields ────────────────────────────
+// The form asks for first name, middle initial and last name, because that is
+// what a Philippine clinic form asks for and what an ID prints. The server and
+// `users.full_name` still take one string, so the three are composed here -
+// one field on the wire means nothing downstream (the username suggester, the
+// PDF letterhead, every screen that prints a patient's name) has to change.
+function regNamePart(id) {
+    const el = document.getElementById(id);
+    return el ? el.value.trim() : '';
+}
+
+function regMiddleInitial() {
+    const box = document.getElementById('reg-no-middle');
+    if (box && box.checked) return '';
+    // One letter, uppercased; the field is maxlength=1 but a paste can still
+    // put punctuation in it.
+    return regNamePart('reg-middleinitial').replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 1);
+}
+
+function regFullName() {
+    const mi = regMiddleInitial();
+    return [regNamePart('reg-firstname'), mi ? mi + '.' : '', regNamePart('reg-lastname')]
+        .filter(Boolean).join(' ');
+}
+
+// Splits a scanned name across the three fields. Prefill only - the patient
+// sees the result and can correct it before submitting.
+//
+// ponytail: last token is the surname. A compound Filipino surname ("Delos
+// Reyes", "San Juan") lands its first word in the middle initial instead. Fix
+// by asking the OCR for the parts separately if that turns out to matter; the
+// patient can already correct it on screen.
+function splitScannedName(name) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return null;
+    if (parts.length === 1) return { first: parts[0], middle: '', last: '' };
+    if (parts.length === 2) return { first: parts[0], last: parts[1], middle: '' };
+    return { first: parts[0], last: parts[parts.length - 1], middle: parts[1].charAt(0) };
+}
+
+// The checkbox and the initial box are one control: ticking "no middle initial"
+// clears the box and disables it, so the form cannot carry both claims at once.
+function syncNoMiddleGate() {
+    const box = document.getElementById('reg-no-middle');
+    const mi = document.getElementById('reg-middleinitial');
+    if (!box || !mi) return;
+    mi.disabled = box.checked;
+    if (box.checked) mi.value = '';
 }
 
 // ── Register State ─────────────────────────────────────────────────
@@ -524,11 +575,21 @@ function validateCurrentStep() {
     const errEl = document.getElementById('reg-error');
     
     if (step === 1) {
-        const fullName = document.getElementById('reg-fullname').value.trim();
+        const firstName = regNamePart('reg-firstname');
+        const lastName = regNamePart('reg-lastname');
         const username = document.getElementById('reg-username').value.trim();
         const email = document.getElementById('reg-email').value.trim();
-        if (!fullName || !username || !email) {
-            errEl.textContent = 'Full name, username, and email are required.';
+        if (!firstName || !lastName || !username || !email) {
+            errEl.textContent = 'First name, last name, username, and email are required.';
+            errEl.classList.add('show');
+            return false;
+        }
+        // An empty initial and "I have no middle name" are different answers,
+        // and the desk cannot tell them apart later, so one of them has to be
+        // stated here.
+        const noMiddle = document.getElementById('reg-no-middle');
+        if (!regMiddleInitial() && !(noMiddle && noMiddle.checked)) {
+            errEl.textContent = 'Enter your middle initial, or tick "No middle initial".';
             errEl.classList.add('show');
             return false;
         }
@@ -615,7 +676,7 @@ async function submitStep1() {
     
     const formData = new FormData();
     formData.append('username', document.getElementById('reg-username').value.trim());
-    formData.append('full_name', document.getElementById('reg-fullname').value.trim());
+    formData.append('full_name', regFullName());
     formData.append('email', document.getElementById('reg-email').value.trim());
     formData.append('verification_method', registrationState.verificationMethod);
     
@@ -872,10 +933,16 @@ async function runIdOcrPreview(blob, side) {
             return;
         }
         registrationState.ocrResult = data;
-        const fullNameField = document.getElementById('reg-fullname');
-        if (data.name && !fullNameManuallyEdited) {
-            fullNameField.value = data.name;
-            fullNameField.dispatchEvent(new Event('input', { bubbles: true }));
+        const scanned = data.name && !fullNameManuallyEdited ? splitScannedName(data.name) : null;
+        if (scanned) {
+            document.getElementById('reg-firstname').value = scanned.first || '';
+            document.getElementById('reg-lastname').value = scanned.last || '';
+            // The checkbox is deliberately left alone. A card that prints no
+            // middle name is not proof the patient has none - only they can say
+            // that, and validation makes them.
+            const mi = document.getElementById('reg-middleinitial');
+            if (scanned.middle && !mi.disabled) mi.value = scanned.middle;
+            document.getElementById('reg-firstname').dispatchEvent(new Event('input', { bubbles: true }));
         }
         if (status) {
             // id_read false means every reader was tried and none could make
@@ -1124,14 +1191,27 @@ function setupRegisterHandlers() {
     // keydown (not input) so the OCR prefill below — which sets .value and
     // dispatches a synthetic 'input' event to trigger the suggestion below —
     // doesn't itself get mistaken for the user having typed their own name.
-    const fullNameField = document.getElementById('reg-fullname');
-    fullNameField.addEventListener('keydown', () => { fullNameManuallyEdited = true; });
+    const nameFields = ['reg-firstname', 'reg-middleinitial', 'reg-lastname']
+        .map(id => document.getElementById(id)).filter(Boolean);
+    nameFields.forEach(f => f.addEventListener('keydown', () => { fullNameManuallyEdited = true; }));
+
+    const noMiddleBox = document.getElementById('reg-no-middle');
+    if (noMiddleBox) {
+        noMiddleBox.addEventListener('change', () => {
+            fullNameManuallyEdited = true;
+            syncNoMiddleGate();
+            // The suggester reads the composed name, so a cleared initial has
+            // to re-run it.
+            nameFields[0].dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        syncNoMiddleGate();
+    }
 
     let suggestTimer = null;
-    fullNameField.addEventListener('input', (e) => {
+    const onNameInput = () => {
         if (usernameManuallyEdited) return;
         clearTimeout(suggestTimer);
-        const name = e.target.value.trim();
+        const name = regFullName();
         if (!name) { usernameField.value = ''; return; }
         suggestTimer = setTimeout(async () => {
             try {
@@ -1142,7 +1222,8 @@ function setupRegisterHandlers() {
                 }
             } catch (err) { /* leave field as-is; user can type their own */ }
         }, 400);
-    });
+    };
+    nameFields.forEach(f => f.addEventListener('input', onNameInput));
 }
 
 // Initialize register handlers on load
