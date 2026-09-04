@@ -6,8 +6,6 @@
     <link rel="icon" href="/images/examplelogo.svg">
     <link rel="stylesheet" href="shared.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
-    <script src="https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.js"></script>
 </head>
 <body>
     <button class="hamburger"><i class="fa-solid fa-bars"></i></button>
@@ -239,10 +237,6 @@
 
 
         <!-- WALK-IN INTAKE -->
-        <!-- Markup is built by walkin-screen.js, which the front desk and both
-             admin dashboards share - see the comment at the top of that file. -->
-        <div id="section-walkin" class="content-section" style="display:none;"></div>
-
         <div id="section-services" class="content-section" style="display:none;">
             <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-box-open"></i> Service Management</div></div>
             <button class="btn btn-primary" onclick="prepareNewService()"><i class="fa-solid fa-plus"></i> Add Package</button></div>
@@ -288,13 +282,6 @@
                         <small class="text-muted">Used for the sidebar logo, the browser tab icon, and the PDF letterhead. Leave blank for the default logo.</small>
                     </div>
                     <div class="form-group">
-                        <label class="form-label" for="cust-theme">Theme</label>
-                        <select class="form-select" id="cust-theme">
-                            <option value="light">Light</option>
-                            <option value="dark">Dark</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
                         <label class="form-label" for="cust-nav-color-text">Navbar Color (Hex)</label>
                         <div style="display:flex;gap:8px;">
                             <input type="color" id="cust-nav-color" class="form-input" style="width:50px;padding:2px;" oninput="syncNavColorInputs('picker')" aria-label="Navbar color picker">
@@ -313,12 +300,14 @@
                     </div>
                 </div>
                 <div class="card">
-                    <h3 class="mb-md">Page Previews</h3>
-                    <div class="stats-grid">
-                        <div class="stat-card" onclick="window.open('/customer.html','_blank')" style="cursor:pointer"><div class="stat-icon blue"><i class="fa-solid fa-user"></i></div><div class="stat-info"><div class="stat-label">Preview</div><div class="stat-value" style="font-size:1em">Customer</div></div></div>
-                        <div class="stat-card" onclick="window.open('/frontdesk.html','_blank')" style="cursor:pointer"><div class="stat-icon green"><i class="fa-solid fa-cash-register"></i></div><div class="stat-info"><div class="stat-label">Preview</div><div class="stat-value" style="font-size:1em">Frontdesk</div></div></div>
-                        <div class="stat-card" onclick="window.open('/laboratory.html','_blank')" style="cursor:pointer"><div class="stat-icon orange"><i class="fa-solid fa-microscope"></i></div><div class="stat-info"><div class="stat-label">Preview</div><div class="stat-value" style="font-size:1em">Laboratory</div></div></div>
-                        <div class="stat-card" onclick="window.open('/owner.html','_blank')" style="cursor:pointer"><div class="stat-icon purple"><i class="fa-solid fa-building"></i></div><div class="stat-info"><div class="stat-label">Preview</div><div class="stat-value" style="font-size:1em">Owner</div></div></div>
+                    <div class="card-header"><div class="card-title"><i class="fa-solid fa-user-clock"></i> Staff Sessions</div></div>
+                    <div class="form-group">
+                        <label class="form-label" for="cust-idle-timeout">Sign out after (minutes of inactivity)</label>
+                        <input type="number" id="cust-idle-timeout" class="form-input" min="5" max="120" step="1" placeholder="15">
+                        <small class="text-muted">Applies to staff accounts only - a patient on their own phone is never signed out this way. The countdown is reset by real activity (a click, a keystroke, a scroll), not by the dashboards refreshing themselves, so an unattended screen does expire. Between 5 and 120 minutes; open dashboards pick up a change within a minute, with no restart.</small>
+                    </div>
+                    <div class="flex-center gap-sm" style="justify-content:flex-start;flex-wrap:wrap;">
+                        <button class="btn btn-success" onclick="saveCustomization()"><i class="fa-solid fa-save"></i> Save Settings</button>
                     </div>
                 </div>
             </div>
@@ -444,9 +433,6 @@
     <script src="/socket.io/socket.io.js"></script>
     <script src="shared.js"></script>
     <script src="admin-shared.js"></script>
-    <script src="clinic-pdf.js"></script>
-    <script src="walkin-forms.js"></script>
-    <script src="walkin-screen.js"></script>
     <script src="owner.js"></script>
 </body>
 </html>

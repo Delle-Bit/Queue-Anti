@@ -53,12 +53,16 @@ function logout() {
 // the Customize section of admintechnical.html / owner.html. GET /api/settings is
 // public (served from server.js, not the admin router) so the landing page can
 // brand itself before anyone signs in.
+// No `theme` here on purpose. Light or dark belongs to the viewer, not to the
+// deployment - see the THEME block below. This object is also what
+// fetchSiteSettings() copies off /api/settings and what resetCustomization()
+// posts back, so a key listed here is a key the server must accept.
 const SITE_DEFAULTS = {
     site_name: 'Medical Clinic',
     logo_path: '/images/examplelogo.svg',
-    theme: 'light',
     navbar_color: '#24303A',   // matches --bg-sidebar in shared.css
-    background_image: ''
+    background_image: '',
+    idle_timeout_minutes: 15
 };
 
 // Elements that carry the clinic name or logo. Kept here rather than as data-
@@ -147,8 +151,115 @@ function applyNavbarColor(color) {
     root.setProperty('--sidebar-divider', isLight ? 'rgba(26,32,40,0.12)' : 'rgba(255,255,255,0.08)');
 }
 
+// ── THEME ───────────────────────────────────────────────────────────────────
+// Light or dark is the viewer's own choice, kept in their browser and nowhere
+// else. It used to be one `settings.theme` row an administrator picked for
+// everybody, which is the wrong shape for the decision: a patient reading their
+// queue number on a phone at midnight and a front desk under fluorescent light
+// do not want the same answer, and neither of them is the administrator.
+//
+// Three states, not two. An explicit 'light' or 'dark' is stored; *nothing*
+// stored means "follow the device", read from prefers-color-scheme - so a phone
+// already set to dark gets a dark page without anybody choosing anything, and
+// an un-chosen page keeps following the device afterwards.
+const THEME_STORAGE_KEY = 'clinicTheme';
+
+function systemPrefersDark() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+}
+
+// 'light', 'dark', or null for "no choice made".
+function readThemePreference() {
+    try {
+        const stored = localStorage.getItem(THEME_STORAGE_KEY);
+        return stored === 'light' || stored === 'dark' ? stored : null;
+    } catch (e) {
+        // A browser with site data blocked throws on access rather than
+        // answering null, and a colour scheme is not worth a broken page.
+        return null;
+    }
+}
+
+function resolvedTheme() {
+    return readThemePreference() || (systemPrefersDark() ? 'dark' : 'light');
+}
+
+// The patient's own dashboard, and nothing else.
+//
+// Two exclusions, for two different reasons:
+//
+// index.html has no sidebar and is not theme-capable at all - index.css is a
+// hand-designed light page with 219 colour literals against 15 token uses, so
+// flipping the shared tokens under it darkens the form fields and leaves the
+// hero, the cards and the auth panel lit. Half-themed is worse than either
+// palette on its own.
+//
+// The staff dashboards are capable of it and deliberately left out. They ran
+// light because that was the `settings.theme` default, and removing that
+// setting must not quietly repaint every counter in the clinic to whatever the
+// operator's OS happens to be set to - that is a change nobody asked for, on
+// screens shared by a shift rather than owned by one person. They stay light.
+// Give them the toggle (a `data-theme-toggle` button, as customer.html has) and
+// this test can widen to the shell.
+function isThemeableShell() {
+    return !!document.getElementById('sidebar') && getRole() === 'customer';
+}
+
 function applyTheme(theme) {
-    document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+    const mode = isThemeableShell() && theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', mode);
+}
+
+// Pass null to go back to following the device.
+function setThemePreference(mode) {
+    try {
+        if (mode === 'light' || mode === 'dark') localStorage.setItem(THEME_STORAGE_KEY, mode);
+        else localStorage.removeItem(THEME_STORAGE_KEY);
+    } catch (e) { /* the page still themes for this visit */ }
+    applyTheme(resolvedTheme());
+    syncThemeToggles();
+    // The scrim over a background photo is picked to suit the theme underneath
+    // it, so it has to be repainted here - it does not go through applyTheme.
+    applyBackgroundImage(siteSettings.background_image);
+}
+
+function toggleTheme() {
+    setThemePreference(resolvedTheme() === 'dark' ? 'light' : 'dark');
+}
+
+// Any element carrying data-theme-toggle. A page without one syncs nothing.
+function syncThemeToggles() {
+    const dark = resolvedTheme() === 'dark';
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+        btn.setAttribute('aria-pressed', String(dark));
+        // The control says what it will do, not what it currently is - a moon
+        // that means "you are in light mode" and a moon that means "go dark"
+        // are indistinguishable, and only one of them is useful.
+        btn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
+        btn.title = dark ? 'Switch to light mode' : 'Switch to dark mode';
+        const icon = btn.querySelector('i');
+        if (icon) icon.className = dark ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+        const label = btn.querySelector('[data-theme-label]');
+        if (label) label.textContent = dark ? 'Light mode' : 'Dark mode';
+    });
+}
+
+// Applied at parse time, not on DOMContentLoaded. This file already starts its
+// branding fetch early to keep the flash down, and a theme that lands after
+// first paint flashes far worse than a logo does.
+applyTheme(resolvedTheme());
+
+// A viewer who has not chosen follows their device live, so switching the OS to
+// dark moves the page with no reload. A viewer who has chosen stays put.
+if (window.matchMedia) {
+    const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const onSystemThemeChange = () => {
+        if (readThemePreference()) return;
+        applyTheme(resolvedTheme());
+        syncThemeToggles();
+    };
+    if (darkQuery.addEventListener) darkQuery.addEventListener('change', onSystemThemeChange);
+    else if (darkQuery.addListener) darkQuery.addListener(onSystemThemeChange);   // Safari < 14
 }
 
 // Strip anything that could close the url() literal or the surrounding quotes.
@@ -166,7 +277,7 @@ function applyBackgroundImage(url) {
     }
     // A scrim over the photo keeps page titles and muted text legible; the cards
     // on top of it are already opaque.
-    const scrim = siteSettings.theme === 'dark' ? 'rgba(21,27,33,0.78)' : 'rgba(247,248,250,0.78)';
+    const scrim = resolvedTheme() === 'dark' ? 'rgba(21,27,33,0.78)' : 'rgba(247,248,250,0.78)';
     body.style.backgroundImage = `linear-gradient(${scrim}, ${scrim}), url("${cssUrlValue(url)}")`;
     body.style.backgroundSize = 'cover';
     body.style.backgroundPosition = 'center';
@@ -207,7 +318,8 @@ function applyBranding() {
 function applyLoadedSettings() {
     const isAppShell = !!document.getElementById('sidebar');
     if (isAppShell) {
-        applyTheme(siteSettings.theme);
+        // No applyTheme() here: the theme is the viewer's, applied at parse
+        // time above and never waiting on a fetch.
         applyNavbarColor(siteSettings.navbar_color);
         applyBackgroundImage(siteSettings.background_image);
     }
@@ -235,7 +347,7 @@ async function refreshSiteSettings() {
 const CUSTOMIZE_FIELDS = {
     site_name: 'cust-site-name',
     logo_path: 'cust-logo-path',
-    theme: 'cust-theme',
+    idle_timeout_minutes: 'cust-idle-timeout',
     navbar_color: 'cust-nav-color',
     background_image: 'cust-bg-url'
 };
@@ -1107,14 +1219,19 @@ function promptReason({ title = 'Reason for this change', message = '',
 }
 
 // ── STAFF INACTIVITY TIMEOUT ────────────────────────────────────────────────
-// A staff terminal left alone for 15 minutes is signed out and returned to the
-// sign-in page. Only the browser can tell an idle terminal from a busy one, so
-// the clock lives here; the server is told about real activity through
+// A staff terminal left alone is signed out and returned to the sign-in page.
+// Only the browser can tell an idle terminal from a busy one, so the clock
+// lives here; the server is told about real activity through
 // /api/session/heartbeat and enforces the same limit on the token, so a closed
 // laptop cannot leave a usable session behind. See session_activity.js.
 
-const IDLE_LIMIT_MS = 15 * 60 * 1000;
-const IDLE_WARN_MS = 60 * 1000;          // warn one minute out
+// How long is an administrator's setting, so these two are `let`, not `const`:
+// the heartbeat response carries the current values and sendHeartbeat() assigns
+// them below. That is why a changed limit reaches an open dashboard within one
+// heartbeat with no reload and no second endpoint. The 15 minutes here is only
+// what the countdown uses before the first heartbeat answers.
+let idleLimitMs = 15 * 60 * 1000;
+let idleWarnMs = 60 * 1000;              // warn one minute out
 const HEARTBEAT_MIN_INTERVAL_MS = 60 * 1000;
 const IDLE_CHECK_INTERVAL_MS = 5 * 1000;
 
@@ -1146,7 +1263,18 @@ function sendHeartbeat(force = false) {
     const now = Date.now();
     if (!force && now - lastHeartbeatAt < HEARTBEAT_MIN_INTERVAL_MS) return;
     lastHeartbeatAt = now;
-    fetch('/api/session/heartbeat', { method: 'POST', headers: authHeaders() }).catch(() => {});
+    fetch('/api/session/heartbeat', { method: 'POST', headers: authHeaders() })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+            // The server owns the verdict, so it owns the numbers too. Taking
+            // them from the reply keeps the browser's countdown and the token
+            // check on the same deadline; a client guessing its own would warn
+            // at the wrong moment or not at all.
+            if (!data || !data.tracked) return;
+            if (Number(data.idle_limit_ms) > 0) idleLimitMs = Number(data.idle_limit_ms);
+            if (Number(data.warn_before_ms) > 0) idleWarnMs = Number(data.warn_before_ms);
+        })
+        .catch(() => {});
 }
 
 function dismissIdleWarning() {
@@ -1240,9 +1368,9 @@ function initIdleTimeout() {
 
     idleTimer = setInterval(() => {
         const idleFor = Date.now() - readLastActivity();
-        if (idleFor >= IDLE_LIMIT_MS) return endSessionForInactivity();
-        if (idleFor >= IDLE_LIMIT_MS - IDLE_WARN_MS) {
-            showIdleWarning(Math.max(1, Math.ceil((IDLE_LIMIT_MS - idleFor) / 1000)));
+        if (idleFor >= idleLimitMs) return endSessionForInactivity();
+        if (idleFor >= idleLimitMs - idleWarnMs) {
+            showIdleWarning(Math.max(1, Math.ceil((idleLimitMs - idleFor) / 1000)));
         } else {
             dismissIdleWarning();
         }
@@ -1606,6 +1734,7 @@ function skeletonFirstLoad(key) {
 // ── INIT ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     initSocket();
+    syncThemeToggles();   // the button is in the page markup, so it exists only now
     applySiteSettings();
     enhancePasswordToggles();
     enforcePasswordPolicy();

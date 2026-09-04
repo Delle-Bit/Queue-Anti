@@ -6,10 +6,17 @@
    What that changes:
    - Type is sized in vw/vh, not px, so one stylesheet fits a 24" counter
      monitor and a 55" wall panel without a breakpoint for each.
-   - The palette is fixed dark rather than theme-aware. A queue board has no
-     viewer preference to respect, dark burns less on an always-on panel, and
-     a board that changed colour when a staff member elsewhere toggled the
-     theme would just look broken.
+   - Dark is the default because it burns less on an always-on panel, but the
+     board can be switched to light from its own footer - a lobby with big
+     windows is a different room from a basement waiting area, and the panel is
+     the only thing that knows which one it is in. The choice is kept in that
+     machine's own browser (`clinicTheme` in localStorage, the same key the
+     dashboards use), never in a clinic-wide setting: one board going light
+     must not change what a patient sees on their phone.
+   - Every colour is a token because of that. A hardcoded value is a value the
+     light palette cannot reach, and half a dozen of them left the light board
+     looking half-dark - white ink on a pale panel, a black shadow under a white
+     card - which is worse than either palette on its own.
    - Contrast is pushed well past the 4.5:1 minimum, because the reading
      distance and the ambient light of a waiting room are both working
      against it.
@@ -29,6 +36,7 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
+/* Dark: the default, and what an unswitched board shows. */
 :root {
     --disp-bg: #161E25;
     --disp-panel: #24303A;          /* shared.css --bg-sidebar */
@@ -41,6 +49,62 @@
     --disp-brand-light: #F08A95;    /* --primary-light; the number */
     --disp-live: #4ADE80;
     --disp-radius: 16px;
+
+    /* The values that are not one flat colour, kept as tokens so the light
+       palette can restate them instead of every rule hardcoding a dark
+       assumption. */
+    --disp-calling-to: #8E1B29;                     /* second stop of the calling gradient */
+    --disp-calling-ink: #FFFFFF;                    /* on that gradient */
+    --disp-calling-ink-soft: rgba(255, 255, 255, 0.88);
+    --disp-calling-fill: rgba(255, 255, 255, 0.18); /* pill and chip backgrounds on it */
+    --disp-calling-edge: rgba(255, 255, 255, 0.40);
+    --disp-wash: rgba(198, 40, 58, 0.20);           /* the glow behind the masthead */
+    --disp-tint: rgba(232, 88, 107, 0.10);          /* the panel's own brand tint */
+    --disp-shadow: rgba(0, 0, 0, 0.35);
+    --disp-shadow-strong: rgba(0, 0, 0, 0.40);
+    --disp-ring: rgba(232, 88, 107, 0.22);          /* call pulse, resting */
+    --disp-ring-wide: rgba(232, 88, 107, 0.42);     /* call pulse, at full width */
+    --disp-ring-static: rgba(232, 88, 107, 0.35);   /* the reduced-motion stand-in */
+    --disp-dot-glow: rgba(74, 222, 128, 0.55);
+    --disp-dot-fade: rgba(74, 222, 128, 0);
+    --disp-offline: #FCA5A5;
+    --disp-on-brand: #FFFFFF;                       /* ink on a solid brand button */
+}
+
+/* Light. Only the tokens move.
+   The brand deepens rather than lightens here: --disp-brand-light (#F08A95) is
+   a 5.4:1 number on the dark panel and a 2:1 smear on a white one, so the light
+   board takes --primary itself for the number and the dark red for the
+   masthead rule. Measured, not assumed - see the contrast figures in the commit
+   that added this. */
+:root[data-theme="light"] {
+    --disp-bg: #F4F6F9;
+    --disp-panel: #FFFFFF;
+    --disp-panel-alt: #EEF1F6;
+    --disp-border: #D6DEE8;
+    --disp-text: #1B2733;
+    --disp-muted: #55636F;          /* 6.4:1 on --disp-panel */
+    --disp-brand: #C6283A;
+    --disp-brand-deep: #9F1F2E;     /* shared.css --primary-dark */
+    --disp-brand-light: #B21F30;    /* the number: 6.6:1 on white */
+    --disp-live: #1B8F4C;           /* #4ADE80 is 1.7:1 on white */
+
+    --disp-calling-to: #9F1F2E;
+    --disp-calling-ink: #FFFFFF;    /* the calling panel stays a solid red card */
+    --disp-calling-ink-soft: rgba(255, 255, 255, 0.90);
+    --disp-calling-fill: rgba(255, 255, 255, 0.20);
+    --disp-calling-edge: rgba(255, 255, 255, 0.45);
+    --disp-wash: rgba(198, 40, 58, 0.10);
+    --disp-tint: rgba(198, 40, 58, 0.05);
+    --disp-shadow: rgba(27, 39, 51, 0.10);
+    --disp-shadow-strong: rgba(27, 39, 51, 0.14);
+    --disp-ring: rgba(198, 40, 58, 0.18);
+    --disp-ring-wide: rgba(198, 40, 58, 0.32);
+    --disp-ring-static: rgba(198, 40, 58, 0.30);
+    --disp-dot-glow: rgba(27, 143, 76, 0.45);
+    --disp-dot-fade: rgba(27, 143, 76, 0);
+    --disp-offline: #B42318;
+    --disp-on-brand: #FFFFFF;
 }
 
 * { box-sizing: border-box; }
@@ -62,7 +126,7 @@ body::before {
     position: fixed;
     inset: 0 0 auto 0;
     height: 40vh;
-    background: radial-gradient(120% 100% at 50% 0%, rgba(198, 40, 58, 0.20), transparent 70%);
+    background: radial-gradient(120% 100% at 50% 0%, var(--disp-wash), transparent 70%);
     pointer-events: none;
 }
 
@@ -132,11 +196,11 @@ body::before {
     /* Panel plus a brand tint fading out downwards. Cheaper than an accent bar
        across the top, which would have to fight the panel's rounded corners. */
     background:
-        linear-gradient(180deg, rgba(232, 88, 107, 0.10), rgba(232, 88, 107, 0) 45%),
+        linear-gradient(180deg, var(--disp-tint), transparent 45%),
         var(--disp-panel);
     border: 1px solid var(--disp-border);
     border-radius: var(--disp-radius);
-    box-shadow: 0 0.6vh 2vh rgba(0, 0, 0, 0.35);
+    box-shadow: 0 0.6vh 2vh var(--disp-shadow);
     padding: 1.4vh 1.4vw;
     display: flex;
     flex-direction: column;
@@ -152,29 +216,29 @@ body::before {
    every ten-second poll, and a finite animation would restart and re-flash on
    each one for as long as the call is held. */
 .disp-station.is-calling {
-    background: linear-gradient(135deg, var(--disp-brand-deep), #8E1B29);
-    border-color: var(--disp-brand);
+    background: linear-gradient(135deg, var(--disp-brand), var(--disp-calling-to));
+    border-color: var(--disp-brand-deep);
     animation: dispCallPulse 2.2s ease-in-out infinite;
 }
 
 @keyframes dispCallPulse {
-    0%, 100% { box-shadow: 0 0 0 0.3vh rgba(232, 88, 107, 0.22), 0 0.6vh 2vh rgba(0, 0, 0, 0.4); }
-    50%      { box-shadow: 0 0 0 1.1vh rgba(232, 88, 107, 0.42), 0 0.6vh 2vh rgba(0, 0, 0, 0.4); }
+    0%, 100% { box-shadow: 0 0 0 0.3vh var(--disp-ring), 0 0.6vh 2vh var(--disp-shadow-strong); }
+    50%      { box-shadow: 0 0 0 1.1vh var(--disp-ring-wide), 0 0.6vh 2vh var(--disp-shadow-strong); }
 }
 
 /* Same size as every other panel, deliberately. At four columns the number is
    already as wide as a panel will hold (see the vw cap on .disp-now), so a
    larger one on the calling panel could only be clipped. The gradient, the
    pill, the white ink and the pulse carry the distinction instead. */
-.disp-station.is-calling .disp-now { color: #FFFFFF; }
-.disp-station.is-calling .disp-station-name { color: #FFFFFF; }
+.disp-station.is-calling .disp-now { color: var(--disp-calling-ink); }
+.disp-station.is-calling .disp-station-name { color: var(--disp-calling-ink); }
 .disp-station.is-calling .disp-waiting-count,
 .disp-station.is-calling .disp-next-label,
-.disp-station.is-calling .disp-empty { color: rgba(255, 255, 255, 0.88); }
+.disp-station.is-calling .disp-empty { color: var(--disp-calling-ink-soft); }
 .disp-station.is-calling .disp-chip {
-    background: rgba(255, 255, 255, 0.18);
-    border-color: rgba(255, 255, 255, 0.38);
-    color: #FFFFFF;
+    background: var(--disp-calling-fill);
+    border-color: var(--disp-calling-edge);
+    color: var(--disp-calling-ink);
 }
 
 /* Says out loud what the gradient only implies. The old banner carried these
@@ -184,9 +248,9 @@ body::before {
 .disp-calling-tag {
     align-self: flex-start;
     flex: 0 0 auto;
-    background: rgba(255, 255, 255, 0.18);
-    border: 1px solid rgba(255, 255, 255, 0.42);
-    color: #FFFFFF;
+    background: var(--disp-calling-fill);
+    border: 1px solid var(--disp-calling-edge);
+    color: var(--disp-calling-ink);
     border-radius: 999px;
     padding: 0.3vh 0.9vw;
     font-size: 1.3vh;
@@ -238,9 +302,9 @@ body::before {
 .disp-dot[data-idle="true"] { background: var(--disp-border); }
 
 @keyframes dispDotPulse {
-    0%   { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.55); }
-    70%  { box-shadow: 0 0 0 0.9vh rgba(74, 222, 128, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+    0%   { box-shadow: 0 0 0 0 var(--disp-dot-glow); }
+    70%  { box-shadow: 0 0 0 0.9vh var(--disp-dot-fade); }
+    100% { box-shadow: 0 0 0 0 var(--disp-dot-fade); }
 }
 
 .disp-now {
@@ -357,28 +421,21 @@ body::before {
 }
 .disp-btn:hover { border-color: var(--disp-brand); background: var(--disp-border); }
 .disp-btn:focus-visible { outline: 3px solid var(--disp-brand); outline-offset: 2px; }
-.disp-btn[data-on="true"] { background: var(--disp-brand-deep); border-color: var(--disp-brand); color: #fff; }
-
-/* Sound cannot be switched on without a gesture (browser autoplay policy), so
-   the board asks for one instead of silently never speaking. */
-.disp-sound-nudge {
-    background: rgba(232, 88, 107, 0.12);
-    border: 1px solid var(--disp-brand);
-    color: var(--disp-text);
-    border-radius: 8px;
-    padding: 8px 14px;
-    font-size: 13px;
+.disp-btn[data-on="true"] {
+    background: var(--disp-brand-deep);
+    border-color: var(--disp-brand);
+    color: var(--disp-on-brand);
 }
 
 .disp-offline {
-    color: #FCA5A5;
+    color: var(--disp-offline);
     font-weight: 600;
 }
 
 @media (prefers-reduced-motion: reduce) {
     /* The gradient, the border and the "Now calling" pill all still mark the
        call, so dropping the movement costs nothing that was load-bearing. */
-    .disp-station.is-calling { animation: none; box-shadow: 0 0 0 0.5vh rgba(232, 88, 107, 0.35); }
+    .disp-station.is-calling { animation: none; box-shadow: 0 0 0 0.5vh var(--disp-ring-static); }
     .disp-dot:not([data-idle="true"]) { animation: none; }
 }
 

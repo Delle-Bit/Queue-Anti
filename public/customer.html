@@ -16,6 +16,14 @@
 
 <body>
     <button class="hamburger" id="hamburger"><i class="fa-solid fa-bars"></i></button>
+    <!-- Light or dark is this viewer's own choice, kept in their own browser -
+         see the THEME block in shared.js. Fixed rather than dropped into a page
+         header because every section here has its own header, and the control
+         belongs to the page rather than to one section of it. The icon, the
+         label and aria-pressed are all set by syncThemeToggles(). -->
+    <button class="theme-toggle" type="button" data-theme-toggle onclick="toggleTheme()">
+        <i class="fa-solid fa-moon"></i>
+    </button>
     <aside class="sidebar" id="sidebar"></aside>
 
     <main class="main-content">

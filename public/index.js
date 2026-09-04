@@ -402,17 +402,13 @@ function switchAuthTab(tab) {
         syncNoMiddleGate('reg-guardian');
         document.getElementById('reg-step2-form').reset();
         document.getElementById('reg-step3-form').reset();
-        document.getElementById('preview-front').innerHTML = '<i class="fa-solid fa-address-card"></i>';
-        document.getElementById('preview-back').innerHTML = '<i class="fa-solid fa-address-card"></i>';
-        registrationState.blobs = { front: null, back: null, guardian: null };
-        registrationState.guardianScan = null;
-        setGuardianIdStatus(GUARDIAN_ID_HINT, 'muted');
+        resetIdPreviews();
         setVerificationMethod('id');
     }
 }
 
 // ── Register: the name, in three fields ────────────────────────────
-// The form asks for first name, middle initial and last name, because that is
+// The form asks for first name, middle name and last name, because that is
 // what a Philippine clinic form asks for and what an ID prints. The server and
 // `users.full_name` still take one string, so the three are composed here -
 // one field on the wire means nothing downstream (the username suggester, the
@@ -425,29 +421,29 @@ function regNamePart(id) {
     return el ? el.value.trim() : '';
 }
 
-function regMiddleInitial(prefix = 'reg') {
+// Taken as typed - no stripping, no uppercasing, no truncation to one letter.
+// A middle name can carry a hyphen ("Dela-Cruz"), an apostrophe ("O'Brien") or
+// a space ("San Jose"), and this used to keep only the first character of it.
+function regMiddleName(prefix = 'reg') {
     const box = document.getElementById(`${prefix}-no-middle`);
     if (box && box.checked) return '';
-    // One letter, uppercased; the field is maxlength=1 but a paste can still
-    // put punctuation in it.
-    return regNamePart(`${prefix}-middleinitial`).replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 1);
+    return regNamePart(`${prefix}-middlename`);
 }
 
 function regFullName(prefix = 'reg') {
-    const mi = regMiddleInitial(prefix);
-    return [regNamePart(`${prefix}-firstname`), mi ? mi + '.' : '', regNamePart(`${prefix}-lastname`)]
+    return [regNamePart(`${prefix}-firstname`), regMiddleName(prefix), regNamePart(`${prefix}-lastname`)]
         .filter(Boolean).join(' ');
 }
 
 // The same three-field rule, for either name: both ends required, and the
-// middle initial either given or explicitly disclaimed.
+// middle name either given or explicitly disclaimed.
 function regNameProblem(prefix, label) {
     if (!regNamePart(`${prefix}-firstname`) || !regNamePart(`${prefix}-lastname`)) {
         return `${label} first name and last name are required.`;
     }
     const box = document.getElementById(`${prefix}-no-middle`);
-    if (!regMiddleInitial(prefix) && !(box && box.checked)) {
-        return `Enter ${label.toLowerCase()} middle initial, or tick "No middle initial".`;
+    if (!regMiddleName(prefix) && !(box && box.checked)) {
+        return `Enter ${label.toLowerCase()} middle name, or tick "No middle name".`;
     }
     return null;
 }
@@ -457,6 +453,9 @@ function regNameProblem(prefix, label) {
 // boundary and re-runs this on submit; this copy exists so a wrong ID is
 // caught when it is attached rather than after Continue, which is a long way
 // to walk to be told the photo was of the wrong person.
+// Tokens of one letter are dropped, so a middle initial on either side - the
+// card's, or an older account's - never takes part. A whole middle name does
+// become a token and still does not matter: only the first and last are tested.
 function nameTokens(value) {
     return String(value || '')
         .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -471,7 +470,7 @@ function guardianNameMatches(typedName, scannedName) {
     return [typed[0], typed[typed.length - 1]].every(t => scanned.has(t));
 }
 
-const GUARDIAN_ID_HINT = 'The name on this ID must match the guardian name above.';
+const GUARDIAN_ID_HINT = 'Both sides are required. The name on the front must match the guardian name above.';
 
 function setGuardianIdStatus(text, state) {
     const el = document.getElementById('reg-guardian-id-status');
@@ -505,7 +504,7 @@ async function checkGuardianId(blob) {
     setGuardianIdStatus('Checking the ID against the guardian name\u2026', 'muted');
     try {
         const formData = new FormData();
-        formData.append('idImage', blob, 'guardian-id.jpg');
+        formData.append('idImage', blob, 'guardian-id-front.jpg');
         const res = await fetch('/api/auth/ocr', { method: 'POST', body: formData });
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error('scan failed');
@@ -523,36 +522,45 @@ async function checkGuardianId(blob) {
 // Splits a scanned name across the three fields. Prefill only - the patient
 // sees the result and can correct it before submitting.
 //
-// ponytail: last token is the surname. A compound Filipino surname ("Delos
-// Reyes", "San Juan") lands its first word in the middle initial instead. Fix
-// by asking the OCR for the parts separately if that turns out to matter; the
-// patient can already correct it on screen.
+// ponytail: first token is the given name, last is the surname, everything
+// between is the middle name. A compound Filipino surname ("Delos Reyes", "San
+// Juan") puts its first word in the middle name instead. Fix by asking the OCR
+// for the parts separately if that turns out to matter; the patient can already
+// correct it on screen.
 function splitScannedName(name) {
     const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
     if (parts.length === 0) return null;
     if (parts.length === 1) return { first: parts[0], middle: '', last: '' };
     if (parts.length === 2) return { first: parts[0], last: parts[1], middle: '' };
-    return { first: parts[0], last: parts[parts.length - 1], middle: parts[1].charAt(0) };
+    return {
+        first: parts[0],
+        last: parts[parts.length - 1],
+        middle: parts.slice(1, -1).join(' ')
+    };
 }
 
-// The checkbox and the initial box are one control: ticking "no middle initial"
+// The checkbox and the name box are one control: ticking "no middle name"
 // clears the box and disables it, so the form cannot carry both claims at once.
 function syncNoMiddleGate(prefix = 'reg') {
     const box = document.getElementById(`${prefix}-no-middle`);
-    const mi = document.getElementById(`${prefix}-middleinitial`);
-    if (!box || !mi) return;
-    mi.disabled = box.checked;
-    if (box.checked) mi.value = '';
+    const middle = document.getElementById(`${prefix}-middlename`);
+    if (!box || !middle) return;
+    middle.disabled = box.checked;
+    if (box.checked) middle.value = '';
 }
 
 // ── Register State ─────────────────────────────────────────────────
 let usernameManuallyEdited = false;
 let fullNameManuallyEdited = false;
+// Every key the registration wizard carries, declared here rather than
+// appearing by assignment - `blobs.guardian*` and `guardianScan` used to be
+// created ad hoc, which is why one of the two reset paths below forgot them.
 let registrationState = {
     step: 1,
     token: null,
     verificationMethod: 'id',
-    blobs: { front: null, back: null },
+    blobs: { front: null, back: null, 'guardian-front': null, 'guardian-back': null },
+    guardianScan: null,
     ocrResult: null,
     otpCountdown: null
 };
@@ -690,10 +698,11 @@ function validateCurrentStep() {
                 errEl.classList.add('show');
                 return false;
             }
-            // The photo is what the server checks the typed name against, so
-            // there is nothing to verify without it.
-            if (!registrationState.blobs.guardian) {
-                errEl.textContent = "A photo of the guardian's valid ID is required.";
+            // The front is what the server checks the typed name against, so
+            // there is nothing to verify without it; the back is required for
+            // the same reason the patient's own back is.
+            if (!registrationState.blobs['guardian-front'] || !registrationState.blobs['guardian-back']) {
+                errEl.textContent = "Both the front and back of the guardian's valid ID are required.";
                 errEl.classList.add('show');
                 return false;
             }
@@ -796,7 +805,8 @@ async function submitStep1() {
         formData.append('guardian_name', regFullName('reg-guardian'));
         formData.append('guardian_contact', document.getElementById('reg-guardian-contact').value.trim());
         formData.append('guardian_relationship', document.getElementById('reg-guardian-relationship').value.trim());
-        formData.append('guardianId', registrationState.blobs.guardian, 'guardian-id.jpg');
+        formData.append('guardianIdFront', registrationState.blobs['guardian-front'], 'guardian-id-front.jpg');
+        formData.append('guardianIdBack', registrationState.blobs['guardian-back'], 'guardian-id-back.jpg');
     }
     
     try {
@@ -976,10 +986,22 @@ function finishRegistration() {
     syncTermsGate();
     document.getElementById('reg-step2-form').reset();
     document.getElementById('reg-step3-form').reset();
-    document.getElementById('preview-front').innerHTML = '<i class="fa-solid fa-address-card"></i>';
-    document.getElementById('preview-back').innerHTML = '<i class="fa-solid fa-address-card"></i>';
-    registrationState.blobs = { front: null, back: null };
+    resetIdPreviews();
     setVerificationMethod('id');
+}
+
+// Both reset paths call this. They used to clear the previews and blobs by
+// hand, and had drifted: the finish path cleared neither guardian preview nor
+// the guardian blobs, so an abandoned or completed registration left the
+// previous guardian's ID photo on screen for whoever used that browser next.
+function resetIdPreviews() {
+    ID_SIDES.forEach(side => {
+        const preview = document.getElementById(`preview-${side}`);
+        if (preview) preview.innerHTML = '<i class="fa-solid fa-address-card"></i>';
+        registrationState.blobs[side] = null;
+    });
+    registrationState.guardianScan = null;
+    setGuardianIdStatus(GUARDIAN_ID_HINT, 'muted');
 }
 
 // Override the original setVerificationMethod to update state
@@ -993,6 +1015,12 @@ function setVerificationMethod(method) {
 }
 
 // ── ID Camera ────────────────────────────────────────────────────
+// Every capture this form can take. The side string is the id suffix of the
+// preview and the file input, and the key in registrationState.blobs, so
+// adding one is this list plus its markup.
+const ID_SIDES = ['front', 'back', 'guardian-front', 'guardian-back'];
+const GUARDIAN_SIDES = ['guardian-front', 'guardian-back'];
+
 let regCameraStream = null;
 let currentSide = 'front';
 
@@ -1024,9 +1052,11 @@ function handleFileUpload(e, side) {
 // type their name manually to get that far, so nothing was ever actually
 // prefilled. /api/auth/ocr exists specifically for this early-preview use.
 async function runIdOcrPreview(blob, side) {
-    // The guardian's photo is checked against the typed guardian name instead
-    // of prefilling anything.
-    if (side === 'guardian') return checkGuardianId(blob);
+    // The guardian's front is checked against the typed guardian name instead
+    // of prefilling anything. The back is stored and not read: the name is
+    // printed on the front, and a second scan could only produce a second
+    // verdict to disagree with the first.
+    if (side === 'guardian-front') return checkGuardianId(blob);
     if (side !== 'front') return; // only the front ID carries name/category info anywhere else in the app
     const status = document.getElementById('reg-camera-status');
     if (status) status.textContent = 'Scanning ID...';
@@ -1053,8 +1083,8 @@ async function runIdOcrPreview(blob, side) {
             // The checkbox is deliberately left alone. A card that prints no
             // middle name is not proof the patient has none - only they can say
             // that, and validation makes them.
-            const mi = document.getElementById('reg-middleinitial');
-            if (scanned.middle && !mi.disabled) mi.value = scanned.middle;
+            const middle = document.getElementById('reg-middlename');
+            if (scanned.middle && middle && !middle.disabled) middle.value = scanned.middle;
             document.getElementById('reg-firstname').dispatchEvent(new Event('input', { bubbles: true }));
         }
         if (status) {
@@ -1124,13 +1154,15 @@ async function captureRegID() {
         // The guardian capture has its own hint line; the ID section's status
         // element is hidden while the guardian path is showing, so writing the
         // confirmation there would say it to nobody.
-        const target = currentSide === 'guardian'
+        const onGuardian = GUARDIAN_SIDES.includes(currentSide);
+        const target = onGuardian
             ? (document.getElementById('reg-guardian-id-status') || status)
             : status;
-        // For the guardian, the check that runs next owns this line, so it is
-        // not overwritten with a confirmation that says nothing about the
-        // thing actually being verified.
-        if (currentSide !== 'guardian') target.textContent = `${currentSide.toUpperCase()} captured ✓`;
+        // The guardian's front hands this line to the check that runs next, so
+        // it is not overwritten with a confirmation that says nothing about the
+        // thing actually being verified. The back has no check, so it says so.
+        if (currentSide === 'guardian-back') target.textContent = 'Back of the guardian\'s ID captured ✓';
+        else if (!onGuardian) target.textContent = `${currentSide.toUpperCase()} captured ✓`;
         stopRegCamera();
         runIdOcrPreview(blob, currentSide);
     }, 'image/jpeg', 0.9);
@@ -1313,11 +1345,11 @@ function setupRegisterHandlers() {
     // keydown (not input) so the OCR prefill below — which sets .value and
     // dispatches a synthetic 'input' event to trigger the suggestion below —
     // doesn't itself get mistaken for the user having typed their own name.
-    const nameFields = ['reg-firstname', 'reg-middleinitial', 'reg-lastname']
+    const nameFields = ['reg-firstname', 'reg-middlename', 'reg-lastname']
         .map(id => document.getElementById(id)).filter(Boolean);
     nameFields.forEach(f => f.addEventListener('keydown', () => { fullNameManuallyEdited = true; }));
 
-    const guardianNameFields = ['reg-guardian-firstname', 'reg-guardian-middleinitial', 'reg-guardian-lastname']
+    const guardianNameFields = ['reg-guardian-firstname', 'reg-guardian-middlename', 'reg-guardian-lastname']
         .map(id => document.getElementById(id)).filter(Boolean);
     const guardianNoMiddle = document.getElementById('reg-guardian-no-middle');
     if (guardianNoMiddle) {
@@ -1336,8 +1368,8 @@ function setupRegisterHandlers() {
         noMiddleBox.addEventListener('change', () => {
             fullNameManuallyEdited = true;
             syncNoMiddleGate();
-            // The suggester reads the composed name, so a cleared initial has
-            // to re-run it.
+            // The suggester reads the composed name, so a cleared middle name
+            // has to re-run it.
             nameFields[0].dispatchEvent(new Event('input', { bubbles: true }));
         });
         syncNoMiddleGate();

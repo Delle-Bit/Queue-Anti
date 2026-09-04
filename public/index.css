@@ -1184,22 +1184,26 @@ body {
    from that panel, so the rule belongs to the page, not to one dialog. */
 .modal-overlay { z-index: 700; }
 
-/* Three name fields on one desktop row; on a phone the surname takes its own
-   line rather than squeezing three boxes into 375px. The middle initial is one
-   character wide, so it gets a fixed column instead of a share of the space. */
+/* First and last share the top row; the middle name spans the row beneath.
+   It used to be an 84px column holding a single uppercase character, which is
+   the wrong shape for a name - "Bautista" needs the width, and the forced
+   uppercase rendered it as BAUTISTA. The "No middle name" checkbox sits under
+   the whole block, so the field and the claim that disclaims it read in order. */
 .reg-name-grid {
     display: grid;
-    grid-template-columns: 1fr 84px 1fr;
+    grid-template-columns: 1fr 1fr;
     gap: 10px;
 }
+.reg-name-middle { grid-column: 1 / -1; }
 /* Verdict on the guardian ID check. The wording carries the meaning; colour
    only reinforces it, and each state also leads with a mark, so the line reads
    the same to anyone who cannot separate the two hues. */
 .reg-check-ok { color: var(--success, #2e7d32); font-weight: 600; }
 .reg-check-bad { color: var(--danger); font-weight: 600; }
 
-.reg-name-mi { text-align: center; text-transform: uppercase; }
-.reg-name-mi:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Disabled by the checkbox beside it, not by the form being read-only. */
+.reg-name-middle input:disabled { opacity: 0.5; cursor: not-allowed; }
+input.reg-name-middle:disabled { opacity: 0.5; cursor: not-allowed; }
 .reg-no-mi {
     display: inline-flex;
     align-items: center;
@@ -1213,8 +1217,9 @@ body {
 .reg-no-mi input { width: 18px; height: 18px; accent-color: var(--primary); }
 
 @media (max-width: 640px) {
-    .reg-name-grid { grid-template-columns: 1fr 84px; }
-    .reg-name-grid .reg-name-last { grid-column: 1 / -1; }
+    /* Three boxes across 375px leaves none of them readable, so each name
+       takes its own line. */
+    .reg-name-grid { grid-template-columns: 1fr; }
 }
 
 /* Input with icon */

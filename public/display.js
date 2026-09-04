@@ -30,6 +30,43 @@ let dispAnnounceTimer = null;
 let dispQueue = [];              // pending announcements, so two calls do not overlap
 let dispSpeaking = false;
 
+// ── Theme ──────────────────────────────────────────────────────────────────
+// Its own copy of the theme switch, because this page loads no shared.js - the
+// same localStorage key, so a board and a dashboard on one machine agree, and
+// nothing server-side, so switching this panel cannot change what a patient
+// sees on their own phone.
+//
+// Unlike the dashboards this defaults to **dark** when nothing has been chosen,
+// rather than following prefers-color-scheme: a wall panel is a fixture with no
+// viewer to have a preference, it is powered on all day, and the OS on whatever
+// stick is driving it was never configured with this room in mind.
+const DISP_THEME_KEY = 'clinicTheme';
+
+function dispReadTheme() {
+    try {
+        return localStorage.getItem(DISP_THEME_KEY) === 'light' ? 'light' : 'dark';
+    } catch (err) {
+        // Site data can be blocked outright, and a colour scheme is not worth
+        // a board that fails to draw.
+        return 'dark';
+    }
+}
+
+function dispApplyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark');
+    const icon = document.getElementById('disp-theme-icon');
+    const label = document.getElementById('disp-theme-label');
+    // The button names what it will do, not what is already showing.
+    if (icon) icon.className = theme === 'light' ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
+    if (label) label.textContent = theme === 'light' ? 'Dark mode' : 'Light mode';
+}
+
+function dispToggleTheme() {
+    const next = dispReadTheme() === 'light' ? 'dark' : 'light';
+    try { localStorage.setItem(DISP_THEME_KEY, next); } catch (err) { /* holds for this session */ }
+    dispApplyTheme(next);
+}
+
 // ── Clock ───────────────────────────────────────────────────────────────────
 function dispTickClock() {
     const now = new Date();
@@ -244,6 +281,7 @@ function dispToggleFullscreen() {
 }
 
 // ── Wiring ──────────────────────────────────────────────────────────────────
+dispApplyTheme(dispReadTheme());
 dispTickClock();
 setInterval(dispTickClock, 1000);
 dispLoad();

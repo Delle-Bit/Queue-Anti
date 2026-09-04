@@ -327,22 +327,31 @@
                 <form id="reg-step1-form" class="reg-step-form" novalidate>
                     <div class="form-group">
                         <label class="form-label" for="reg-firstname">Full Name</label>
+                        <!-- First and last share a row; the middle name takes its
+                             own, because it is a name and not an initial - it was one
+                             character wide in an 84px column, which is the only place
+                             in this app that ever narrowed a middle name. Every other
+                             intake (walk-in, front desk, admin) already stores
+                             users.middle_name in full. -->
                         <div class="reg-name-grid">
                             <div class="input-icon-wrap">
                                 <i class="fa-solid fa-signature input-icon"></i>
                                 <input type="text" id="reg-firstname" class="form-input input-with-icon" placeholder="First name" maxlength="100" required autocomplete="given-name" aria-label="First name">
                             </div>
-                            <input type="text" id="reg-middleinitial" class="form-input reg-name-mi" placeholder="M.I." maxlength="1" autocomplete="additional-name" aria-label="Middle initial">
-                            <div class="input-icon-wrap reg-name-last">
+                            <div class="input-icon-wrap">
                                 <i class="fa-solid fa-signature input-icon"></i>
                                 <input type="text" id="reg-lastname" class="form-input input-with-icon" placeholder="Last name" maxlength="100" required autocomplete="family-name" aria-label="Last name">
+                            </div>
+                            <div class="input-icon-wrap reg-name-middle">
+                                <i class="fa-solid fa-signature input-icon"></i>
+                                <input type="text" id="reg-middlename" class="form-input input-with-icon" placeholder="Middle name" maxlength="100" autocomplete="additional-name" aria-label="Middle name">
                             </div>
                         </div>
                         <!-- Ticking this is how a patient with no middle name says so.
                              Without it, an empty box is indistinguishable from one they
                              skipped, and the desk cannot tell which. -->
                         <label class="reg-no-mi" for="reg-no-middle">
-                            <input type="checkbox" id="reg-no-middle"> No middle initial
+                            <input type="checkbox" id="reg-no-middle"> No middle name
                         </label>
                     </div>
                     <div class="form-group">
@@ -407,11 +416,11 @@
                             <label class="form-label" for="reg-guardian-firstname">Guardian Full Name</label>
                             <div class="reg-name-grid">
                                 <input type="text" id="reg-guardian-firstname" class="form-input" placeholder="First name" maxlength="100" autocomplete="off" aria-label="Guardian first name">
-                                <input type="text" id="reg-guardian-middleinitial" class="form-input reg-name-mi" placeholder="M.I." maxlength="1" autocomplete="off" aria-label="Guardian middle initial">
-                                <input type="text" id="reg-guardian-lastname" class="form-input reg-name-last" placeholder="Last name" maxlength="100" autocomplete="off" aria-label="Guardian last name">
+                                <input type="text" id="reg-guardian-lastname" class="form-input" placeholder="Last name" maxlength="100" autocomplete="off" aria-label="Guardian last name">
+                                <input type="text" id="reg-guardian-middlename" class="form-input reg-name-middle" placeholder="Middle name" maxlength="100" autocomplete="off" aria-label="Guardian middle name">
                             </div>
                             <label class="reg-no-mi" for="reg-guardian-no-middle">
-                                <input type="checkbox" id="reg-guardian-no-middle"> No middle initial
+                                <input type="checkbox" id="reg-guardian-no-middle"> No middle name
                             </label>
                         </div>
                         <div class="form-group">
@@ -428,20 +437,37 @@
                              so this is required, not optional. -->
                         <div class="form-group">
                             <label class="form-label"><i class="fa-solid fa-id-card"></i> Guardian's Valid ID (Required)</label>
+                            <!-- Both sides, the same as the patient's own ID above.
+                                 Only the front is read: the name is printed there, and
+                                 a back that produced a second verdict could disagree
+                                 with the first. The back is held for the same reason
+                                 the patient's is - a card is checked by eye at the
+                                 counter from both faces. -->
                             <div class="id-verification-container">
                                 <div class="id-capture-box">
-                                    <span class="id-label">Guardian ID</span>
-                                    <div class="id-preview" id="preview-guardian">
+                                    <span class="id-label">Guardian ID — Front</span>
+                                    <div class="id-preview" id="preview-guardian-front">
                                         <i class="fa-solid fa-address-card"></i>
                                     </div>
                                     <div class="id-actions">
-                                        <button type="button" class="btn btn-sm btn-outline" onclick="startIdAction('guardian', 'camera')" title="Capture Guardian ID"><i class="fa-solid fa-camera"></i></button>
-                                        <button type="button" class="btn btn-sm btn-outline" onclick="startIdAction('guardian', 'upload')" title="Upload Guardian ID"><i class="fa-solid fa-upload"></i></button>
-                                        <input type="file" id="upload-guardian" hidden accept="image/*" onchange="handleFileUpload(event, 'guardian')">
+                                        <button type="button" class="btn btn-sm btn-outline" onclick="startIdAction('guardian-front', 'camera')" title="Capture the front of the guardian's ID"><i class="fa-solid fa-camera"></i></button>
+                                        <button type="button" class="btn btn-sm btn-outline" onclick="startIdAction('guardian-front', 'upload')" title="Upload the front of the guardian's ID"><i class="fa-solid fa-upload"></i></button>
+                                        <input type="file" id="upload-guardian-front" hidden accept="image/*" onchange="handleFileUpload(event, 'guardian-front')">
+                                    </div>
+                                </div>
+                                <div class="id-capture-box">
+                                    <span class="id-label">Guardian ID — Back</span>
+                                    <div class="id-preview" id="preview-guardian-back">
+                                        <i class="fa-solid fa-address-card"></i>
+                                    </div>
+                                    <div class="id-actions">
+                                        <button type="button" class="btn btn-sm btn-outline" onclick="startIdAction('guardian-back', 'camera')" title="Capture the back of the guardian's ID"><i class="fa-solid fa-camera"></i></button>
+                                        <button type="button" class="btn btn-sm btn-outline" onclick="startIdAction('guardian-back', 'upload')" title="Upload the back of the guardian's ID"><i class="fa-solid fa-upload"></i></button>
+                                        <input type="file" id="upload-guardian-back" hidden accept="image/*" onchange="handleFileUpload(event, 'guardian-back')">
                                     </div>
                                 </div>
                             </div>
-                            <small class="text-muted" id="reg-guardian-id-status">The name on this ID must match the guardian name above.</small>
+                            <small class="text-muted" id="reg-guardian-id-status">Both sides are required. The name on the front must match the guardian name above.</small>
                         </div>
                         <small class="text-muted">This account will be marked as underage and verified through guardian information.</small>
                     </div>

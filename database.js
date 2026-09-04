@@ -621,6 +621,11 @@ async function initDB() {
         `);
         await pool.query(`INSERT IGNORE INTO settings (id) VALUES (1)`);
 
+        // Added after the table shipped, so it goes through the helper rather
+        // than the CREATE above - an existing install picks it up on next boot.
+        // Bounds live in session_activity.js; this default matches its own.
+        await addColumnIfMissing('settings', 'idle_timeout_minutes', 'INT DEFAULT 15');
+
         // navbar_color drives the sidebar background (--bg-sidebar in shared.css),
         // which the design paints #24303A. The original schema default was #ffffff -
         // written for a top navbar that never shipped, and never applied to anything

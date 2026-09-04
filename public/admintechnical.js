@@ -11,7 +11,6 @@ renderSidebar([
     { id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-chart-line' },
     { id: 'accounts', label: 'Manage Accounts', icon: 'fa-solid fa-users-gear' },
     { id: 'labs', label: 'Manage Laboratories', icon: 'fa-solid fa-flask-vial' },
-    { id: 'walkin', label: 'Walk-in Intake', icon: 'fa-solid fa-person-walking-arrow-right' },
     { id: 'services', label: 'Service Management', icon: 'fa-solid fa-box-open' },
     { id: 'structures', label: 'Test Structures', icon: 'fa-solid fa-vials' },
     { id: 'archives', label: 'Archives', icon: 'fa-solid fa-box-archive' },
@@ -22,7 +21,6 @@ renderSidebar([
 initDefaultSection();
 
 window.onSectionLoad = {
-    walkin: loadWalkIns,
     structures: loadTestStructureAdmin,
     dashboard: loadAdminDash,
     accounts: loadAccounts,
@@ -79,11 +77,17 @@ function populateRoleSelect(selectId, selected) {
         { value: 'frontdesk', label: 'Front Desk' },
         { value: 'doctor', label: 'Doctor' }
     ];
+    // The technical administrator can already edit an owner account - the guard
+    // in PUT /users/:id only restricts a plain `admin` - so withholding the
+    // option bought no safety and left nobody able to restore the role after it
+    // was lost. A plain admin still gets neither option, and the server refuses
+    // them either way.
     if (myRole === 'admintechnical') {
         roles.push({ value: 'admin', label: 'Admin' });
+        roles.push({ value: 'admintechnical', label: 'Admin Technical' });
+        roles.push({ value: 'owner', label: 'Owner' });
     }
-    const sel = document.getElementById(selectId);
-    if (sel) sel.innerHTML = roles.map(r => `<option value="${r.value}" ${selected===r.value?'selected':''}>${r.label}</option>`).join('');
+    renderRoleOptions(selectId, roles, selected);
 }
 
 fetchAllLabs();

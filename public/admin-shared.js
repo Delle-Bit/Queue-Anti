@@ -33,6 +33,39 @@ const REASON_PRESETS = {
     purge: ['Data retention period elapsed', 'Duplicate record confirmed', 'Requested by the data subject']
 };
 
+// Renders the role <select>, and guarantees the account's current role is in it.
+//
+// Each page owns which roles it may *assign* (populateRoleSelect in owner.js and
+// admintechnical.js), but a role the page cannot assign is still a role an
+// account can already hold - and a <select> with no matching option silently
+// shows its first entry instead. `sel.value` then reads as that first role, the
+// edit form posts it, and the account is demoted by a save that was only meant
+// to change a password. That is how `owner1` became `laboratory`.
+//
+// So the current role is always present. If the page may not assign it, it is
+// offered as the only choice and the control is disabled: the form can then
+// report the truth or nothing, never a different role.
+//
+// Labels come from ROLE_LABELS in shared.js - the same map the sidebar and the
+// mobile topbar read, so an account is not named one thing in the drawer and
+// another in this dropdown.
+function renderRoleOptions(selectId, assignable, current) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+
+    const roles = assignable.slice();
+    const known = roles.some(r => r.value === current);
+    if (current && !known) {
+        roles.unshift({ value: current, label: (ROLE_LABELS[current] || current) + ' (cannot be changed here)' });
+    }
+
+    sel.innerHTML = roles
+        .map(r => `<option value="${r.value}"${r.value === current ? ' selected' : ''}>${escapeHtml(r.label)}</option>`)
+        .join('');
+    // A role this page cannot assign is shown and locked rather than swapped.
+    sel.disabled = !!current && !known;
+}
+
 // ── MANAGE ACCOUNTS ─────────────────────────────────────────────────────────
 // Search runs server-side (/api/users/staff?q=, /api/users/customers?q=) so it
 // keeps working once the customer table is larger than a page of results, and

@@ -21,7 +21,50 @@ const { pool } = require('./database');
 // would never expire on an unattended screen. Background polling does not
 // extend a session; a keystroke does.
 
-const IDLE_LIMIT_MS = 15 * 60 * 1000;
+// How long a staff session may sit idle. A clinic setting
+// (settings.idle_timeout_minutes), not a constant - a busy front desk and an
+// unattended back office want different numbers.
+//
+// Cached at module scope and refreshed on write rather than read per request:
+// enforceIdleTimeout below runs on *every* authenticated staff request, and the
+// dashboards poll every 5 seconds, so a SELECT per call would make this the
+// most frequent query in the app. PUT /api/admin/settings is the only writer
+// and calls refreshIdleLimit() after its UPDATE, so a change lands without a
+// restart.
+const IDLE_LIMIT_DEFAULT_MINUTES = 15;
+
+// The floor stops a value that logs staff out mid-task; the ceiling stops an
+// effectively-never timeout on a shared terminal. routes/admin.js validates
+// against these same two numbers rather than repeating them.
+const IDLE_LIMIT_MIN_MINUTES = 5;
+const IDLE_LIMIT_MAX_MINUTES = 120;
+
+let idleLimitCache = IDLE_LIMIT_DEFAULT_MINUTES * 60 * 1000;
+
+function clampIdleMinutes(value) {
+    const minutes = Number(value);
+    if (!Number.isFinite(minutes)) return IDLE_LIMIT_DEFAULT_MINUTES;
+    return Math.min(IDLE_LIMIT_MAX_MINUTES, Math.max(IDLE_LIMIT_MIN_MINUTES, Math.round(minutes)));
+}
+
+function idleLimitMs() { return idleLimitCache; }
+function idleLimitMinutes() { return Math.round(idleLimitCache / 60000); }
+
+// Called once at boot and again after every settings write. A failure keeps
+// whatever is cached - the default is a safe 15 minutes, and refusing to guard
+// sessions because one SELECT failed would be worse than guarding them at the
+// old number.
+async function refreshIdleLimit() {
+    try {
+        const [rows] = await pool.query('SELECT idle_timeout_minutes FROM settings WHERE id=1');
+        if (rows[0] && rows[0].idle_timeout_minutes !== null && rows[0].idle_timeout_minutes !== undefined) {
+            idleLimitCache = clampIdleMinutes(rows[0].idle_timeout_minutes) * 60 * 1000;
+        }
+    } catch (err) {
+        console.warn('[session] could not read the idle timeout setting -', err.message);
+    }
+    return idleLimitCache;
+}
 
 // The browser only needs to report that the user is still there, so one write
 // per minute is plenty - the alternative is a DB round trip per mouse move.
@@ -126,8 +169,16 @@ async function inspect(userId) {
     if (terminated.has(userId)) return { expired: true, msRemaining: 0 };
     const last = await getLastActivity(userId);
     const idleFor = now() - last;
-    if (idleFor >= IDLE_LIMIT_MS) return { expired: true, msRemaining: 0 };
-    return { expired: false, msRemaining: IDLE_LIMIT_MS - idleFor };
+    const limit = idleLimitMs();
+    if (idleFor >= limit) return { expired: true, msRemaining: 0 };
+    return { expired: false, msRemaining: limit - idleFor };
+}
+
+// One wording for both places a stale session is refused (here and the
+// heartbeat in server.js), so a changed limit cannot leave one of them naming
+// the old number.
+function sessionTimeoutMessage() {
+    return `Your session ended after ${idleLimitMinutes()} minutes of inactivity. Please sign in again.`;
 }
 
 // Express guard. Mounted after token verification, so req.user is populated.
@@ -142,13 +193,17 @@ function enforceIdleTimeout(req, res, next) {
         // dozens of existing fetch call sites having to parse the body.
         res.set('X-Session-Timeout', '1');
         res.status(401).json({
-            error: 'Your session ended after 15 minutes of inactivity. Please sign in again.',
+            error: sessionTimeoutMessage(),
             code: 'session_timeout'
         });
     }).catch(() => next());
 }
 
 module.exports = {
-    IDLE_LIMIT_MS, WARN_BEFORE_MS, HEARTBEAT_WRITE_INTERVAL_MS,
+    // Functions, not values: the limit changes at runtime, and a caller that
+    // captured a number at require() time would keep reporting the old one.
+    idleLimitMs, idleLimitMinutes, refreshIdleLimit, sessionTimeoutMessage,
+    IDLE_LIMIT_MIN_MINUTES, IDLE_LIMIT_MAX_MINUTES, IDLE_LIMIT_DEFAULT_MINUTES,
+    WARN_BEFORE_MS, HEARTBEAT_WRITE_INTERVAL_MS,
     isStaffRole, touch, start, terminate, inspect, enforceIdleTimeout
 };

@@ -28,11 +28,22 @@ function rateLimit(limit, windowMs) {
     };
 }
 
+// Every file on the request, whatever it was called.
+//
+// This used to name `frontId` and `backId` explicitly and so never deleted the
+// guardian's ID at all - every underage registration, including the ones
+// refused for an unreadable or mismatched card, left an identity document
+// sitting in uploads/ for good. That contradicts the rule this file documents
+// below: an ID image is read inside the request that receives it and then it is
+// gone. Iterating the fields means the next file added cannot be forgotten the
+// same way.
 function cleanupUpload(files) {
-    const paths = [];
-    if (files && files['frontId']) paths.push(files['frontId'][0].path);
-    if (files && files['backId']) paths.push(files['backId'][0].path);
-    for (const p of paths) fs.unlink(p, () => {});
+    if (!files) return;
+    for (const field of Object.keys(files)) {
+        for (const file of files[field]) {
+            if (file && file.path) fs.unlink(file.path, () => {});
+        }
+    }
 }
 
 function makeCustomerUid(insertId) {
@@ -232,8 +243,13 @@ router.get('/register/suggest-username', rateLimit(30, 10 * 60 * 1000), async (r
 //
 // Name tokens, comparable across two sources that will never agree on case,
 // accents, punctuation or order. Tokens of one letter are dropped, which
-// removes middle initials from both sides - the typed guardian name carries one
-// by design, and a card may or may not print it.
+// removes a middle initial from either side - the registration form now asks
+// for a whole middle name, but a card may print an initial, and older accounts
+// still hold one.
+//
+// A whole middle name does become a real token, and that changes nothing:
+// guardianNameMatches below only ever tests the first and last token, so a
+// middle name sitting between them is ignored either way.
 function nameTokens(value) {
     return String(value || '')
         .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -289,7 +305,8 @@ function mapIdScan(ocrData, typedName = '') {
     return mapped;
 }
 
-router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ name: 'frontId', maxCount: 1 }, { name: 'backId', maxCount: 1 }, { name: 'guardianId', maxCount: 1 }]), async (req, res) => {
+router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ name: 'frontId', maxCount: 1 }, { name: 'backId', maxCount: 1 },
+        { name: 'guardianIdFront', maxCount: 1 }, { name: 'guardianIdBack', maxCount: 1 }]), async (req, res) => {
     const { username, full_name, email, verification_method, guardian_name, guardian_contact, guardian_relationship } = req.body || {};
     try {
         const isUnderage = verification_method === 'guardian';
@@ -305,9 +322,11 @@ router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ na
             cleanupUpload(req.files);
             return res.status(400).json({ error: 'Guardian name, contact, and relationship are required for underage registration' });
         }
-        if (isUnderage && (!req.files || !req.files['guardianId'])) {
+        if (isUnderage && (!req.files || !req.files['guardianIdFront'] || !req.files['guardianIdBack'])) {
             cleanupUpload(req.files);
-            return res.status(400).json({ error: "A photo of the guardian's valid ID is required for underage registration" });
+            return res.status(400).json({
+                error: "Photos of both the front and back of the guardian's valid ID are required for underage registration"
+            });
         }
 
         // Check if username or email already exists
@@ -365,7 +384,12 @@ router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ na
             // Both refusals are retryable and say which problem it is. A pass on
             // an unreadable photo would make the check bypassable by submitting
             // a blurry one, which is worse than asking for a better picture.
-            const guardianScan = await aiServices.ocrScan(req.files['guardianId'][0].path);
+            // The front only. The name is printed there, and reading the back
+            // as well could only produce a second verdict to disagree with the
+            // first. The back is held for the same reason the patient's own back
+            // is - a card is checked by eye from both faces - and is deleted
+            // with everything else below.
+            const guardianScan = await aiServices.ocrScan(req.files['guardianIdFront'][0].path);
             const scannedName = guardianScan && guardianScan.name ? guardianScan.name : '';
             cleanupUpload(req.files);
 

@@ -111,15 +111,18 @@ app.post('/api/session/heartbeat', authenticateToken, async (req, res) => {
         await sessionActivity.terminate(req.user.id, 'timeout');
         res.set('X-Session-Timeout', '1');
         return res.status(401).json({
-            error: 'Your session ended after 15 minutes of inactivity. Please sign in again.',
+            error: sessionActivity.sessionTimeoutMessage(),
             code: 'session_timeout'
         });
     }
     await sessionActivity.touch(req.user.id);
+    // The browser runs its own countdown and needs the current numbers to do
+    // it. This is also how a changed limit reaches every open dashboard: the
+    // next heartbeat carries it, so nothing has to be reloaded.
     res.json({
         success: true,
         tracked: true,
-        idle_limit_ms: sessionActivity.IDLE_LIMIT_MS,
+        idle_limit_ms: sessionActivity.idleLimitMs(),
         warn_before_ms: sessionActivity.WARN_BEFORE_MS
     });
 });
@@ -515,6 +518,11 @@ async function startServer() {
     await seedTestStructures();
 
     console.log('[Server] Seed data created.');
+
+    // After initDB, so the settings row and its column exist. Cached from here
+    // on; PUT /api/admin/settings refreshes it on every write.
+    await sessionActivity.refreshIdleLimit();
+    console.log(`[Server] Staff idle timeout: ${sessionActivity.idleLimitMinutes()} minutes.`);
 
     // Sweeps slots that came and went without a check-in, marking them
     // "Did Not Arrive" and archiving them out of the staff/admin lists. Runs

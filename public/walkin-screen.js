@@ -1,13 +1,17 @@
 // ── WALK-IN MANAGEMENT SCREEN ───────────────────────────────────────────────
-// The dashboard section for phone-less patients: registering them, watching
-// where they are, moving them along, and reprinting their paperwork.
+// The front desk section for phone-less patients: registering them, watching
+// where they are, and reprinting their paperwork.
 //
-// Hosted by three pages - the front desk (whose job this is) and both admin
-// dashboards (which hold the override for when nobody is on the desk). The
-// markup is built here rather than pasted into three HTML files: this project
-// has no templating, and the copies of the admin screens that *were* pasted
-// into two files had already drifted apart before they were consolidated into
-// admin-shared.js. shared.js builds its dialogs from JS for the same reason.
+// It does not move anybody. It used to carry a "Call next at the front desk"
+// button and a per-row Advance, and both were copies of the front desk
+// dashboard's own controls - the same endpoints with the same bodies, so the
+// same patient could be called from two screens that then disagreed about who
+// was at the counter. Calling and advancing live on the dashboard, which is
+// where the station's own state is already on screen.
+//
+// Front desk only now. The admin dashboards hosted this screen so an elevated
+// role could use those controls when nobody was on the desk; with the controls
+// gone there was nothing there for them but a second copy of a list.
 //
 // A host page needs only an empty <div id="section-walkin" class="content-section">
 // plus a sidebar entry, and must load this after shared.js and walkin-forms.js.
@@ -16,31 +20,11 @@ let walkInVisits = [];
 let walkInServices = [];
 let walkInScreenReady = false;
 
-// A staff account may only act on its own station type (ROLE_STATION_TYPE in
-// routes/queue.js), so the front desk can move a walk-in who is standing at the
-// front desk and nowhere else. The buttons say so rather than failing on click:
-// the elevated roles keep the override, which is the whole reason this screen is
-// on the admin dashboards too.
-const WALKIN_ELEVATED_ROLES = ['admin', 'admintechnical', 'owner'];
-
-function walkInCanAct(visit) {
-    if (!visit || !visit.queue_id) return false;
-    if (WALKIN_ELEVATED_ROLES.includes(getRole())) return true;
-    return visit.station_type === 'frontdesk';
-}
-
 const WALKIN_QUEUE_BADGE = {
     serving: '<span class="badge badge-success">At the counter</span>',
     waiting: '<span class="badge badge-primary">Waiting</span>',
     'on-hold': '<span class="badge badge-warning">On-Hold</span>'
 };
-
-const WALKIN_HOLD_PRESETS = [
-    'Waiting for a biological sample',
-    'Patient stepped away from the station',
-    'Waiting on a companion or guardian',
-    'Referred out and coming back'
-];
 
 function walkInScreenMarkup() {
     return `
@@ -142,17 +126,13 @@ function walkInScreenMarkup() {
             </div>
             <div class="card">
                 <div class="card-header">
-                    <div class="card-title"><i class="fa-solid fa-bell"></i> Queue controls</div>
+                    <div class="card-title"><i class="fa-solid fa-circle-info"></i> One shared queue</div>
                 </div>
-                <p class="text-sm text-muted" style="margin:0 0 12px;">
-                    Walk-ins share the one central queue, so these are the ordinary front desk controls —
-                    calling next here calls whoever is genuinely next, walk-in or not.
+                <p class="text-sm text-muted" style="margin:0;">
+                    A walk-in joins the same central queue as everybody else, so they are called from the
+                    Queue section of this dashboard — not from here. This screen registers them, prints
+                    their forms, and shows where they have got to.
                 </p>
-                <div class="queue-controls">
-                    <button class="btn btn-success" onclick="walkInCallNext()">
-                        <i class="fa-solid fa-bell"></i> Call next at the front desk
-                    </button>
-                </div>
             </div>
         </div>
     </div>
@@ -177,7 +157,7 @@ function walkInScreenMarkup() {
             <table>
                 <thead><tr>
                     <th>Ticket</th><th>Patient</th><th>Service</th><th>Where they are</th>
-                    <th>Payment</th><th>Progress</th><th>Forms</th><th>Move</th>
+                    <th>Payment</th><th>Progress</th><th>Forms</th>
                 </tr></thead>
                 <tbody id="wi-list"></tbody>
             </table>
@@ -265,25 +245,12 @@ function renderWalkInList() {
     const body = document.getElementById('wi-list');
     if (!body) return;
     if (rows.length === 0) {
-        body.innerHTML = `<tr><td colspan="8" class="text-center text-muted">
+        body.innerHTML = `<tr><td colspan="7" class="text-center text-muted">
             No walk-in patients ${term ? 'match that search' : 'yet'}.</td></tr>`;
         return;
     }
 
     body.innerHTML = rows.map(v => {
-        const canAct = walkInCanAct(v);
-        const blockedWhy = v.queue_id
-            ? `The ${escapeHtml(v.station_name || v.station_type)} station has to move this patient on.`
-            : 'This visit has no active queue row.';
-        const holdOrResume = v.queue_status === 'on-hold'
-            ? `<button class="btn btn-sm btn-outline" onclick="walkInResume('${v.queue_id}')"
-                       ${canAct ? '' : `disabled title="${blockedWhy}"`}>
-                   <i class="fa-solid fa-play"></i> Resume</button>`
-            : `<button class="btn btn-sm btn-outline" onclick="walkInHold('${v.queue_id}')"
-                       ${canAct && v.queue_status === 'serving' ? '' : `disabled title="${
-                           canAct ? 'Only the patient at the counter can be put On-Hold.' : blockedWhy}"`}>
-                   <i class="fa-solid fa-pause"></i> Hold</button>`;
-
         return `<tr>
             <td><strong>${escapeHtml(v.ticket || '—')}</strong></td>
             <td>${escapeHtml(v.full_name || '—')}
@@ -305,13 +272,6 @@ function renderWalkInList() {
                 <button class="btn btn-sm btn-primary" onclick="printWalkInForm(${v.sequence_id}, 'diagnosis')"
                         ${v.paid ? '' : 'disabled title="Printed once payment is taken at the front desk."'}>
                     <i class="fa-solid fa-stethoscope"></i> Diagnosis</button>
-            </td>
-            <td style="white-space:nowrap;">
-                <button class="btn btn-sm btn-success" onclick="walkInAdvance('${v.queue_id}', '${escapeHtml(v.ticket || '')}')"
-                        ${canAct && v.queue_status === 'serving' ? '' : `disabled title="${
-                            canAct ? 'Call the patient to the counter first.' : blockedWhy}"`}>
-                    <i class="fa-solid fa-arrow-right"></i> Advance</button>
-                ${holdOrResume}
             </td>
         </tr>`;
     }).join('');
@@ -388,76 +348,3 @@ async function registerWalkIn() {
     }
 }
 
-// ── Queue controls ──────────────────────────────────────────────────────────
-async function walkInCallNext() {
-    const confirmed = await confirmAction({
-        title: 'Call the next patient?',
-        message: 'The next ticket in the front desk queue will be called, and announced on the lobby display.',
-        detail: 'This is the shared queue — the next ticket may not be a walk-in.',
-        icon: 'fa-solid fa-bell',
-        confirmLabel: 'Call next',
-        confirmClass: 'btn-success'
-    });
-    if (!confirmed) return;
-    const res = await fetch('/api/queue/next', {
-        method: 'POST', headers: authHeaders(), body: JSON.stringify({ station_type: 'frontdesk' })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (data.success) showToast('Calling: ' + data.next, 'success');
-    else showToast(data.error || data.message || 'Queue empty', res.ok ? 'info' : 'error');
-    loadWalkIns();
-}
-
-async function walkInAdvance(queueId, ticket) {
-    const confirmed = await confirmAction({
-        title: `Send ${ticket || 'this patient'} on?`,
-        message: 'They will be moved to the next station on their service route.',
-        detail: 'At the front desk this also records their payment.',
-        icon: 'fa-solid fa-arrow-right',
-        confirmLabel: 'Send on',
-        confirmClass: 'btn-success'
-    });
-    if (!confirmed) return;
-    const res = await fetch('/api/queue/complete-step', {
-        method: 'POST', headers: authHeaders(), body: JSON.stringify({ queue_id: queueId })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-        showToast(data.error || 'Could not advance this patient.',
-            data.requires_finalize ? 'warning' : 'error');
-    } else {
-        showToast(data.is_final_step
-            ? `${data.next_ticket} sent back to the front desk to close out`
-            : 'Sent on to ' + (data.next_station || 'the next station'), 'success');
-    }
-    loadWalkIns();
-}
-
-async function walkInHold(queueId) {
-    const reason = await promptReason({
-        title: 'Put this patient On-Hold',
-        message: 'They keep their place in the visit, and the station calls the next patient meanwhile.',
-        placeholder: 'e.g. waiting for a urine sample',
-        confirmLabel: 'Put On-Hold',
-        confirmClass: 'btn-warning',
-        presets: WALKIN_HOLD_PRESETS
-    });
-    if (!reason) return;
-    const res = await fetch('/api/queue/hold', {
-        method: 'POST', headers: authHeaders(), body: JSON.stringify({ queue_id: queueId, reason })
-    });
-    const data = await res.json().catch(() => ({}));
-    showToast(res.ok ? 'Patient put On-Hold' : (data.error || 'Could not hold this patient'),
-        res.ok ? 'success' : 'error');
-    loadWalkIns();
-}
-
-async function walkInResume(queueId) {
-    const res = await fetch('/api/queue/resume', {
-        method: 'POST', headers: authHeaders(), body: JSON.stringify({ queue_id: queueId })
-    });
-    const data = await res.json().catch(() => ({}));
-    showToast(res.ok ? 'Patient back in the line' : (data.error || 'Could not resume this patient'),
-        res.ok ? 'success' : 'error');
-    loadWalkIns();
-}

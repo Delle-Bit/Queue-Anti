@@ -4,7 +4,7 @@ const { pool } = require('../database');
 const bcrypt = require('bcrypt');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
-const { requireStaff, requireAdmin } = require('../config');
+const { requireStaff, requireAdmin, STAFF_ROLES } = require('../config');
 const aiServices = require('../ai_services');
 const appointmentAutomation = require('../appointment_automation');
 const sessionActivity = require('../session_activity');
@@ -13,6 +13,10 @@ const { archiveRecord, ARCHIVE_TABLE_MAP } = require('../archive');
 const { sanitizeRichText, richTextToPlain } = require('../rich_text');
 
 const ELEVATED_ROLES = ['admin', 'admintechnical', 'owner'];
+
+// Every value the users.role ENUM accepts. An update that names anything else -
+// including '' or nothing at all - is treated as "leave the role alone".
+const ROLE_VALUES = [...STAFF_ROLES, 'customer'];
 
 // --- USERS ---
 // Free-text search across the columns an operator would actually type into a
@@ -105,12 +109,22 @@ router.put('/users/:id', requireAdmin, requireReason, async (req, res) => {
         if (!before) return res.status(404).json({ error: 'User not found' });
         const targetRole = before.role;
 
+        // A request that does not name a real role leaves the role alone. Both
+        // branches below used to write `role=?` unconditionally, so a caller
+        // that sent a wrong value - or none - rewrote it. That is how a password
+        // reset demoted `owner1` to `laboratory`: the Manage Accounts form sends
+        // the role on every save, and its <select> had no option for `owner`, so
+        // it reported its first entry instead. The client is fixed too
+        // (populateRoleSelect in owner.js / admintechnical.js), but the rule
+        // belongs here, where every present and future caller passes through.
+        const nextRole = ROLE_VALUES.includes(role) ? role : targetRole;
+
         // Plain admins must not modify elevated accounts or grant elevated roles
         if (req.user.role === 'admin') {
             if (ELEVATED_ROLES.includes(targetRole)) {
                 return res.status(403).json({ error: 'Admins cannot modify other admin accounts' });
             }
-            if (role && ELEVATED_ROLES.includes(role)) {
+            if (ELEVATED_ROLES.includes(nextRole)) {
                 return res.status(403).json({ error: 'Admins cannot grant admin roles' });
             }
             if (Number(req.params.id) === req.user.id) {
@@ -118,13 +132,28 @@ router.put('/users/:id', requireAdmin, requireReason, async (req, res) => {
             }
         }
 
+        // The last owner cannot be demoted. `owner` is the only role that can
+        // grant `owner`, so losing the last one takes the owner dashboard,
+        // owner-only reporting and any way of handing the role back with it -
+        // which is exactly what the bug above did, because the seeds ship one
+        // owner account and no second.
+        if (targetRole === 'owner' && nextRole !== 'owner') {
+            const [[{ owners }]] = await pool.query(
+                `SELECT COUNT(*) AS owners FROM users WHERE role = 'owner' AND archived = false`);
+            if (owners <= 1) {
+                return res.status(400).json({
+                    error: 'This is the only owner account. Give another account the Owner role before changing this one.'
+                });
+            }
+        }
+
         if (password) {
             const hash = await bcrypt.hash(password, 10);
             await pool.query('UPDATE users SET password_hash=?, role=?, email=?, full_name=? WHERE id=?',
-                [hash, role, email || '', full_name || '', req.params.id]);
+                [hash, nextRole, email || '', full_name || '', req.params.id]);
         } else {
             await pool.query('UPDATE users SET role=?, email=?, full_name=? WHERE id=?',
-                [role, email || '', full_name || '', req.params.id]);
+                [nextRole, email || '', full_name || '', req.params.id]);
         }
         const after = await snapshotRow('users', 'id', req.params.id);
         await recordAudit({
@@ -699,14 +728,25 @@ router.get('/audit-logs/facets', requireAdmin, async (req, res) => {
 
 // Allowlist - also the source of the SET clause's column names, so nothing from
 // the request body can reach the SQL text.
+// `theme` is deliberately absent. Light or dark is now each viewer's own
+// choice, kept in their browser (readThemePreference in public/shared.js) - a
+// patient on their own phone at midnight and a front desk under fluorescent
+// light do not want the same answer, and one admin picking for everybody was
+// the wrong shape for the decision. The column is left in place, unread.
 const SETTINGS_FIELDS = {
-    site_name: 255,
-    logo_path: 255,
-    theme: 20,
-    navbar_color: 50,
-    background_image: 255
+    site_name: { max: 255 },
+    logo_path: { max: 255 },
+    navbar_color: { max: 50 },
+    background_image: { max: 255 },
+    // The only numeric setting. Bounds come from session_activity.js rather
+    // than being repeated here, so the validation and the thing it guards
+    // cannot drift apart.
+    idle_timeout_minutes: {
+        minutes: true,
+        min: sessionActivity.IDLE_LIMIT_MIN_MINUTES,
+        max: sessionActivity.IDLE_LIMIT_MAX_MINUTES
+    }
 };
-const SETTINGS_THEMES = ['light', 'dark'];
 
 // Partial update: only the fields actually present in the body are written.
 // This used to be an unconditional full-row UPDATE, so saving the two fields the
@@ -720,12 +760,24 @@ router.put('/settings', requireAdmin, requireReason, async (req, res) => {
 
     const values = [];
     for (const field of fields) {
-        const value = String(body[field]).trim();
-        if (value.length > SETTINGS_FIELDS[field]) {
-            return res.status(400).json({ error: `${field} must be ${SETTINGS_FIELDS[field]} characters or fewer` });
+        const spec = SETTINGS_FIELDS[field];
+
+        // A number is checked as a number - the string path below would happily
+        // store "abc" in an INT column and let MySQL decide what that means.
+        if (spec.minutes) {
+            const minutes = Number(body[field]);
+            if (!Number.isInteger(minutes) || minutes < spec.min || minutes > spec.max) {
+                return res.status(400).json({
+                    error: `The session timeout must be a whole number of minutes between ${spec.min} and ${spec.max}.`
+                });
+            }
+            values.push(minutes);
+            continue;
         }
-        if (field === 'theme' && !SETTINGS_THEMES.includes(value)) {
-            return res.status(400).json({ error: `theme must be one of: ${SETTINGS_THEMES.join(', ')}` });
+
+        const value = String(body[field]).trim();
+        if (value.length > spec.max) {
+            return res.status(400).json({ error: `${field} must be ${spec.max} characters or fewer` });
         }
         if (field === 'navbar_color' && value && !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) {
             return res.status(400).json({ error: 'navbar_color must be a hex colour such as #24303A' });
@@ -742,9 +794,14 @@ router.put('/settings', requireAdmin, requireReason, async (req, res) => {
         await pool.query(`UPDATE settings SET ${setClause} WHERE id=1`, values);
         const after = await snapshotRow('settings', 'id', 1);
 
+        // session_activity.js caches the limit rather than reading it on every
+        // authenticated request. This is the only write path, so it is also the
+        // only place that has to say the cache is stale.
+        if (fields.includes('idle_timeout_minutes')) await sessionActivity.refreshIdleLimit();
+
         await recordAudit({
             req, action: 'update', entityType: 'settings', entityId: 1,
-            summary: `Updated appearance settings: ${fields.join(', ')}`,
+            summary: `Updated clinic settings: ${fields.join(', ')}`,
             before, after
         });
 

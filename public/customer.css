@@ -219,7 +219,9 @@
     padding: 14px;
     margin-bottom: 14px;
     border-radius: 8px;
-    background: linear-gradient(135deg, rgba(198,40,40,0.08), rgba(255,255,255,0.9));
+    /* var(--bg-card) rather than a 90% white: on a dark page the white stop
+       made the right-hand half of this banner a pale slab. */
+    background: linear-gradient(135deg, rgba(198,40,40,0.08), var(--bg-card));
     border: 1px solid rgba(198,40,40,0.14);
 }
 
@@ -258,7 +260,11 @@
     padding: 18px;
     border: 1px solid rgba(198,40,58,0.14);
     border-radius: 8px;
-    background: linear-gradient(135deg, #fff, #FFF7F8);
+    /* --bg-card, not #fff. These three cards were hardcoded white, which was
+       invisible while the theme was always light and is a white slab on a dark
+       page now that the viewer can choose. The pink second stop is a tint over
+       whatever the card colour is, so it survives the swap. */
+    background: linear-gradient(135deg, var(--bg-card), var(--danger-light));
     box-shadow: 0 10px 24px rgba(36,48,58,0.06);
 }
 
@@ -277,13 +283,13 @@
     padding: 18px;
     border: 1px solid var(--border);
     border-radius: 8px;
-    background: #fff;
+    background: var(--bg-card);
     box-shadow: 0 10px 24px rgba(36,48,58,0.06);
 }
 
 .queue-number-card.primary {
     border-color: rgba(198,40,58,0.24);
-    background: linear-gradient(135deg, #fff, #FFF3F5);
+    background: linear-gradient(135deg, var(--bg-card), var(--danger-light));
 }
 
 .queue-number,

@@ -59,6 +59,13 @@
                     <i class="fa-solid fa-volume-xmark" id="disp-sound-icon"></i>
                     <span id="disp-sound-label">Enable sound</span>
                 </button>
+                <!-- Set once when the board is mounted, like the other two.
+                     A lobby with windows wants the light palette; a basement
+                     waiting room does not. -->
+                <button class="disp-btn" id="disp-theme" onclick="dispToggleTheme()">
+                    <i class="fa-solid fa-sun" id="disp-theme-icon"></i>
+                    <span id="disp-theme-label">Light mode</span>
+                </button>
                 <button class="disp-btn" onclick="dispToggleFullscreen()">
                     <i class="fa-solid fa-expand"></i> Fullscreen
                 </button>

@@ -11,7 +11,6 @@ renderSidebar([
     { id: 'accounts', label: 'Manage Accounts', icon: 'fa-solid fa-users-gear' },
     { id: 'labs', label: 'Manage Laboratories', icon: 'fa-solid fa-flask-vial' },
     { id: 'reports', label: 'AI Reports', icon: 'fa-solid fa-chart-line' },
-    { id: 'walkin', label: 'Walk-in Intake', icon: 'fa-solid fa-person-walking-arrow-right' },
     { id: 'services', label: 'Service Management', icon: 'fa-solid fa-box-open' },
     { id: 'structures', label: 'Test Structures', icon: 'fa-solid fa-vials' },
     { id: 'create', label: 'Create Account', icon: 'fa-solid fa-user-plus' },
@@ -22,7 +21,6 @@ renderSidebar([
 initDefaultSection();
 
 window.onSectionLoad = {
-    walkin: loadWalkIns,
     structures: loadTestStructureAdmin,
     dashboard: loadOwnerDash,
     accounts: loadAccounts,
@@ -36,17 +34,18 @@ window.onSectionLoad = {
 };
 
 // ── ROLES THIS PAGE MAY ASSIGN ──
-// The owner is the only role that can create other elevated accounts.
+// The owner is the only role that can create other elevated accounts, `owner`
+// included - a role nobody can assign is a role nobody can hand back.
 function populateRoleSelect(selectId, selected) {
     const roles = [
         { value: 'laboratory', label: 'Laboratory' },
         { value: 'frontdesk', label: 'Front Desk' },
         { value: 'doctor', label: 'Doctor' },
         { value: 'admintechnical', label: 'Admin Technical' },
-        { value: 'admin', label: 'Admin' }
+        { value: 'admin', label: 'Admin' },
+        { value: 'owner', label: 'Owner' }
     ];
-    const sel = document.getElementById(selectId);
-    if (sel) sel.innerHTML = roles.map(r => `<option value="${r.value}" ${selected===r.value?'selected':''}>${r.label}</option>`).join('');
+    renderRoleOptions(selectId, roles, selected);
 }
 
 // ── DASHBOARD ──
