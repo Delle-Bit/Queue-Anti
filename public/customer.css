@@ -90,10 +90,24 @@
     color: var(--primary);
 }
 
+/* Selected, without turning the slot into a solid red block. The time is the
+   whole point of the control, so it stays in readable dark text on a light
+   tint; the border and the ring carry the "chosen" signal. This also matches
+   how a chosen service card is marked, so one selection idiom runs through
+   the whole booking flow. */
 .time-slot.selected {
-    background: var(--primary);
-    color: #fff;
+    background: var(--primary-surface, rgba(198, 40, 58, 0.08));
+    color: var(--text-primary);
     border-color: var(--primary);
+    box-shadow: inset 0 0 0 1px var(--primary), 0 0 0 3px rgba(198, 40, 58, 0.12);
+    font-weight: 700;
+}
+/* A checkmark rather than colour alone, so the chosen slot is still
+   identifiable without relying on hue. */
+.time-slot.selected::before {
+    content: '\2713\00a0';
+    color: var(--primary);
+    font-weight: 700;
 }
 
 .time-slot.disabled, .time-slot.full, .time-slot.closed, .time-slot.past {
@@ -524,6 +538,7 @@
     font-weight: 700;
     flex: 0 0 auto;
 }
+.appt-step-label { white-space: nowrap; }
 .appt-step-chip.current { color: var(--primary); }
 .appt-step-chip.current .appt-step-num { background: var(--primary); color: #fff; }
 .appt-step-chip.done .appt-step-num { background: var(--success, #2e7d32); color: #fff; }
@@ -664,9 +679,25 @@
     .time-slots-grid { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
     .time-slot { min-height: 44px; display: grid; place-items: center; }
 
-    .appt-steps { gap: 4px; margin-bottom: 10px; }
-    .appt-step-chip { font-size: 0.7em; }
-    .appt-step-sep { min-width: 4px; }
+    /* Four chips plus three separators do not fit 375px while every chip
+       carries its label, so they wrapped onto a second line, ragged left. Only
+       the step the customer is actually on keeps its label; the rest are their
+       numbers, which is enough to show four steps and where they are in them.
+       Centred, because a progress row is a caption for the pane below it. */
+    .appt-steps {
+        gap: 4px;
+        margin-bottom: 10px;
+        flex-wrap: nowrap;
+        justify-content: center;
+    }
+    .appt-step-chip { font-size: 0.7em; min-width: 0; }
+    .appt-step-chip:not(.current) .appt-step-label { display: none; }
+    .appt-step-chip.current .appt-step-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .appt-step-sep { min-width: 4px; flex: 1 1 4px; }
 }
 
 /* -- step 2: the service confirmation ----------------------------- */

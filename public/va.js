@@ -302,6 +302,7 @@ function bindVaTypedInput() {
         // Stop listening first if the microphone happens to be open, so a
         // spoken and a typed question cannot arrive at once.
         if (isListening) stopSpeechRecognition();
+        beginVaTurn();
         pushVaBubble('user', text);
         addVaHistory('user', text);
         processVoiceCommand(text);
@@ -323,6 +324,22 @@ function focusVaTypedInput() {
 }
 
 // ── CONVERSATION HISTORY ──────────────────────────────────────────
+// Clearing has to survive a turn that is already in flight. A question asked
+// before Clear was pressed is still waiting on /api/assistant/dialogue, and
+// its reply used to land in the log the customer had just emptied - which
+// reads as a Clear button that does not work.
+//
+// So every turn carries the epoch it began in, and a write from an older epoch
+// is dropped. A question asked *after* the clear begins in the new epoch and
+// is recorded normally.
+let vaHistoryEpoch = 0;
+let vaTurnEpoch = 0;
+
+// Called when a new question starts, spoken or typed.
+function beginVaTurn() {
+    vaTurnEpoch = vaHistoryEpoch;
+}
+
 function loadVaHistory() {
     try {
         const stored = JSON.parse(localStorage.getItem(VA_HISTORY_KEY) || '[]');
@@ -332,6 +349,7 @@ function loadVaHistory() {
 
 function addVaHistory(role, text) {
     if (!text) return;
+    if (vaTurnEpoch !== vaHistoryEpoch) return; // cleared while this turn was in flight
     vaHistory.push({ role, text, at: new Date().toISOString() });
     if (vaHistory.length > 50) vaHistory = vaHistory.slice(-50);
     try { localStorage.setItem(VA_HISTORY_KEY, JSON.stringify(vaHistory)); } catch (e) { /* quota — keep in memory */ }
@@ -361,10 +379,28 @@ function openVaHistory() {
 }
 
 function clearVaHistory() {
+    vaHistoryEpoch++;
     vaHistory = [];
     localStorage.removeItem(VA_HISTORY_KEY);
     renderVaHistory();
+    // The floating bubbles are the same conversation, still on screen. An
+    // assistant bubble is pushed with persist:true and is only dismissed when
+    // its spoken line finishes, so with voice muted - or when the speech
+    // engine never fires its end callback - it stays up indefinitely. Leaving
+    // them there after a clear leaves the conversation visibly present next to
+    // the avatar, which is the other half of "Clear does not clear".
+    clearVaBubbles();
+    // Anything still being read aloud belongs to the conversation as well.
+    try { window.speechSynthesis.cancel(); } catch (e) { /* no speech engine */ }
     showToast('Conversation history cleared', 'info');
+}
+
+// Retires every bubble at once. Iterated over a static copy because retiring
+// mutates the live NodeList the selector returns.
+function clearVaBubbles() {
+    const wrap = document.getElementById('va-bubbles');
+    if (!wrap) return;
+    Array.from(wrap.querySelectorAll('.va-bubble')).forEach(retireVaBubble);
 }
 
 // ── VOICE OUTPUT + LIP SYNC ───────────────────────────────────────
@@ -622,6 +658,7 @@ function startSpeechRecognition() {
             + `transcript=${text ? JSON.stringify(text) : 'empty'}`);
 
         if (text) {
+            beginVaTurn();
             pushVaBubble('user', text);
             addVaHistory('user', text);
             processVoiceCommand(text);
