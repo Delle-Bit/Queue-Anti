@@ -230,10 +230,6 @@ router.get('/register/suggest-username', rateLimit(30, 10 * 60 * 1000), async (r
 // approves them. Regular is the safe default exactly because it grants no
 // priority.
 //
-// `typedName` is the one real difference between the callers. The step-1 submit
-// passes the name the customer typed, which is authoritative because OCR name
-// extraction is the least reliable field on the card; the preview passes
-// nothing, because prefilling that field from the card is its whole purpose.
 // Name tokens, comparable across two sources that will never agree on case,
 // accents, punctuation or order. Tokens of one letter are dropped, which
 // removes middle initials from both sides - the typed guardian name carries one
@@ -259,6 +255,11 @@ function guardianNameMatches(typedName, scannedName) {
     return [typed[0], typed[typed.length - 1]].every(t => scanned.has(t));
 }
 
+// `typedName` is the one real difference between the callers. The step-1 submit
+// passes the name the customer typed, which is authoritative because OCR name
+// extraction is the least reliable field on the card; the preview passes
+// nothing, because prefilling that field from the card is its whole purpose -
+// and it is what lets the guardian check read the name off the card.
 function mapIdScan(ocrData, typedName = '') {
     const mapped = {
         id_read: false,

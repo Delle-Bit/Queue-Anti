@@ -405,6 +405,8 @@ function switchAuthTab(tab) {
         document.getElementById('preview-front').innerHTML = '<i class="fa-solid fa-address-card"></i>';
         document.getElementById('preview-back').innerHTML = '<i class="fa-solid fa-address-card"></i>';
         registrationState.blobs = { front: null, back: null, guardian: null };
+        registrationState.guardianScan = null;
+        setGuardianIdStatus(GUARDIAN_ID_HINT, 'muted');
         setVerificationMethod('id');
     }
 }
@@ -448,6 +450,74 @@ function regNameProblem(prefix, label) {
         return `Enter ${label.toLowerCase()} middle initial, or tick "No middle initial".`;
     }
     return null;
+}
+
+// ── Guardian ID check, client side ─────────────────────────────────
+// A mirror of guardianNameMatches in routes/auth.js. The server is the
+// boundary and re-runs this on submit; this copy exists so a wrong ID is
+// caught when it is attached rather than after Continue, which is a long way
+// to walk to be told the photo was of the wrong person.
+function nameTokens(value) {
+    return String(value || '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase().replace(/[^A-Z\s]/g, ' ')
+        .split(/\s+/).filter(t => t.length > 1);
+}
+
+function guardianNameMatches(typedName, scannedName) {
+    const typed = nameTokens(typedName);
+    const scanned = new Set(nameTokens(scannedName));
+    if (typed.length === 0 || scanned.size === 0) return false;
+    return [typed[0], typed[typed.length - 1]].every(t => scanned.has(t));
+}
+
+const GUARDIAN_ID_HINT = 'The name on this ID must match the guardian name above.';
+
+function setGuardianIdStatus(text, state) {
+    const el = document.getElementById('reg-guardian-id-status');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('reg-check-ok', state === 'ok');
+    el.classList.toggle('reg-check-bad', state === 'bad');
+    el.classList.toggle('text-muted', state !== 'ok' && state !== 'bad');
+}
+
+// Re-renders the verdict from whatever the last scan said. Called after a scan
+// and again whenever the guardian's name is edited, so correcting a typo in the
+// name clears the rejection without re-uploading the photo.
+function refreshGuardianVerdict() {
+    const scan = registrationState.guardianScan;
+    if (!scan) { setGuardianIdStatus(GUARDIAN_ID_HINT, 'muted'); return; }
+    if (!scan.name) {
+        setGuardianIdStatus('\u2717 This ID could not be read. Retake it in better light, with the whole card in frame.', 'bad');
+        return;
+    }
+    const typed = regFullName('reg-guardian');
+    scan.matches = guardianNameMatches(typed, scan.name);
+    setGuardianIdStatus(scan.matches
+        ? `\u2713 Matches the ID, which reads "${scan.name}".`
+        : `\u2717 This ID reads "${scan.name}", which is not the guardian name entered above.`,
+        scan.matches ? 'ok' : 'bad');
+}
+
+async function checkGuardianId(blob) {
+    registrationState.guardianScan = null;
+    setGuardianIdStatus('Checking the ID against the guardian name\u2026', 'muted');
+    try {
+        const formData = new FormData();
+        formData.append('idImage', blob, 'guardian-id.jpg');
+        const res = await fetch('/api/auth/ocr', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error('scan failed');
+        // A readable card with no name is still a verdict: nothing to match.
+        registrationState.guardianScan = { name: (data.name || '').trim(), matches: false };
+        refreshGuardianVerdict();
+    } catch (err) {
+        // The check could not run - not the same as a card that failed it. Left
+        // unset so nothing is blocked here; the server checks it on submit.
+        registrationState.guardianScan = null;
+        setGuardianIdStatus('Could not check the ID here. It will be checked when you continue.', 'muted');
+    }
 }
 
 // Splits a scanned name across the three fields. Prefill only - the patient
@@ -624,6 +694,17 @@ function validateCurrentStep() {
             // there is nothing to verify without it.
             if (!registrationState.blobs.guardian) {
                 errEl.textContent = "A photo of the guardian's valid ID is required.";
+                errEl.classList.add('show');
+                return false;
+            }
+            // Only a verdict this browser actually reached blocks here. A check
+            // that could not run leaves guardianScan null and the submit goes
+            // ahead, because the server is the one that decides.
+            const scan = registrationState.guardianScan;
+            if (scan && !scan.matches) {
+                errEl.textContent = scan.name
+                    ? `The guardian's ID reads "${scan.name}", which is not the guardian name entered. Use the guardian's own ID, or correct the name.`
+                    : "The guardian's ID could not be read. Please retake the photo in better light, with the whole card in frame.";
                 errEl.classList.add('show');
                 return false;
             }
@@ -943,6 +1024,9 @@ function handleFileUpload(e, side) {
 // type their name manually to get that far, so nothing was ever actually
 // prefilled. /api/auth/ocr exists specifically for this early-preview use.
 async function runIdOcrPreview(blob, side) {
+    // The guardian's photo is checked against the typed guardian name instead
+    // of prefilling anything.
+    if (side === 'guardian') return checkGuardianId(blob);
     if (side !== 'front') return; // only the front ID carries name/category info anywhere else in the app
     const status = document.getElementById('reg-camera-status');
     if (status) status.textContent = 'Scanning ID...';
@@ -1043,9 +1127,10 @@ async function captureRegID() {
         const target = currentSide === 'guardian'
             ? (document.getElementById('reg-guardian-id-status') || status)
             : status;
-        target.textContent = currentSide === 'guardian'
-            ? 'Guardian ID captured ✓ — the name on it must match the guardian name above.'
-            : `${currentSide.toUpperCase()} captured ✓`;
+        // For the guardian, the check that runs next owns this line, so it is
+        // not overwritten with a confirmation that says nothing about the
+        // thing actually being verified.
+        if (currentSide !== 'guardian') target.textContent = `${currentSide.toUpperCase()} captured ✓`;
         stopRegCamera();
         runIdOcrPreview(blob, currentSide);
     }, 'image/jpeg', 0.9);
@@ -1241,13 +1326,10 @@ function setupRegisterHandlers() {
     }
     // Re-typing the guardian's name after a rejected match should clear the
     // rejection, so the customer is not reading a stale verdict.
-    guardianNameFields.forEach(f => f.addEventListener('input', () => {
-        const status = document.getElementById('reg-guardian-id-status');
-        if (status) {
-            status.textContent = 'The name on this ID must match the guardian name above.';
-            status.classList.remove('text-danger');
-        }
-    }));
+    // Editing the name re-judges the photo already attached, rather than
+    // leaving a verdict on screen that was reached against the old spelling.
+    guardianNameFields.forEach(f => f.addEventListener('input', refreshGuardianVerdict));
+    if (guardianNoMiddle) guardianNoMiddle.addEventListener('change', refreshGuardianVerdict);
 
     const noMiddleBox = document.getElementById('reg-no-middle');
     if (noMiddleBox) {

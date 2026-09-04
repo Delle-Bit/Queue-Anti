@@ -1192,6 +1192,12 @@ body {
     grid-template-columns: 1fr 84px 1fr;
     gap: 10px;
 }
+/* Verdict on the guardian ID check. The wording carries the meaning; colour
+   only reinforces it, and each state also leads with a mark, so the line reads
+   the same to anyone who cannot separate the two hues. */
+.reg-check-ok { color: var(--success, #2e7d32); font-weight: 600; }
+.reg-check-bad { color: var(--danger); font-weight: 600; }
+
 .reg-name-mi { text-align: center; text-transform: uppercase; }
 .reg-name-mi:disabled { opacity: 0.5; cursor: not-allowed; }
 .reg-no-mi {
