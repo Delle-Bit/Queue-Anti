@@ -13,19 +13,34 @@
    - Contrast is pushed well past the 4.5:1 minimum, because the reading
      distance and the ambient light of a waiting room are both working
      against it.
+
+   The tokens below are the site's own: the panels are `--bg-sidebar` and its
+   hover/active steps from shared.css, the red is `--primary` exactly, and the
+   number is `--primary-light` - a plain `--primary` on this ground measures
+   3.8:1, which is under the floor for anything but headline type. Inter is the
+   site font. A board in the same building should look like it belongs to the
+   same clinic as the screen the patient booked on.
+
+   There is no "now serving" banner above the grid. The station panel that is
+   calling *is* the banner: it takes the brand gradient, a "Now calling" pill
+   and a pulse, so "what number, and where do I go?" is answered by one object
+   rather than by two that have to agree with each other.
 ─────────────────────────────────────────────────────────────────────────────*/
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
 :root {
-    --disp-bg: #0D1117;
-    --disp-panel: #161C24;
-    --disp-panel-alt: #1D242E;
-    --disp-border: #2A3441;
-    --disp-text: #F2F5F8;
-    --disp-muted: #93A1B1;
-    --disp-brand: #E8586B;      /* lightened from --primary for dark-ground contrast */
-    --disp-brand-deep: #C6283A;
-    --disp-live: #34D399;
-    --disp-radius: 14px;
+    --disp-bg: #161E25;
+    --disp-panel: #24303A;          /* shared.css --bg-sidebar */
+    --disp-panel-alt: #31414D;      /* --bg-sidebar-hover */
+    --disp-border: #3E505E;         /* --bg-sidebar-active */
+    --disp-text: #F4F7FA;
+    --disp-muted: #C8D1DA;          /* --text-sidebar */
+    --disp-brand: #E8586B;          /* accents and borders, not text */
+    --disp-brand-deep: #C6283A;     /* --primary */
+    --disp-brand-light: #F08A95;    /* --primary-light; the number */
+    --disp-live: #4ADE80;
+    --disp-radius: 16px;
 }
 
 * { box-sizing: border-box; }
@@ -36,16 +51,39 @@ html, body {
     height: 100%;
     background: var(--disp-bg);
     color: var(--disp-text);
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
     overflow: hidden;                 /* a board never scrolls */
 }
 
+/* A faint brand wash at the top, so the screen does not read as a flat black
+   rectangle from across the room. */
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0 0 auto 0;
+    height: 40vh;
+    background: radial-gradient(120% 100% at 50% 0%, rgba(198, 40, 58, 0.20), transparent 70%);
+    pointer-events: none;
+}
+
 .disp-shell {
+    position: relative;
     height: 100vh;
     display: flex;
     flex-direction: column;
     padding: 1.6vh 1.6vw;
     gap: 1.4vh;
+}
+
+/* Announcements reach a screen reader through here rather than through the
+   grid: the grid re-renders on every poll, and a live region on it would read
+   the whole board out every ten seconds. */
+.disp-sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
 }
 
 /* ── Masthead ─────────────────────────────────────────────────────────── */
@@ -54,7 +92,10 @@ html, body {
     align-items: center;
     justify-content: space-between;
     gap: 2vw;
-    border-bottom: 2px solid var(--disp-border);
+    /* A gradient rule rather than a flat grey one - the same brand-to-nothing
+       sweep the rest of the site uses under its headers. */
+    border-bottom: 3px solid transparent;
+    border-image: linear-gradient(90deg, var(--disp-brand-deep), var(--disp-brand) 40%, transparent) 1;
     padding-bottom: 1.2vh;
     flex: 0 0 auto;
 }
@@ -76,76 +117,9 @@ html, body {
 .disp-time { font-size: 3.4vh; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
 .disp-date { font-size: 1.5vh; color: var(--disp-muted); margin-top: 0.4vh; }
 
-/* ── The hero call ────────────────────────────────────────────────────────
-   The single most recent call, given its own band. A patient walking in
-   part-way through should be able to answer "what number is up?" from the
-   doorway without reading the grid. */
-.disp-hero {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 2vw;
-    background: linear-gradient(100deg, var(--disp-brand-deep), #8E1B29);
-    border-radius: var(--disp-radius);
-    padding: 1.6vh 2vw;
-    min-height: 16vh;
-}
-
-.disp-hero[data-idle="true"] {
-    background: var(--disp-panel);
-    border: 1px solid var(--disp-border);
-}
-
-.disp-hero-label {
-    font-size: 1.7vh;
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: rgba(255, 255, 255, 0.82);
-    font-weight: 600;
-}
-.disp-hero[data-idle="true"] .disp-hero-label { color: var(--disp-muted); }
-
-.disp-hero-ticket {
-    font-size: 11vh;
-    font-weight: 800;
-    line-height: 0.95;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
-}
-.disp-hero-station { font-size: 3vh; font-weight: 600; text-align: right; }
-.disp-hero-station small {
-    display: block;
-    font-size: 1.6vh;
-    font-weight: 400;
-    color: rgba(255, 255, 255, 0.75);
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    margin-bottom: 0.5vh;
-}
-.disp-hero[data-idle="true"] .disp-hero-station small { color: var(--disp-muted); }
-
-/* Same reasoning as the station panels: the idle hero was an 11vh white dash
-   across a third of the band. */
-.disp-hero[data-idle="true"] .disp-hero-ticket {
-    font-size: 4.4vh;
-    color: var(--disp-muted);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    line-height: 11vh;
-}
-
-/* The flash that accompanies a call. Paired with the chime, because a room
-   with its back to the screen hears the announcement first and looks up
-   second - the flash is still going when they do. */
-@keyframes dispCallFlash {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(232, 88, 107, 0); }
-    18%      { box-shadow: 0 0 0 1.2vh rgba(232, 88, 107, 0.55); }
-    55%      { box-shadow: 0 0 0 0.5vh rgba(232, 88, 107, 0.28); }
-}
-.disp-hero.is-calling { animation: dispCallFlash 2.4s ease-out 2; }
-
-/* ── Station grid ─────────────────────────────────────────────────────── */
+/* ── Station grid ─────────────────────────────────────────────────────────
+   With no banner above it the grid owns the screen, which is what pays for the
+   larger numbers below. */
 .disp-grid {
     flex: 1 1 auto;
     display: grid;
@@ -155,27 +129,82 @@ html, body {
 }
 
 .disp-station {
-    background: var(--disp-panel);
+    /* Panel plus a brand tint fading out downwards. Cheaper than an accent bar
+       across the top, which would have to fight the panel's rounded corners. */
+    background:
+        linear-gradient(180deg, rgba(232, 88, 107, 0.10), rgba(232, 88, 107, 0) 45%),
+        var(--disp-panel);
     border: 1px solid var(--disp-border);
     border-radius: var(--disp-radius);
+    box-shadow: 0 0.6vh 2vh rgba(0, 0, 0, 0.35);
     padding: 1.4vh 1.4vw;
     display: flex;
     flex-direction: column;
     gap: 1vh;
     min-height: 0;
     overflow: hidden;
+    transition: background 0.3s ease, border-color 0.3s ease;
 }
 
+/* ── The station being called ─────────────────────────────────────────────
+   This replaces the banner that used to sit above the grid. The pulse is
+   infinite rather than a two-shot flash on purpose: the grid re-renders on
+   every ten-second poll, and a finite animation would restart and re-flash on
+   each one for as long as the call is held. */
 .disp-station.is-calling {
+    background: linear-gradient(135deg, var(--disp-brand-deep), #8E1B29);
     border-color: var(--disp-brand);
-    background: var(--disp-panel-alt);
+    animation: dispCallPulse 2.2s ease-in-out infinite;
+}
+
+@keyframes dispCallPulse {
+    0%, 100% { box-shadow: 0 0 0 0.3vh rgba(232, 88, 107, 0.22), 0 0.6vh 2vh rgba(0, 0, 0, 0.4); }
+    50%      { box-shadow: 0 0 0 1.1vh rgba(232, 88, 107, 0.42), 0 0.6vh 2vh rgba(0, 0, 0, 0.4); }
+}
+
+/* Same size as every other panel, deliberately. At four columns the number is
+   already as wide as a panel will hold (see the vw cap on .disp-now), so a
+   larger one on the calling panel could only be clipped. The gradient, the
+   pill, the white ink and the pulse carry the distinction instead. */
+.disp-station.is-calling .disp-now { color: #FFFFFF; }
+.disp-station.is-calling .disp-station-name { color: #FFFFFF; }
+.disp-station.is-calling .disp-waiting-count,
+.disp-station.is-calling .disp-next-label,
+.disp-station.is-calling .disp-empty { color: rgba(255, 255, 255, 0.88); }
+.disp-station.is-calling .disp-chip {
+    background: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.38);
+    color: #FFFFFF;
+}
+
+/* Says out loud what the gradient only implies. The old banner carried these
+   words; without them colour alone separates "being called right now" from
+   "this counter has somebody at it", which is exactly what colour must not be
+   asked to do on its own. */
+.disp-calling-tag {
+    align-self: flex-start;
+    flex: 0 0 auto;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.42);
+    color: #FFFFFF;
+    border-radius: 999px;
+    padding: 0.3vh 0.9vw;
+    font-size: 1.3vh;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    white-space: nowrap;
 }
 
 .disp-station-name {
-    font-size: 2vh;
-    font-weight: 700;
+    /* Smaller than the number by a wide margin: the label answers "which
+       counter", read once on arrival, while the number is what the room is
+       scanning for. */
+    font-size: 1.7vh;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
+    color: var(--disp-muted);
     display: flex;
     align-items: baseline;
     gap: 0.6vw;
@@ -204,22 +233,39 @@ html, body {
     background: var(--disp-live);
     flex: 0 0 auto;
 }
+/* A counter with somebody at it breathes; an empty one sits still. */
+.disp-dot:not([data-idle="true"]) { animation: dispDotPulse 2.4s ease-out infinite; }
 .disp-dot[data-idle="true"] { background: var(--disp-border); }
 
+@keyframes dispDotPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.55); }
+    70%  { box-shadow: 0 0 0 0.9vh rgba(74, 222, 128, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+}
+
 .disp-now {
-    font-size: 6.4vh;
+    /* The one thing on this screen that has to be readable from the doorway. */
+    /* Two caps, and the smaller wins. The vh one is the reading-distance size
+       we want. The vw one is what a panel can actually hold: the grid never
+       goes past four columns (minmax(22vw)), so a panel is at least ~20vw of
+       usable width, and a five-character ticket in this face runs about 0.69em
+       per character - 3.45em all told, hence 20vw / 3.45. Without it a taller
+       screen silently clips the last digit of the number, which is the one
+       thing on the board that must never be wrong. */
+    font-size: min(10.5vh, 5.8vw);
     font-weight: 800;
     line-height: 1;
     font-variant-numeric: tabular-nums;
-    color: var(--disp-brand);
-    flex: 0 0 auto;
-    /* Reserved with min-height rather than a tall line-height, so the portrait
-       override below can resize the type without also having to restate the
-       leading. Holds the space an active number occupies, so a station going
-       idle does not shuffle the panel around it. */
-    min-height: 6.4vh;
+    letter-spacing: -0.02em;
+    color: var(--disp-brand-light);
+    /* Takes the panel's spare height instead of leaving it dead at the bottom,
+       which is what the removed banner used to occupy. min-height is still the
+       floor, so a station going idle does not shuffle the panel around it. */
+    flex: 1 1 auto;
+    min-height: 9vh;
     display: flex;
     align-items: center;
+    justify-content: center;
 }
 .disp-now[data-idle="true"] {
     color: var(--disp-muted);
@@ -233,17 +279,22 @@ html, body {
    truncated list of upcoming numbers still makes sense, a missing station name
    does not. */
 .disp-station-next-block {
-    flex: 1 1 auto;
+    /* The number is the flexible one now, so this sits at the bottom at its
+       natural height - but it still shrinks before the number does, which is
+       the original rule: a truncated list of upcoming tickets still makes
+       sense, a missing station name or a clipped number does not. */
+    flex: 0 1 auto;
     min-height: 0;
     overflow: hidden;
 }
 
 .disp-next-label {
-    font-size: 1.3vh;
+    font-size: 1.15vh;
     text-transform: uppercase;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.18em;
     color: var(--disp-muted);
     font-weight: 600;
+    margin-bottom: 0.6vh;
 }
 
 .disp-next { display: flex; flex-wrap: wrap; gap: 0.6vw; }
@@ -253,18 +304,19 @@ html, body {
     border: 1px solid var(--disp-border);
     border-radius: 999px;
     padding: 0.5vh 1vw;
-    font-size: 1.9vh;
+    font-size: 1.7vh;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
 
-.disp-empty { font-size: 1.7vh; color: var(--disp-muted); font-style: italic; }
+.disp-empty { font-size: 1.5vh; color: var(--disp-muted); font-style: italic; }
 .disp-waiting-count {
-    font-size: 1.4vh;
+    font-size: 1.25vh;
     color: var(--disp-muted);
     margin-left: auto;
-    font-weight: 400;
+    font-weight: 500;
+    letter-spacing: 0.04em;
     flex: 0 0 auto;              /* never gives up its space to the name */
     white-space: nowrap;
 }
@@ -301,8 +353,9 @@ html, body {
     display: inline-flex;
     align-items: center;
     gap: 8px;
+    transition: border-color 0.2s ease, background 0.2s ease;
 }
-.disp-btn:hover { border-color: var(--disp-brand); }
+.disp-btn:hover { border-color: var(--disp-brand); background: var(--disp-border); }
 .disp-btn:focus-visible { outline: 3px solid var(--disp-brand); outline-offset: 2px; }
 .disp-btn[data-on="true"] { background: var(--disp-brand-deep); border-color: var(--disp-brand); color: #fff; }
 
@@ -323,24 +376,28 @@ html, body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .disp-hero.is-calling { animation: none; }
-    /* The border change on the station panel still marks the call, so removing
-       the pulse costs nothing that was load-bearing. */
+    /* The gradient, the border and the "Now calling" pill all still mark the
+       call, so dropping the movement costs nothing that was load-bearing. */
+    .disp-station.is-calling { animation: none; box-shadow: 0 0 0 0.5vh rgba(232, 88, 107, 0.35); }
+    .disp-dot:not([data-idle="true"]) { animation: none; }
 }
 
 /* A portrait panel (a common lobby mount) gets two station columns rather than
    four unreadably narrow ones - and everything shrinks a step, because the same
-   number of stations now has to stack down a much taller, narrower grid. */
+   number of stations now has to stack down a much taller, narrower grid. A tall
+   vh is also a wide glyph: 9vh of a 1920px-high portrait panel is a 170px
+   number, and five of those do not fit across 40vw. */
 @media (orientation: portrait) {
     .disp-grid { grid-template-columns: repeat(auto-fit, minmax(40vw, 1fr)); }
-    .disp-hero { min-height: 11vh; }
-    .disp-hero-ticket { font-size: 7.5vh; }
-    .disp-hero[data-idle="true"] .disp-hero-ticket { font-size: 3.4vh; line-height: 7.5vh; }
     .disp-station { gap: 0.5vh; padding: 1vh 1.4vw; }
-    .disp-station-name { font-size: 1.5vh; }
-    .disp-now { font-size: 4.2vh; min-height: 4.2vh; }
+    .disp-station-name { font-size: 1.4vh; }
+    /* Two columns of ~40vw here, so the width cap is looser in vw but the
+       height cap has to come down: 10.5vh of a 1920px-tall panel is a 200px
+       glyph. */
+    .disp-now { font-size: min(7vh, 10.5vw); min-height: 6vh; }
     .disp-now[data-idle="true"] { font-size: 2vh; }
-    .disp-chip { font-size: 1.5vh; }
-    .disp-next-label { font-size: 1.1vh; }
+    .disp-calling-tag { font-size: 1.1vh; }
+    .disp-chip { font-size: 1.4vh; }
+    .disp-next-label { font-size: 1vh; }
     .disp-empty { font-size: 1.3vh; }
 }

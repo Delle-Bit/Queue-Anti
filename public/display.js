@@ -19,10 +19,9 @@
 // What an idle slot reads. Words rather than a dash: at headline size an em
 // dash is a solid bar, which people read as a broken or still-loading screen.
 const DISP_IDLE_STATION = 'Open';
-const DISP_IDLE_HERO = '';        // the label above it already says "waiting"
 
 const DISP_POLL_MS = 10000;      // fallback for a dropped socket
-const DISP_ANNOUNCE_HOLD_MS = 45000;   // how long a call stays in the hero band
+const DISP_ANNOUNCE_HOLD_MS = 45000;   // how long a station stays marked as calling
 
 let dispSoundOn = false;
 let dispAudioCtx = null;
@@ -142,30 +141,34 @@ function dispEnqueueAnnouncement(payload) {
     dispDrainQueue();
 }
 
-// ── The hero band ───────────────────────────────────────────────────────────
+// ── The call ─────────────────────────────────────────────────────────────────
+// A call used to be painted into a band of its own above the grid. It now
+// marks the station that made it, which is the only place the ticket number and
+// the counter to walk to already sit side by side - the band had to repeat the
+// station name to be useful, and two copies of one fact on a screen are two
+// things that can disagree.
+//
+// So this writes no markup: it records which station is calling and re-renders,
+// and dispRenderStations() gives that panel the highlight.
 function dispShowAnnouncement(payload) {
     dispLastAnnouncement = payload;
-    const hero = document.getElementById('disp-hero');
-    hero.dataset.idle = 'false';
-    document.getElementById('disp-hero-label').textContent = 'Now serving';
-    document.getElementById('disp-hero-ticket').textContent = payload.ticket || '—';
-    document.getElementById('disp-hero-station').innerHTML =
-        `<small>Please proceed to</small>${dispEscape(payload.station_name || '')}`;
 
-    hero.classList.remove('is-calling');
-    // Reading offsetWidth restarts the animation; without it a second call
-    // inside the same 2.4s window does not flash at all.
-    void hero.offsetWidth;
-    hero.classList.add('is-calling');
+    // The band was the page's aria-live region. Without it the announcement has
+    // no spoken form at all, so it is written here instead.
+    const live = document.getElementById('disp-live');
+    if (live) live.textContent = `Now serving ticket ${payload.ticket || ''} at ${payload.station_name || ''}.`;
+
+    dispLoad();
 
     if (dispAnnounceTimer) clearTimeout(dispAnnounceTimer);
     dispAnnounceTimer = setTimeout(() => {
-        hero.dataset.idle = 'true';
-        hero.classList.remove('is-calling');
-        document.getElementById('disp-hero-label').textContent = 'Waiting for the next call';
-        document.getElementById('disp-hero-ticket').textContent = DISP_IDLE_HERO;
-        document.getElementById('disp-hero-station').innerHTML = '<small>Station</small>';
         dispLastAnnouncement = null;
+        if (live) live.textContent = '';
+        // The highlight is derived from dispLastAnnouncement at render time, so
+        // dropping it is only half the job - the panel keeps its gradient until
+        // something repaints. Without this it would clear on the next poll
+        // instead, up to ten seconds late.
+        dispLoad();
     }, DISP_ANNOUNCE_HOLD_MS);
 }
 
@@ -190,6 +193,9 @@ function dispRenderStations(data) {
         const upcoming = (station.upcoming || []);
         return `
         <section class="disp-station${station.key === callingKey ? ' is-calling' : ''}">
+            ${station.key === callingKey
+                ? '<span class="disp-calling-tag">Now calling</span>'
+                : ''}
             <div class="disp-station-name">
                 <span class="disp-dot" data-idle="${idle}"></span>
                 <span class="disp-station-label">${dispEscape(station.name)}</span>
@@ -253,9 +259,8 @@ dispSocket.on('disconnect', () => dispSetStatus('Reconnecting…', true));
 dispSocket.on('queueUpdate', dispLoad);
 dispSocket.on('queueAnnounce', (payload) => {
     if (!payload || !payload.ticket) return;
-    dispShowAnnouncement(payload);
+    dispShowAnnouncement(payload);   // reloads the grid itself, so the panel lights up
     dispEnqueueAnnouncement(payload);
-    dispLoad();
 });
 
 // Chrome populates the voice list asynchronously; without this the first

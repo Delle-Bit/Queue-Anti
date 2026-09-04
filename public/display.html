@@ -34,17 +34,18 @@
             </div>
         </header>
 
-        <!-- The most recent call, so somebody walking in mid-queue can read the
-             current number from the doorway without parsing the grid. -->
-        <section class="disp-hero" id="disp-hero" data-idle="true" aria-live="polite" aria-atomic="true">
-            <div>
-                <div class="disp-hero-label" id="disp-hero-label">Waiting for the next call</div>
-                <!-- Empty until a call arrives, matching DISP_IDLE_HERO in
-                     display.js. A dash here renders as a bar at this size. -->
-                <div class="disp-hero-ticket" id="disp-hero-ticket"></div>
-            </div>
-            <div class="disp-hero-station" id="disp-hero-station"><small>Station</small></div>
-        </section>
+        <!-- There is no "now serving" band above the grid any more. The station
+             panel that is calling carries the call itself - brand gradient, the
+             biggest number on the screen, a "Now calling" pill - so somebody
+             walking in mid-queue reads the number and the counter to walk to
+             from one place instead of two. See .disp-station.is-calling in
+             display.css and dispShowAnnouncement() in display.js.
+
+             The band was also the page's live region, so the announcement needs
+             somewhere else to be spoken from: this one, rather than the grid,
+             which re-renders on every ten-second poll and would read the whole
+             board out each time. -->
+        <div class="disp-sr-only" id="disp-live" aria-live="polite" aria-atomic="true"></div>
 
         <main class="disp-grid" id="disp-grid"></main>
 
