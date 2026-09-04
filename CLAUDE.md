@@ -38,6 +38,30 @@ npm test           # syntax-check every backend file via `node --check`, then ru
 docker compose up --build   # the app plus its own MySQL, no local Node or MySQL needed
 ```
 
+## Deploying
+
+The live site is `medical-cliniqueue.up.railway.app` (Railway project
+`respectful-enjoyment`, service `Queue-Anti`, plus its own MySQL service).
+
+**Pushing to `main` deploys.** A Railway deployment trigger watches
+`Delle-Bit/Queue-Anti@main`, so a merged or pushed commit builds and releases on
+its own. This was not always true: the service had the repo set as its source
+but **no deployment trigger**, so for a while the only thing that ever deployed
+was a manual `railway up` — and a fix pushed to GitHub sat there looking done
+while the site kept serving the previous build. If a change is missing from the
+live site, check what the site is actually serving before re-diagnosing the
+change itself:
+
+```bash
+curl -s https://medical-cliniqueue.up.railway.app/customer.js | grep -c someNewSymbol
+railway status          # project, environment and service link
+railway logs --build    # the most recent build
+```
+
+`railway up` is still the way to deploy **uncommitted** local state — useful for
+trying something on the real host before committing it. Everything committed
+should reach the site by pushing.
+
 There is no linter. `npm test` verifies every backend file parses and runs the one real assertion suite in the repo, `verify_ai_chain.js` — 102 offline checks over the OCR and assistant provider chains: key rotation, model fallback, overload retries, the DeepSeek circuit breaker, age derivation and scan normalisation. It stubs axios and the pool and blanks the provider variables before `ai_services.js` can `dotenv.config()` them, so it needs no key, no network and no database, and gives the same answer on every machine. Everything else is still manual: exercise the routes and pages after changes.
 
 Setup requires a local MySQL server and a `.env` with `PORT`, `JWT_SECRET`, and optional `GEMINI_API_KEY` / `API_ALLAROUND` / `NVIDIA_API_KEY` - or Docker, which brings its own MySQL (`Dockerfile`, `docker-compose.yml`, and [DOCKER.md](DOCKER.md) for the reasoning). `dotenv.config()` runs *before* every local require in `server.js` and must stay there: `config.js` and `database.js` both read `process.env` at module scope, and when it ran after them the `JWT_SECRET` from `.env` was silently ignored in favour of the hardcoded development default. The first server run auto-creates the `clinic_v2` database, all tables, seed accounts, seed labs/doctors, and default service packages — no manual migrations. Seed accounts are documented in [README.md](README.md).
