@@ -50,6 +50,27 @@
 
     /* Scrims (loaders, overlays) - flipped by the dark theme below. */
     --bg-scrim: rgba(247,248,250,0.72);
+
+    /* The assistant's frosted surfaces. Translucent on purpose - the bubbles,
+       the dock and the typed row sit over the page with backdrop-filter behind
+       them - which is why they cannot just be var(--bg-card): an opaque token
+       would flatten the glass. So they are their own tokens, and the dark theme
+       restates them at the same alpha. Hardcoded white is what made the
+       assistant's text invisible in dark mode: the ink is var(--text-primary),
+       which goes near-white, and the bubble under it stayed near-white too. */
+    --va-surface: rgba(255, 255, 255, 0.94);
+    --va-surface-assistant: rgba(255, 245, 246, 0.96);
+    --va-surface-user: rgba(232, 248, 239, 0.96);
+    /* The "NURSE" label on the assistant bubble. --primary itself measures
+       2.88:1 on the dark tint - the brand colours deliberately do not move
+       between themes, so the label gets its own token instead. */
+    --va-role-assistant: var(--primary);
+    /* "YOU" on the patient's bubble, and the hint under the typed row. Both
+       are ~10px, so both need the full 4.5:1, and both missed it on the light
+       theme: --success measured 2.62:1 on the pale green tint and
+       --text-secondary 3.47:1 on near-white. Darker inks, same hues. */
+    --va-role-user: #1A7340;      /* 5.36:1 on --va-surface-user */
+    --va-hint-ink: #5A6570;       /* 5.54:1 on --va-surface */
 }
 
 /* ================================================================
@@ -75,6 +96,18 @@
     --shadow: 0 2px 12px rgba(0,0,0,0.45);
     --shadow-lg: 0 8px 30px rgba(0,0,0,0.55);
     --bg-scrim: rgba(21,27,33,0.72);
+
+    /* --bg-card, --danger-light and --success-light at the same alphas, so the
+       assistant's bubbles carry the same tints the rest of the dark theme uses
+       for a brand-coloured and a positive surface. */
+    --va-surface: rgba(30, 38, 46, 0.94);
+    --va-surface-assistant: rgba(52, 26, 29, 0.96);
+    --va-surface-user: rgba(18, 48, 31, 0.96);
+    --va-role-assistant: var(--primary-light);   /* 6.7:1 on the tint above */
+    /* The dark tints are dark enough that the standard inks already clear the
+       floor - 5.02:1 and 6.96:1 measured - so these stay put. */
+    --va-role-user: var(--success);
+    --va-hint-ink: var(--text-secondary);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -703,7 +736,7 @@ tbody tr:last-child td { border-bottom: none; }
     gap: 2px;
     padding: 10px 14px;
     border-radius: 16px;
-    background: rgba(255, 255, 255, 0.94);
+    background: var(--va-surface);
     backdrop-filter: blur(10px);
     box-shadow: var(--shadow-lg);
     border: 1px solid var(--border-light);
@@ -735,15 +768,15 @@ tbody tr:last-child td { border-bottom: none; }
     color: var(--text-secondary);
 }
 .va-bubble.assistant {
-    background: rgba(255, 245, 246, 0.96);
+    background: var(--va-surface-assistant);
     border-color: rgba(198, 40, 58, 0.18);
 }
-.va-bubble.assistant .va-bubble-role { color: var(--primary); }
+.va-bubble.assistant .va-bubble-role { color: var(--va-role-assistant); }
 .va-bubble.user {
-    background: rgba(232, 248, 239, 0.96);
+    background: var(--va-surface-user);
     border-color: rgba(39, 174, 96, 0.22);
 }
-.va-bubble.user .va-bubble-role { color: var(--success); }
+.va-bubble.user .va-bubble-role { color: var(--va-role-user); }
 
 @keyframes va-bubble-in {
     from { opacity: 0; transform: translateY(10px) scale(0.92); }
@@ -909,7 +942,7 @@ tbody tr:last-child td { border-bottom: none; }
     gap: 8px;
     padding: 6px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.92);
+    background: var(--va-surface);
     backdrop-filter: blur(10px);
     box-shadow: var(--shadow);
     border: 1px solid var(--border-light);
@@ -972,7 +1005,7 @@ tbody tr:last-child td { border-bottom: none; }
     gap: 6px;
     padding: 5px 5px 5px 12px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.92);
+    background: var(--va-surface);
     backdrop-filter: blur(10px);
     box-shadow: var(--shadow);
     border: 1px solid var(--border-light);
@@ -1021,8 +1054,8 @@ tbody tr:last-child td { border-bottom: none; }
 
 .va-hint {
     font-size: 0.7em;
-    color: var(--text-secondary);
-    background: rgba(255, 255, 255, 0.85);
+    color: var(--va-hint-ink);
+    background: var(--va-surface);
     padding: 2px 10px;
     border-radius: 999px;
 }
