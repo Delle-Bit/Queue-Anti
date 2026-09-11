@@ -31,7 +31,7 @@ const VA_SPEECH_ERRORS = {
     // leaves it out, so recognition is missing or never starts. Nothing a web
     // page does can change that - telling them to "use Chrome" was wrong, they
     // already were.
-    'ios-browser': 'On iPhone and iPad, only Safari can listen. Open this page in Safari to talk to me, or type your question below.',
+    'ios-browser': 'On iPhone and iPad, only Safari can listen. You can still speak: tap the box below, then the microphone on your keyboard.',
     // It opened, and no audio ever registered as speech.
     'heard-nothing': "I didn't hear anything. Click the nurse again and start speaking once the badge says Listening.",
     // It heard something but nothing survived as text.
@@ -327,7 +327,11 @@ function bindVaTypedInput() {
     // change and would otherwise overwrite anything set here.
     if (!vaSpeechSupported()) {
         const hint = document.getElementById('va-hint');
-        if (hint) hint.textContent = 'Type your question \u2014 voice input needs Google Chrome';
+        // On iPhone the keyboard's own dictation key works in every browser,
+        // on the device, at no API cost - it types into this box like a finger.
+        if (hint) hint.textContent = vaSpeechProfile().isIOSOtherBrowser
+            ? 'Tap the box, then the microphone on your keyboard to speak'
+            : 'Type your question \u2014 voice input needs Google Chrome';
     }
 }
 
