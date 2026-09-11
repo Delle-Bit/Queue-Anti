@@ -82,7 +82,12 @@ function populateRoleSelect(selectId, selected) {
     // option bought no safety and left nobody able to restore the role after it
     // was lost. A plain admin still gets neither option, and the server refuses
     // them either way.
-    if (myRole === 'admintechnical') {
+    //
+    // On the create form every administrator gets them: creating an elevated
+    // account needs a code from the approval mailbox (POST /users/elevated-otp),
+    // and that code is the authorisation. Editing an existing account's role has
+    // no such check, so there a plain admin still gets neither option.
+    if (myRole === 'admintechnical' || selectId === 'new-role') {
         roles.push({ value: 'admin', label: 'Admin' });
         roles.push({ value: 'admintechnical', label: 'Admin Technical' });
         roles.push({ value: 'owner', label: 'Owner' });

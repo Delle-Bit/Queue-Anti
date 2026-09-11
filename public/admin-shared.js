@@ -241,6 +241,18 @@ async function createAccount() {
     if (!reason) return;
     body.reason = reason;
 
+    // Owner, admin and admin technical need a code from the approval mailbox.
+    if (ELEVATED_ACCOUNT_ROLES.includes(body.role)) {
+        const sent = await fetch('/api/users/elevated-otp', {
+            method: 'POST', headers: authHeaders(), body: JSON.stringify({ username: body.username, role: body.role })
+        });
+        const sentData = await sent.json().catch(() => ({}));
+        if (!sent.ok) return showToast(sentData.error || 'Failed to send the approval code', 'error');
+        const otp = await promptApprovalCode(sentData.sent_to, sentData.expires_in_minutes);
+        if (!otp) return;
+        body.otp = otp;
+    }
+
     const res = await fetch('/api/users', { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
@@ -256,6 +268,52 @@ async function createAccount() {
 
 function initCreateForm() {
     populateRoleSelect('new-role');
+}
+
+// Mirrors ELEVATED_ROLES in routes/admin.js, which is the enforcement.
+const ELEVATED_ACCOUNT_ROLES = ['owner', 'admin', 'admintechnical'];
+
+// Resolves the six-digit code, or null if cancelled. Built on buildDialog in
+// shared.js, like confirmAction and promptReason.
+function promptApprovalCode(sentTo, minutes) {
+    return new Promise(resolve => {
+        const overlay = buildDialog({
+            title: 'Approval code required',
+            icon: 'fa-solid fa-envelope-circle-check',
+            bodyHtml: `
+                <p style="margin:0 0 12px;">Creating this account needs approval. A 6-digit code was emailed to
+                    <strong>${escapeHtml(sentTo || 'the approval mailbox')}</strong>; it expires in ${Number(minutes) || 10} minutes.</p>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label class="form-label" for="dialog-approval-code">Approval code</label>
+                    <input class="form-input" id="dialog-approval-code" inputmode="numeric" autocomplete="one-time-code"
+                           maxlength="6" placeholder="000000">
+                    <div id="dialog-approval-error" class="text-sm" style="display:none;color:var(--danger);margin-top:6px;"></div>
+                </div>`,
+            confirmLabel: 'Verify and create'
+        });
+        const field = overlay.querySelector('#dialog-approval-code');
+        const error = overlay.querySelector('#dialog-approval-error');
+        const close = (result) => { document.removeEventListener('keydown', onKey); overlay.remove(); resolve(result); };
+        const submit = () => {
+            const code = field.value.trim();
+            if (!/^\d{6}$/.test(code)) {
+                error.textContent = 'Enter the 6-digit code from the email.';
+                error.style.display = 'block';
+                field.focus();
+                return;
+            }
+            close(code);
+        };
+        function onKey(e) {
+            if (e.key === 'Escape') close(null);
+            if (e.key === 'Enter') submit();
+        }
+        overlay.querySelectorAll('[data-dialog-cancel]').forEach(b => b.addEventListener('click', () => close(null)));
+        overlay.querySelector('[data-dialog-confirm]').addEventListener('click', submit);
+        document.addEventListener('keydown', onKey);
+        overlay.classList.add('active');
+        field.focus();
+    });
 }
 
 // ── MANAGE LABORATORIES ─────────────────────────────────────────────────────

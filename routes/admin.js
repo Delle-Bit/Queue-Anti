@@ -11,6 +11,7 @@ const sessionActivity = require('../session_activity');
 const { recordAudit, requireReason, snapshotRow } = require('../audit');
 const { archiveRecord, ARCHIVE_TABLE_MAP } = require('../archive');
 const { sanitizeRichText, richTextToPlain } = require('../rich_text');
+const { sendOtpEmail } = require('../email_service');
 
 const ELEVATED_ROLES = ['admin', 'admintechnical', 'owner'];
 
@@ -78,12 +79,77 @@ router.get('/users/customers', requireAdmin, async (req, res) => {
     }
 });
 
-router.post('/users', requireAdmin, requireReason, async (req, res) => {
-    const { username, password, role, email, full_name } = req.body;
+// ── ELEVATED ACCOUNTS NEED THE APPROVAL MAILBOX ──
+// Creating an owner, admin or admintechnical account takes a one-time code
+// emailed to ADMIN_APPROVAL_EMAIL, the clinic's approval mailbox. Whoever reads
+// that mailbox is the one authorising the account, so any administrator may
+// start the request - which is also why the create form now offers those roles
+// to a plain admin. The address is configuration, not code: the repository is
+// public.
+//
+// Codes are bound to the administrator who asked, the username and the role, so
+// one approval cannot be spent on a different account.
+// ponytail: in-memory, lost on every deploy (the admin just requests another);
+// move to a table if the service ever runs more than one instance.
+const ELEVATED_OTP_TTL_MS = 10 * 60 * 1000;
+const ELEVATED_OTP_MAX_ATTEMPTS = 5;
+const elevatedOtps = new Map();
+
+function maskApprovalEmail(email) {
+    const [name, domain] = String(email).split('@');
+    return `${name.slice(0, 2)}${'*'.repeat(Math.max(1, name.length - 2))}@${domain}`;
+}
+
+// Pure, so it can be checked without a database. Returns null when the code is
+// good, otherwise { status, error }. Mutates `entry.attempts` on a wrong code.
+function checkElevatedOtp(entry, { username, role, otp }, now = Date.now()) {
+    if (!entry || now > entry.expires) {
+        return { status: 403, error: 'That approval code has expired. Request a new one.' };
+    }
+    if (entry.username !== username || entry.role !== role) {
+        return { status: 403, error: 'That approval code was issued for a different account or role. Request a new one.' };
+    }
+    if (entry.attempts >= ELEVATED_OTP_MAX_ATTEMPTS) {
+        return { status: 429, error: 'Too many wrong codes. Request a new one.' };
+    }
+    if (String(otp || '').trim() !== entry.code) {
+        entry.attempts += 1;
+        return { status: 403, error: 'Incorrect approval code.' };
+    }
+    return null;
+}
+
+router.post('/users/elevated-otp', requireAdmin, async (req, res) => {
+    const { username, role } = req.body || {};
+    if (!ELEVATED_ROLES.includes(role) || !String(username || '').trim()) {
+        return res.status(400).json({ error: 'A username and an owner, admin or admin technical role are required.' });
+    }
+    const approvalEmail = process.env.ADMIN_APPROVAL_EMAIL;
+    if (!approvalEmail) {
+        return res.status(503).json({ error: 'No approval email is configured (ADMIN_APPROVAL_EMAIL), so elevated accounts cannot be created.' });
+    }
     try {
-        // Admin role cannot create other admins
-        if (req.user.role === 'admin' && ELEVATED_ROLES.includes(role)) {
-            return res.status(403).json({ error: 'Admin cannot create other Admin accounts' });
+        const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+        elevatedOtps.set(req.user.id, {
+            code, username: String(username).trim(), role, attempts: 0, expires: Date.now() + ELEVATED_OTP_TTL_MS
+        });
+        await sendOtpEmail(approvalEmail, code);
+        res.json({ success: true, sent_to: maskApprovalEmail(approvalEmail), expires_in_minutes: ELEVATED_OTP_TTL_MS / 60000 });
+    } catch (err) {
+        console.error('Elevated OTP send error:', err);
+        res.status(500).json({ error: 'Failed to send the approval code' });
+    }
+});
+
+router.post('/users', requireAdmin, requireReason, async (req, res) => {
+    const { username, password, role, email, full_name, otp } = req.body;
+    try {
+        const elevated = ELEVATED_ROLES.includes(role);
+        if (elevated) {
+            const entry = elevatedOtps.get(req.user.id);
+            const refusal = checkElevatedOtp(entry, { username: String(username || '').trim(), role, otp });
+            if (refusal) return res.status(refusal.status).json({ error: refusal.error, otp_required: true });
+            elevatedOtps.delete(req.user.id);
         }
         const hash = await bcrypt.hash(password, 10);
         const [result] = await pool.query(
@@ -92,7 +158,7 @@ router.post('/users', requireAdmin, requireReason, async (req, res) => {
         );
         await recordAudit({
             req, action: 'create', entityType: 'user', entityId: result.insertId,
-            summary: `Created ${role} account "${username}"`,
+            summary: `Created ${role} account "${username}"${elevated ? ' (approved by emailed code)' : ''}`,
             after: { id: result.insertId, username, role, email: email || '', full_name: full_name || '' }
         });
         res.json({ success: true, id: result.insertId });
@@ -1182,3 +1248,4 @@ router.delete('/archives/:id', requireAdmin, requireReason, async (req, res) => 
 });
 
 module.exports = router;
+module.exports.checkElevatedOtp = checkElevatedOtp;
