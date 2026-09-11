@@ -394,7 +394,6 @@ function switchAuthTab(tab) {
         // Reset to step 1
         showRegStep(1);
         usernameManuallyEdited = false;
-        fullNameManuallyEdited = false;
         // Ensure forms are reset
         document.getElementById('reg-step1-form').reset();
     syncTermsGate();
@@ -551,7 +550,6 @@ function syncNoMiddleGate(prefix = 'reg') {
 
 // ── Register State ─────────────────────────────────────────────────
 let usernameManuallyEdited = false;
-let fullNameManuallyEdited = false;
 // Every key the registration wizard carries, declared here rather than
 // appearing by assignment - `blobs.guardian*` and `guardianScan` used to be
 // created ad hoc, which is why one of the two reset paths below forgot them.
@@ -795,6 +793,13 @@ async function submitStep1() {
     const formData = new FormData();
     formData.append('username', document.getElementById('reg-username').value.trim());
     formData.append('full_name', regFullName());
+    // The parts too, not only the composed string: the medical form prefills
+    // surname / first name / middle name from these columns, and a composed
+    // string cannot be split back reliably ("Juan Delos Santos Cruz").
+    formData.append('first_name', regNamePart('reg-firstname'));
+    formData.append('middle_name', regMiddleName());
+    formData.append('surname', regNamePart('reg-lastname'));
+    formData.append('no_middle_name', document.getElementById('reg-no-middle')?.checked ? '1' : '');
     formData.append('email', document.getElementById('reg-email').value.trim());
     formData.append('verification_method', registrationState.verificationMethod);
     
@@ -1076,15 +1081,23 @@ async function runIdOcrPreview(blob, side) {
             return;
         }
         registrationState.ocrResult = data;
-        const scanned = data.name && !fullNameManuallyEdited ? splitScannedName(data.name) : null;
+        // Fills only the name fields that are still empty. The scan takes
+        // several seconds on the live site and customers type while it runs;
+        // the old rule skipped the whole prefill once any name key was pressed
+        // or "No middle name" was ticked, so on a real phone it almost never
+        // ran. Filling blanks only still never overwrites what they typed.
+        const scanned = data.name ? splitScannedName(data.name) : null;
         if (scanned) {
-            document.getElementById('reg-firstname').value = scanned.first || '';
-            document.getElementById('reg-lastname').value = scanned.last || '';
+            const fill = (id, value) => {
+                const el = document.getElementById(id);
+                if (el && value && !el.disabled && !el.value.trim()) el.value = value;
+            };
+            fill('reg-firstname', scanned.first);
+            fill('reg-lastname', scanned.last);
             // The checkbox is deliberately left alone. A card that prints no
             // middle name is not proof the patient has none - only they can say
             // that, and validation makes them.
-            const middle = document.getElementById('reg-middlename');
-            if (scanned.middle && middle && !middle.disabled) middle.value = scanned.middle;
+            fill('reg-middlename', scanned.middle);
             document.getElementById('reg-firstname').dispatchEvent(new Event('input', { bubbles: true }));
         }
         if (status) {
@@ -1342,12 +1355,8 @@ function setupRegisterHandlers() {
     const usernameField = document.getElementById('reg-username');
     usernameField.addEventListener('input', () => { usernameManuallyEdited = true; });
 
-    // keydown (not input) so the OCR prefill below — which sets .value and
-    // dispatches a synthetic 'input' event to trigger the suggestion below —
-    // doesn't itself get mistaken for the user having typed their own name.
     const nameFields = ['reg-firstname', 'reg-middlename', 'reg-lastname']
         .map(id => document.getElementById(id)).filter(Boolean);
-    nameFields.forEach(f => f.addEventListener('keydown', () => { fullNameManuallyEdited = true; }));
 
     const guardianNameFields = ['reg-guardian-firstname', 'reg-guardian-middlename', 'reg-guardian-lastname']
         .map(id => document.getElementById(id)).filter(Boolean);
@@ -1366,7 +1375,6 @@ function setupRegisterHandlers() {
     const noMiddleBox = document.getElementById('reg-no-middle');
     if (noMiddleBox) {
         noMiddleBox.addEventListener('change', () => {
-            fullNameManuallyEdited = true;
             syncNoMiddleGate();
             // The suggester reads the composed name, so a cleared middle name
             // has to re-run it.

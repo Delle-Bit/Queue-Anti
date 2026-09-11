@@ -779,6 +779,15 @@ async function initDB() {
             )
         `);
 
+        // The name as the three fields the customer typed, carried to users at
+        // verify-otp. Only detected_name (the composed string) used to be kept,
+        // so users.surname/first_name/middle_name stayed blank and the medical
+        // form had nothing to prefill its name fields from.
+        await addColumnIfMissing('pending_registrations', 'first_name', "VARCHAR(100) DEFAULT ''");
+        await addColumnIfMissing('pending_registrations', 'middle_name', "VARCHAR(100) DEFAULT ''");
+        await addColumnIfMissing('pending_registrations', 'surname', "VARCHAR(100) DEFAULT ''");
+        await addColumnIfMissing('pending_registrations', 'no_middle_name', 'BOOLEAN DEFAULT false');
+
         // Seed ticket counters from existing logs so numbering continues after an upgrade
         try {
             await pool.query(`

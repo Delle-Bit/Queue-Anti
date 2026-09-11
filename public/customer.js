@@ -1270,6 +1270,17 @@ async function populateMedicalFormFromRecord() {
             const el = document.getElementById(id);
             if (el) el.value = value || '';
         };
+        // Accounts registered before the three name parts were stored have only
+        // full_name. ponytail: first token / last token / the rest, which gets a
+        // compound surname wrong ("Delos Reyes") - the customer corrects it here.
+        if (!user.surname && !user.first_name && user.full_name) {
+            const parts = String(user.full_name).trim().split(/\s+/);
+            if (parts.length > 1) {
+                user.first_name = parts[0];
+                user.surname = parts[parts.length - 1];
+                user.middle_name = parts.slice(1, -1).join(' ');
+            }
+        }
         setVal('req-med-surname', user.surname);
         setVal('req-med-first-name', user.first_name);
         setVal('req-med-middle-name', user.middle_name);

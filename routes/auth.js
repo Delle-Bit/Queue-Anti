@@ -307,7 +307,8 @@ function mapIdScan(ocrData, typedName = '') {
 
 router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ name: 'frontId', maxCount: 1 }, { name: 'backId', maxCount: 1 },
         { name: 'guardianIdFront', maxCount: 1 }, { name: 'guardianIdBack', maxCount: 1 }]), async (req, res) => {
-    const { username, full_name, email, verification_method, guardian_name, guardian_contact, guardian_relationship } = req.body || {};
+    const { username, full_name, email, verification_method, guardian_name, guardian_contact, guardian_relationship,
+        first_name, middle_name, surname, no_middle_name } = req.body || {};
     try {
         const isUnderage = verification_method === 'guardian';
         if (!username || !full_name || !email) {
@@ -417,9 +418,10 @@ router.post('/register/step1', rateLimit(5, 10 * 60 * 1000), upload.fields([{ na
         const token = generateToken();
         const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
         await pool.query(
-            `INSERT INTO pending_registrations (token, username, email, verification_method, is_underage, guardian_name, guardian_contact, guardian_relationship, front_id_path, back_id_path, detected_category, detected_name, detected_birthday, detected_gender, expires_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [token, username, email, verification_method, isUnderage ? 1 : 0, guardian_name || '', guardian_contact || '', guardian_relationship || '', frontIdPath, backIdPath, category, detectedName, birthday, gender, expiresAt]
+            `INSERT INTO pending_registrations (token, username, email, verification_method, is_underage, guardian_name, guardian_contact, guardian_relationship, front_id_path, back_id_path, detected_category, detected_name, detected_birthday, detected_gender, first_name, middle_name, surname, no_middle_name, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [token, username, email, verification_method, isUnderage ? 1 : 0, guardian_name || '', guardian_contact || '', guardian_relationship || '', frontIdPath, backIdPath, category, detectedName, birthday, gender,
+                String(first_name || '').trim().slice(0, 100), String(middle_name || '').trim().slice(0, 100), String(surname || '').trim().slice(0, 100), no_middle_name ? 1 : 0, expiresAt]
         );
 
         res.json({
@@ -513,9 +515,9 @@ router.post('/register/verify-otp', rateLimit(10, 10 * 60 * 1000), async (req, r
 
         // Create the actual user account
         const [result] = await pool.query(
-            `INSERT INTO users (username, password_hash, role, customer_category, email, full_name, birthday, gender, verification_method, is_underage, guardian_name, guardian_contact, guardian_relationship, terms_accepted_at)
-             VALUES (?, ?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-            [pending.username, pending.password_hash, pending.detected_category, pending.email || '', pending.detected_name || pending.username, pending.detected_birthday, pending.detected_gender, pending.verification_method, pending.is_underage ? 1 : 0, pending.guardian_name || '', pending.guardian_contact || '', pending.guardian_relationship || '']
+            `INSERT INTO users (username, password_hash, role, customer_category, email, full_name, first_name, middle_name, surname, no_middle_name, birthday, gender, verification_method, is_underage, guardian_name, guardian_contact, guardian_relationship, terms_accepted_at)
+             VALUES (?, ?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+            [pending.username, pending.password_hash, pending.detected_category, pending.email || '', pending.detected_name || pending.username, pending.first_name || '', pending.middle_name || '', pending.surname || '', pending.no_middle_name ? 1 : 0, pending.detected_birthday, pending.detected_gender, pending.verification_method, pending.is_underage ? 1 : 0, pending.guardian_name || '', pending.guardian_contact || '', pending.guardian_relationship || '']
         );
         await pool.query('UPDATE users SET customer_uid=? WHERE id=?', [makeCustomerUid(result.insertId), result.insertId]);
 
