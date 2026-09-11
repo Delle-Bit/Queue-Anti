@@ -128,8 +128,9 @@ router.post('/dialogue', async (req, res) => {
 // ── VOICE FOR BROWSERS WITHOUT A RECOGNISER ──────────────────────────────────
 // Chrome, Firefox and Edge on iPhone, plus Firefox and Opera, cannot turn speech
 // into text themselves. There the page records the question and posts it here,
-// and OpenAI's transcription API returns the text, which then takes the same
-// /dialogue path as recognised speech. Off unless OPENAI_API_KEY is set.
+// and a hosted Whisper returns the text (OpenAI, with Groq as the backup - see
+// transcribeSpeech in ai_services.js), which then takes the same /dialogue path
+// as recognised speech. Off unless OPENAI_API_KEY or GROQ_API_KEY is set.
 //
 // Every clip is a paid request with no free tier, hence the caps: the page stops
 // a recording at 15 seconds, the upload is bounded far above that, and each

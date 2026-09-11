@@ -44,9 +44,6 @@ const GEMINI_BASE = process.env.GEMINI_BASE
 // the local parser; 3.1-flash-lite took 0.7-1.5s and chose the same join_queue.
 const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-3.1-flash-lite';
 const GEMINI_OCR_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-3.5-flash';
-// Speech to text for browsers with no recogniser of their own. Paid per minute.
-const OPENAI_TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || 'whisper-1';
-
 // The primary, then whatever GEMINI_OCR_MODEL_FALLBACK names. An
 // oversubscribed model stays oversubscribed for minutes rather than seconds -
 // the short retry inside withGeminiKey covers a blip, and this covers the rest
@@ -1058,19 +1055,32 @@ async function callMockAI(featureKey, endpoint, apiKey, data, firstFallback, moc
   return output;
 }
 
+// Speech to text for browsers with no recogniser of their own, tried in order.
+// Both providers serve the same OpenAI-compatible /audio/transcriptions API, so
+// only the address, the key and the model differ. OpenAI (whisper-1) is paid
+// per minute; Groq's hosted Whisper has a rate-limited free tier and is the
+// backup when OpenAI is unset, out of credit or down. Either key alone is enough.
+//
 // Read at call time rather than captured at require(), so a key added on
 // Railway takes effect on the next deploy without a code change, and the
 // offline test suite (which blanks provider variables) never sees one.
-function transcriptionConfigured() {
-  return !!process.env.OPENAI_API_KEY;
+function transcriptionProviders() {
+  return [
+    { name: 'OpenAI', key: process.env.OPENAI_API_KEY, base: 'https://api.openai.com/v1',
+      model: process.env.OPENAI_TRANSCRIBE_MODEL || 'whisper-1' },
+    { name: 'Groq', key: process.env.GROQ_API_KEY, base: 'https://api.groq.com/openai/v1',
+      model: process.env.GROQ_TRANSCRIBE_MODEL || 'whisper-large-v3-turbo' }
+  ].filter(provider => provider.key);
 }
 
-// Returns the transcript ('' when nothing was said), or null when the request
-// failed. Nothing about the audio or the text is logged: a patient's spoken
-// question can carry health details.
+function transcriptionConfigured() {
+  return transcriptionProviders().length > 0;
+}
+
+// Returns the transcript ('' when nothing was said), or null when every
+// provider failed. Nothing about the audio or the text is logged: a patient's
+// spoken question can carry health details.
 async function transcribeSpeech(buffer, mimeType) {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) return null;
   // The API infers the format from the file name, so the extension must match
   // what the browser recorded: audio/mp4 on iOS, audio/webm on Chromium.
   const type = String(mimeType || '').split(';')[0].trim() || 'audio/webm';
@@ -1078,26 +1088,27 @@ async function transcribeSpeech(buffer, mimeType) {
     'audio/mp4': 'mp4', 'audio/x-m4a': 'm4a', 'audio/aac': 'm4a', 'audio/webm': 'webm',
     'audio/ogg': 'ogg', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/mpeg': 'mp3'
   }[type] || 'webm';
-  const form = new FormData();
-  form.append('file', new Blob([buffer], { type }), `speech.${ext}`);
-  form.append('model', OPENAI_TRANSCRIBE_MODEL);
-  try {
-    const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}` },
-      body: form,
-      signal: AbortSignal.timeout(20000)
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      console.error(`[Transcribe] ${res.status}: ${data.error?.message || 'request failed'}`);
-      return null;
+
+  for (const provider of transcriptionProviders()) {
+    const form = new FormData();
+    form.append('file', new Blob([buffer], { type }), `speech.${ext}`);
+    form.append('model', provider.model);
+    try {
+      const res = await fetch(`${provider.base}/audio/transcriptions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${provider.key}` },
+        body: form,
+        // Short enough that falling back still answers inside a spoken turn.
+        signal: AbortSignal.timeout(12000)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) return String(data.text || '').trim();
+      console.error(`[Transcribe] ${provider.name} ${res.status}: ${data.error?.message || 'request failed'}`);
+    } catch (e) {
+      console.error(`[Transcribe] ${provider.name} request failed:`, e.message);
     }
-    return String(data.text || '').trim();
-  } catch (e) {
-    console.error('[Transcribe] Request failed:', e.message);
-    return null;
   }
+  return null;
 }
 
 const aiServices = {
