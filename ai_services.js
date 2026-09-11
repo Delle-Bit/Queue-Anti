@@ -1077,6 +1077,12 @@ function transcriptionConfigured() {
   return transcriptionProviders().length > 0;
 }
 
+// Whisper's `prompt` biases spelling toward the words it contains. Without it
+// a spoken "queue me for the ultrasound" came back from Groq as "cue me", which
+// the queue-intent matching on both the page and the server cannot recognise.
+const TRANSCRIBE_PROMPT = 'Medical clinic virtual assistant. Queue, join the queue, ticket, appointment, '
+  + 'front desk, laboratory, doctor, consultation, ultrasound, X-ray, blood test, check-up, price, pesos.';
+
 // Returns the transcript ('' when nothing was said), or null when every
 // provider failed. Nothing about the audio or the text is logged: a patient's
 // spoken question can carry health details.
@@ -1093,6 +1099,7 @@ async function transcribeSpeech(buffer, mimeType) {
     const form = new FormData();
     form.append('file', new Blob([buffer], { type }), `speech.${ext}`);
     form.append('model', provider.model);
+    form.append('prompt', TRANSCRIBE_PROMPT);
     try {
       const res = await fetch(`${provider.base}/audio/transcriptions`, {
         method: 'POST',
