@@ -25,7 +25,13 @@ const VA_SPEECH_ERRORS = {
     // The microphone never actually opened. Reported when start() resolved but
     // onstart never fired - Safari and some mobile browsers expose
     // webkitSpeechRecognition and then do exactly this.
-    'mic-never-opened': 'My microphone would not open in this browser. Voice input needs Google Chrome on a computer \u2014 you can type to me instead.',
+    'mic-never-opened': 'My microphone would not open. On an iPhone, use Safari with Siri & Dictation turned on; on a computer, use Google Chrome. You can type to me instead.',
+    // Chrome, Firefox and Edge on iPhone/iPad. Apple gives speech recognition
+    // to Safari only; other iOS browsers are Safari's engine in a wrapper that
+    // leaves it out, so recognition is missing or never starts. Nothing a web
+    // page does can change that - telling them to "use Chrome" was wrong, they
+    // already were.
+    'ios-browser': 'On iPhone and iPad, only Safari can listen. Open this page in Safari to talk to me, or type your question below.',
     // It opened, and no audio ever registered as speech.
     'heard-nothing': "I didn't hear anything. Click the nurse again and start speaking once the badge says Listening.",
     // It heard something but nothing survived as text.
@@ -82,17 +88,21 @@ function vaSpeechProfile() {
     // said for parsing the user agent string itself.
     const isWebKit = /apple/i.test(navigator.vendor || '');
     const isFirefox = /\bFirefox\//.test(ua) && !isWebKit;
+    // Chrome (CriOS), Firefox (FxiOS) and Edge (EdgiOS) on iOS. WebKit like
+    // Safari, but without Safari's speech recogniser - see 'ios-browser'.
+    const isIOSOtherBrowser = /\b(CriOS|FxiOS|EdgiOS)\//.test(ua);
 
     return {
         engine: isOpera ? 'opera' : isWebKit ? 'webkit' : isFirefox ? 'firefox' : 'chromium',
         isOpera,
+        isIOSOtherBrowser,
         isWebKit,
         // WebKit cannot hold a continuous session open correctly.
         continuous: !isWebKit,
         // WebKit's interim results throttle the recogniser; take finals only.
         interimResults: !isWebKit,
-        // Opera exposes no working recogniser at all.
-        speechUsable: !isOpera
+        // Opera and the non-Safari iOS browsers expose no working recogniser.
+        speechUsable: !isOpera && !isIOSOtherBrowser
     };
 }
 let synthesisSpeech = null;
@@ -534,8 +544,8 @@ function startSpeechRecognition() {
     // would otherwise be reported as a lost internet connection the customer
     // cannot do anything about.
     if (!SpeechRecognition || !profile.speechUsable) {
-        pushVaBubble('assistant', profile.isOpera
-            ? VA_SPEECH_ERRORS['opera']
+        pushVaBubble('assistant', profile.isOpera ? VA_SPEECH_ERRORS['opera']
+            : profile.isIOSOtherBrowser ? VA_SPEECH_ERRORS['ios-browser']
             : VA_SPEECH_ERRORS['unsupported']);
         focusVaTypedInput();
         return;
