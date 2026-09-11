@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../database');
+const multer = require('multer');
 const aiServices = require('../ai_services');
 const { buildCustomerStatus } = require('./queue');
 
@@ -122,6 +123,50 @@ router.post('/dialogue', async (req, res) => {
         console.error('Assistant dialogue error:', err);
         res.status(500).json({ error: 'Assistant is unavailable right now' });
     }
+});
+
+// ── VOICE FOR BROWSERS WITHOUT A RECOGNISER ──────────────────────────────────
+// Chrome, Firefox and Edge on iPhone, plus Firefox and Opera, cannot turn speech
+// into text themselves. There the page records the question and posts it here,
+// and OpenAI's transcription API returns the text, which then takes the same
+// /dialogue path as recognised speech. Off unless OPENAI_API_KEY is set.
+//
+// Every clip is a paid request with no free tier, hence the caps: the page stops
+// a recording at 15 seconds, the upload is bounded far above that, and each
+// account gets a fixed number of clips per window.
+const voiceUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 3 * 1024 * 1024, files: 1 } });
+// ponytail: per-process memory, reset on every deploy; move to the DB if the
+// service ever runs more than one instance.
+const TRANSCRIBE_LIMIT = 20;
+const TRANSCRIBE_WINDOW_MS = 10 * 60 * 1000;
+const transcribeLog = new Map();
+
+router.get('/voice', (req, res) => {
+    res.json({ transcribe: aiServices.transcriptionConfigured() });
+});
+
+router.post('/transcribe', (req, res) => {
+    if (!aiServices.transcriptionConfigured()) {
+        return res.status(503).json({ error: 'Voice input is not available right now. Please type your question.' });
+    }
+    // Checked before the upload is read, so a refused request costs nothing.
+    const now = Date.now();
+    const recent = (transcribeLog.get(req.user.id) || []).filter(t => now - t < TRANSCRIBE_WINDOW_MS);
+    if (recent.length >= TRANSCRIBE_LIMIT) {
+        return res.status(429).json({ error: 'You have used voice a lot in the last few minutes. Please type your question for now.' });
+    }
+    voiceUpload.single('audio')(req, res, async (err) => {
+        if (err || !req.file) {
+            return res.status(400).json({ error: "I couldn't receive that recording. Please try again." });
+        }
+        recent.push(now);
+        transcribeLog.set(req.user.id, recent);
+        const text = await aiServices.transcribeSpeech(req.file.buffer, req.file.mimetype);
+        if (text === null) {
+            return res.status(502).json({ error: "I couldn't make out the recording. Please try again, or type your question." });
+        }
+        res.json({ text });
+    });
 });
 
 module.exports = router;

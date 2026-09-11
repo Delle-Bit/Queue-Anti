@@ -14,6 +14,13 @@ const VA_MAX_BUBBLES = 3;
 // 3000 made the assistant feel stuck. Raise it if people get cut off mid-sentence.
 const VA_SILENCE_TIMEOUT_MS = 1500;
 const VA_INITIAL_LISTEN_TIMEOUT_MS = 8000; // grace period to start speaking after the mic activates
+// Recorded speech (startRecordedSpeech) only. A clip is a paid request, so it
+// never runs past this.
+const VA_RECORD_MAX_MS = 15000;
+// Peak deviation from silence (0-128) that counts as speech. Calibration knob:
+// raise it if a noisy waiting room keeps recordings open, lower it if quiet
+// speakers are cut off as "heard nothing".
+const VA_RECORD_SPEECH_LEVEL = 18;
 
 // Speech-recognition failure reasons, mapped to something the customer can act on.
 // 'aborted' and 'no-speech' are expected during normal use and never surface.
@@ -119,6 +126,14 @@ document.addEventListener('DOMContentLoaded', () => {
     bindVaListeners();
     renderVaHistory();
     setVaState('idle');
+    fetch('/api/assistant/voice', { headers: authHeaders() })
+        .then(res => (res.ok ? res.json() : null))
+        .then(data => {
+            vaTranscribeAvailable = !!(data && data.transcribe);
+            refreshVaHint();
+            updateMicButtonUI(isListening);
+        })
+        .catch(() => { /* stays off: typing and keyboard dictation still work */ });
 });
 
 // ── AVATAR STATE MACHINE ──────────────────────────────────────────
@@ -163,7 +178,7 @@ function updateMicButtonUI(isActive) {
         + `<span class="va-sr-only">${isActive ? 'Listening' : 'Not listening'}</span>`;
     // A tooltip that points at the thing that does work, rather than implying
     // this element is clickable.
-    el.title = vaSpeechSupported()
+    el.title = vaCanListen()
         ? (isActive ? 'Listening \u2014 click the nurse to stop' : 'Click the nurse to speak')
         : 'This browser cannot listen \u2014 type your question instead';
 }
@@ -177,6 +192,17 @@ function vaSpeechSupported() {
             && vaSpeechProfile().speechUsable;
     }
     return vaSpeechSupportedCache;
+}
+
+// Recording plus server transcription, for browsers with no recogniser. Off
+// until GET /api/assistant/voice says the server has a transcription key.
+let vaTranscribeAvailable = false;
+let vaRecorder = null;
+function vaRecordingSupported() {
+    return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+}
+function vaCanListen() {
+    return vaSpeechSupported() || (vaTranscribeAvailable && vaRecordingSupported());
 }
 
 // ── FLOATING SPEECH BUBBLES ───────────────────────────────────────
@@ -253,6 +279,9 @@ function bindVaListeners() {
 
     const toggleListening = () => {
         if (isListening) stopSpeechRecognition();
+        // The browser's own recogniser wherever it works - it is free. Recording
+        // is only for browsers without one, and only once the server offers it.
+        else if (!vaSpeechSupported() && vaTranscribeAvailable && vaRecordingSupported()) startRecordedSpeech();
         else startSpeechRecognition();
     };
 
@@ -325,14 +354,20 @@ function bindVaTypedInput() {
     // than after they click the nurse and get an explanation. The indicator's
     // own tooltip is handled in updateMicButtonUI, which runs on every state
     // change and would otherwise overwrite anything set here.
-    if (!vaSpeechSupported()) {
-        const hint = document.getElementById('va-hint');
-        // On iPhone the keyboard's own dictation key works in every browser,
-        // on the device, at no API cost - it types into this box like a finger.
-        if (hint) hint.textContent = vaSpeechProfile().isIOSOtherBrowser
-            ? 'Tap the box, then the microphone on your keyboard to speak'
-            : 'Type your question \u2014 voice input needs Google Chrome';
-    }
+    refreshVaHint();
+}
+
+// Runs again once GET /api/assistant/voice answers, because recorded speech
+// can make a browser that cannot recognise speech able to listen after all.
+function refreshVaHint() {
+    const hint = document.getElementById('va-hint');
+    if (!hint) return;
+    if (!hint.dataset.defaultText) hint.dataset.defaultText = hint.textContent;
+    // On iPhone the keyboard's own dictation key works in every browser, on
+    // the device, at no API cost - it types into the box like a finger.
+    hint.textContent = vaCanListen() ? hint.dataset.defaultText
+        : vaSpeechProfile().isIOSOtherBrowser ? 'Tap the box, then the microphone on your keyboard to speak'
+        : 'Type your question \u2014 voice input needs Google Chrome';
 }
 
 function focusVaTypedInput() {
@@ -722,6 +757,12 @@ function startSpeechRecognition() {
 // as the silence timer, so transcript finalization only ever happens in one place: onend.
 function stopSpeechRecognition() {
     clearTimeout(silenceTimer);
+    // A recording ends through its own onstop, which decides what to send.
+    if (vaRecorder) {
+        vaRecorder.cancelledByUser = true;
+        if (vaRecorder.state === 'recording') vaRecorder.stop();
+        return;
+    }
     // Distinguishes "the customer stopped it" from "it went quiet on its own",
     // which onend needs in order to decide whether silence deserves an
     // explanation.
@@ -729,6 +770,111 @@ function stopSpeechRecognition() {
     if (recognition) {
         try { recognition.stop(); } catch (e) { /* already stopped */ }
     }
+}
+
+// ── RECORDED SPEECH (server transcription) ────────────────────────
+// For browsers with no speech recogniser: record, find the end of the
+// question by volume, send the clip to POST /api/assistant/transcribe, and
+// hand the text to processVoiceCommand like recognised speech.
+//
+// The AudioContext is created before the first await, inside the tap. iOS
+// keeps a context made outside a gesture suspended, a suspended analyser reads
+// silence, and every recording would then end as "heard nothing".
+async function startRecordedSpeech() {
+    if (isListening) return;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const ctx = AudioCtx ? new AudioCtx() : null;
+    if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+
+    let stream;
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+        if (ctx) ctx.close().catch(() => {});
+        pushVaBubble('assistant', VA_SPEECH_ERRORS[err && err.name === 'NotAllowedError' ? 'not-allowed' : 'audio-capture']);
+        focusVaTypedInput();
+        return;
+    }
+
+    const recorder = new MediaRecorder(stream);
+    const chunks = [];
+    vaRecorder = recorder;
+    isListening = true;
+    setVaState('listening');
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    stopLipSync();
+    const bubble = pushVaBubble('user', 'Listening…', { persist: true });
+
+    // End of speech by volume, on the same windows as the recogniser path.
+    const started = Date.now();
+    let heard = false;
+    let lastLoud = started;
+    let tick;
+    if (ctx) {
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 1024;
+        ctx.createMediaStreamSource(stream).connect(analyser);
+        const samples = new Uint8Array(analyser.fftSize);
+        tick = setInterval(() => {
+            analyser.getByteTimeDomainData(samples);
+            let peak = 0;
+            for (const v of samples) peak = Math.max(peak, Math.abs(v - 128));
+            const now = Date.now();
+            if (peak >= VA_RECORD_SPEECH_LEVEL) { heard = true; lastLoud = now; }
+            const done = (heard && now - lastLoud > VA_SILENCE_TIMEOUT_MS)
+                || (!heard && now - started > VA_INITIAL_LISTEN_TIMEOUT_MS)
+                || now - started > VA_RECORD_MAX_MS;
+            if (done && recorder.state === 'recording') recorder.stop();
+        }, 100);
+    } else {
+        // Nothing to measure volume with: record a fixed window and send it.
+        heard = true;
+        tick = setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, VA_RECORD_MAX_MS);
+    }
+
+    recorder.ondataavailable = (event) => { if (event.data && event.data.size) chunks.push(event.data); };
+    recorder.onstop = async () => {
+        clearInterval(tick);
+        stream.getTracks().forEach(track => track.stop());
+        if (ctx) ctx.close().catch(() => {});
+        vaRecorder = null;
+        isListening = false;
+        retireVaBubble(bubble);
+
+        if (!heard || !chunks.length) {
+            setVaState('idle');
+            // A tap to cancel before speaking needs no explanation.
+            if (!recorder.cancelledByUser) pushVaBubble('assistant', VA_SPEECH_ERRORS['heard-nothing']);
+            return;
+        }
+
+        setVaState('thinking');
+        const form = new FormData();
+        form.append('audio', new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }), 'speech');
+        try {
+            // No Content-Type header: the browser has to write the multipart boundary.
+            const res = await fetch('/api/assistant/transcribe', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer ' + getToken() },
+                body: form
+            });
+            const data = await res.json().catch(() => ({}));
+            const text = String(data.text || '').trim();
+            if (!res.ok || !text) {
+                setVaState('idle');
+                pushVaBubble('assistant', (!res.ok && data.error) || VA_SPEECH_ERRORS['nothing-usable']);
+                return;
+            }
+            beginVaTurn();
+            pushVaBubble('user', text);
+            addVaHistory('user', text);
+            processVoiceCommand(text);
+        } catch (err) {
+            setVaState('idle');
+            pushVaBubble('assistant', VA_SPEECH_ERRORS.network);
+        }
+    };
+    recorder.start();
 }
 
 // ── DIALOGUE CONTROLLER ───────────────────────────────────────────
@@ -754,7 +900,11 @@ async function processVoiceCommand(text) {
         }
 
         if (/\b(status|my ticket|my number|my position|what.?s my queue)\b/.test(query) ||
-            (/\bqueue\b/.test(query) && !/\b(join|enqueue|line me|book|put me|cancel|leave)\b/.test(query))) {
+            // A request to queue names the queue too, so it has to be excluded
+            // here or it never reaches the dialogue route: "queue me for the
+            // ultrasound" was answered with "you do not have an active ticket".
+            // Mirrors the join words in assistantLocalFallback (ai_services.js).
+            (/\bqueue\b/.test(query) && !/\b(join|enqueue|queue me|line (me|up)|book|register|sign me|put me|add me|avail|cancel|leave)\b/.test(query))) {
             await answerQueueStatus();
             return;
         }
