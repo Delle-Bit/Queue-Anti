@@ -38,7 +38,11 @@ const GEMINI_BASE = process.env.GEMINI_BASE
 // choice, not an accuracy one, and 3.6 blew through the 30s request timeout -
 // which is how a live scan came back as mock data. Re-pin with
 // GEMINI_OCR_MODEL if 3.6 settles down.
-const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-3.5-flash';
+// Flash-lite, not the OCR model: the assistant is a spoken conversation. Measured
+// on the live keys with the real prompt shape, 3.5-flash took 9.4-16s a turn
+// (thinking off did not help) against the 15s timeout, so turns fell through to
+// the local parser; 3.1-flash-lite took 0.7-1.5s and chose the same join_queue.
+const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-3.1-flash-lite';
 const GEMINI_OCR_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-3.5-flash';
 
 // The primary, then whatever GEMINI_OCR_MODEL_FALLBACK names. An

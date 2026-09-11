@@ -9,7 +9,10 @@
 const VA_STATES = ['idle', 'listening', 'thinking', 'speaking'];
 const VA_HISTORY_KEY = 'vaHistory';
 const VA_MAX_BUBBLES = 3;
-const VA_SILENCE_TIMEOUT_MS = 3000; // auto-stop this long after the user stops speaking
+// Auto-stop this long after the user stops speaking. Every turn waits the full
+// window before anything is sent, so it is pure delay once they have finished;
+// 3000 made the assistant feel stuck. Raise it if people get cut off mid-sentence.
+const VA_SILENCE_TIMEOUT_MS = 1500;
 const VA_INITIAL_LISTEN_TIMEOUT_MS = 8000; // grace period to start speaking after the mic activates
 
 // Speech-recognition failure reasons, mapped to something the customer can act on.
@@ -521,7 +524,7 @@ function stopLipSync() {
 // A single debounced timer (VA_SILENCE_TIMEOUT_MS) is reset on every result —
 // interim or final — and left to run out when the user goes quiet. When it fires,
 // we stop recognition ourselves rather than waiting on the browser's own cutoff,
-// which is what gives us an exact, predictable 3-second silence window.
+// which is what gives us an exact, predictable silence window.
 function startSpeechRecognition() {
     const profile = vaSpeechProfile();
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -615,7 +618,7 @@ function startSpeechRecognition() {
 
     recognition.onresult = (event) => {
         sawSpeech = true;
-        armSilenceTimer(VA_SILENCE_TIMEOUT_MS); // speech detected — tighten to the 3s post-speech countdown
+        armSilenceTimer(VA_SILENCE_TIMEOUT_MS); // speech detected — tighten to the post-speech countdown
         let interim = '';
         for (let i = event.resultIndex; i < event.results.length; i++) {
             const transcript = event.results[i][0].transcript;
