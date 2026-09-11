@@ -747,6 +747,15 @@ async function processVoiceCommand(text) {
             return;
         }
 
+        // Booking an appointment is its own flow (a date, a time, a priority
+        // fee), not a queue join. Answered here, before the dialogue route can
+        // read "book" as a request to queue.
+        if (/\bappointments?\b/.test(query) && /\b(how|make|book|schedule|set|create|get|want|need)\b/.test(query)) {
+            vaSay('To book an appointment, tap New Appointment on this page. Choose a service, pick a date and a time, then review and confirm. You pay at the front desk on the day.');
+            navigateTo('appointments');
+            return;
+        }
+
         // Service FAQ · calculation · queue dispatch
         const res = await fetch('/api/assistant/dialogue', {
             method: 'POST',

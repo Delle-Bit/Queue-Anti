@@ -901,12 +901,15 @@ async function renderAppointmentCalendar() {
         const selected = document.getElementById('appt-date').value === iso ? 'selected' : '';
         const hasBooking = bookedDates.has(iso) ? 'has-booking' : '';
         const past = isPastDate(iso);
+        const blockedToday = isQueuedTodayDate(iso);
         // disabled (not just a class) so the button is also unreachable by
         // keyboard and can't be activated by a stray click handler.
         const attrs = past
             ? 'disabled aria-disabled="true" title="This date has already passed"'
-            : `onclick="selectAppointmentDate('${iso}')"`;
-        days += `<button type="button" class="calendar-day ${muted} ${selected} ${hasBooking} ${past ? 'past' : ''}" ${attrs}>${d.getDate()}</button>`;
+            : blockedToday
+                ? 'disabled aria-disabled="true" title="You are in the queue today. Pick a later date."'
+                : `onclick="selectAppointmentDate('${iso}')"`;
+        days += `<button type="button" class="calendar-day ${muted} ${selected} ${hasBooking} ${past || blockedToday ? 'past' : ''}" ${attrs}>${d.getDate()}</button>`;
     }
     cal.innerHTML = heads + days;
 
@@ -929,8 +932,14 @@ function changeCalendarMonth(delta) {
     renderAppointmentCalendar();
 }
 
+// Mirrored in POST /appointments, which refuses today for a queued patient.
+function isQueuedTodayDate(iso) {
+    return apptQueuedToday && iso === formatLocalDate(new Date());
+}
+
 function selectAppointmentDate(iso) {
     if (isPastDate(iso)) return showToast('Please choose today or a future date.', 'warning');
+    if (isQueuedTodayDate(iso)) return showToast('You are in the queue today. Please pick a later date.', 'warning');
     document.getElementById('appt-date').value = iso;
     document.getElementById('selected-appt-date').textContent = iso;
     selectedTimeSlot = null;
@@ -1156,8 +1165,21 @@ async function restoreAddressSelects(med) {
     brgySel.value = med.barangay || '';
 }
 
+// No birthday in the current year: the latest accepted date is 31 December of
+// last year. Mirrored in POST /medical-records/my. Checked on submit as well as
+// set as the picker's max, because a typed date is not held to max.
+function medBirthdateMax() {
+    return `${new Date().getFullYear() - 1}-12-31`;
+}
+
 async function submitMandatoryMedicalForm() {
     if (!validateRequiredMedicalFields()) return;
+    const birthInput = document.getElementById('req-med-birthdate');
+    if (birthInput.value > medBirthdateMax()) {
+        birthInput.classList.add('field-error');
+        birthInput.focus();
+        return showToast(`Birthdate must be on or before ${medBirthdateMax()}.`, 'error');
+    }
     const surname = document.getElementById('req-med-surname').value.trim();
     const firstName = document.getElementById('req-med-first-name').value.trim();
     const noMiddleName = document.getElementById('req-med-no-middle').checked;
@@ -1277,6 +1299,12 @@ async function populateMedicalFormFromRecord() {
 // A failed check does not block: if these requests error, the modal opens and
 // the server still refuses. Better a wasted booking attempt than a customer
 // who cannot reach the form because a status endpoint was slow.
+//
+// Being in the queue does not block the modal. It only takes today off the
+// calendar (apptQueuedToday): a later day is fine, today would put the patient
+// in two lines at once.
+let apptQueuedToday = false;
+
 async function apptBookingBlocker() {
     try {
         const [apptRes, queueRes] = await Promise.all([
@@ -1292,9 +1320,7 @@ async function apptBookingBlocker() {
                 + ' Cancel it first if you want to book a different service.';
         }
         const status = await queueRes.json();
-        if (status && status.active) {
-            return 'You are in the queue right now. Finish that visit before booking another service.';
-        }
+        apptQueuedToday = !!(status && status.active);
     } catch (err) {
         console.warn('Could not check for an existing booking; the server will still enforce it.', err);
     }
@@ -1312,6 +1338,7 @@ window.openModal = async function(id) {
         resetApptModal();
     }
     if (id === 'mandatory-med-modal') {
+        document.getElementById('req-med-birthdate').max = medBirthdateMax();
         await populateMedicalFormFromRecord();
         // Safety net: if the record fetch above failed, the province list
         // would otherwise be left stuck on "Loading...".

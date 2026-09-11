@@ -453,16 +453,20 @@ router.post('/appointments', async (req, res) => {
             });
         }
 
-        // Mid-visit counts too: a patient standing at a station is availing a
-        // service, and the same 'in_progress' row is what startPackageQueue
-        // checks, so the two doors agree.
+        // Mid-visit, a patient may book a later day - today's visit is over by
+        // then - but not today, which would put them in two lines at once. The
+        // same 'in_progress' row is what startPackageQueue checks, so the two
+        // doors agree.
         const [activeVisit] = await pool.query(
             `SELECT id FROM queue_sequences WHERE customer_id = ? AND status = 'in_progress' AND archived = false LIMIT 1`,
             [req.user.id]
         );
-        if (activeVisit.length > 0) {
+        const [ay, am, ad] = String(appointment_date).split('-').map(Number);
+        const now = new Date();
+        const isToday = ay === now.getFullYear() && am === now.getMonth() + 1 && ad === now.getDate();
+        if (activeVisit.length > 0 && isToday) {
             return res.status(409).json({
-                error: 'You are in the queue right now. Finish that visit before booking another service.',
+                error: 'You are in the queue today. Please book your appointment for a later date.',
                 already_active: true
             });
         }
@@ -843,6 +847,13 @@ router.post('/medical-records/my', async (req, res) => {
         });
         if (!no_middle_name && !String(middle_name || '').trim()) missing.push('middle_name');
         if (missing.length > 0) return res.status(400).json({ error: 'Missing required fields', fields: missing });
+
+        // No birthday in the current year: the latest accepted date is 31
+        // December of last year. The date picker's max is only the affordance.
+        const maxBirthday = `${new Date().getFullYear() - 1}-12-31`;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(birthday)) || String(birthday) > maxBirthday) {
+            return res.status(400).json({ error: `Birthdate must be on or before ${maxBirthday}.`, fields: ['birthday'] });
+        }
 
         await pool.query(
             'UPDATE users SET full_name=?, surname=?, first_name=?, middle_name=?, no_middle_name=?, gender=?, birthday=? WHERE id=?',

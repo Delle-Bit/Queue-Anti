@@ -34,6 +34,8 @@ async function loadAssistantContext(user) {
         active: true,
         ticket: status.current_queue ? status.current_queue.number : '--',
         current_station: status.steps.find(s => s.status === 'active')?.name || 'Front Desk',
+        package_id: status.sequence.package_id,
+        package_name: status.sequence.package_name,
         people_ahead: status.people_ahead,
         estimated_time: status.estimated_time,
         steps: status.steps.map(s => ({ name: s.name, status: s.status, eta_minutes: s.eta_minutes }))
@@ -102,7 +104,20 @@ router.post('/dialogue', async (req, res) => {
             action.type = 'none';
         }
 
-        res.json({ reply: result.reply, intent: result.intent, action, queue_active: context.queue.active });
+        // One visit at a time. Refused here, in the reply that is spoken, rather
+        // than walking the customer through the service preview only for
+        // /start-package to refuse at the last button. The model's own reply
+        // ("Shall I queue you...") is replaced, not appended to.
+        let reply = result.reply;
+        if (action.type === 'join_queue' && context.queue.active) {
+            const current = `You are already in the queue for ${context.queue.package_name}, ticket ${context.queue.ticket}.`;
+            reply = action.package_id === context.queue.package_id
+                ? `${current} You cannot join the same service twice.`
+                : `${current} Please finish or cancel that visit before availing another service.`;
+            Object.assign(action, { type: 'show_status', package_id: null, package_name: '', price: null });
+        }
+
+        res.json({ reply, intent: result.intent, action, queue_active: context.queue.active });
     } catch (err) {
         console.error('Assistant dialogue error:', err);
         res.status(500).json({ error: 'Assistant is unavailable right now' });

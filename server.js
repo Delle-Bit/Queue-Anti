@@ -39,7 +39,16 @@ const port = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
-app.use(express.static('public'));
+// Nothing a signed-in page shows may be kept by the browser. A cached dashboard
+// or a cached /api answer is what Back replays after Sign Out without asking the
+// server. no-store on the HTML also keeps pages out of the back/forward cache,
+// so a restored page re-runs requireAuth() instead of replaying a snapshot.
+app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+app.use(express.static('public', {
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) res.set('Cache-Control', 'no-store');
+    }
+}));
 app.use('/uploads', express.static('uploads'));
 app.use('/images', express.static('images'));
 

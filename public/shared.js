@@ -20,32 +20,46 @@ function authHeaders() {
 }
 
 function requireAuth(allowedRoles) {
-    const token = getToken();
-    const role = getRole();
-    if (!token || !role) { window.location.replace('/index.html'); return false; }
-    if (allowedRoles && !allowedRoles.includes(role)) {
-        window.location.replace('/index.html');
-        return false;
-    }
+    const allowed = () => {
+        const role = getRole();
+        return !!getToken() && !!role && (!allowedRoles || allowedRoles.includes(role));
+    };
+    if (!allowed()) { window.location.replace('/index.html'); return false; }
+    // Back and Forward do not re-run this script. A page restored from the
+    // back/forward cache, or a history entry within it, comes back exactly as
+    // it was left - so after Sign Out, Back used to show the dashboard again.
+    // The check runs again whenever history hands the page back.
+    const recheck = () => { if (!allowed()) window.location.replace('/index.html'); };
+    window.addEventListener('pageshow', recheck);
+    window.addEventListener('popstate', recheck);
     return true;
 }
 
+// Everything that belongs to the signed-in person, and nothing that belongs to
+// the device: the theme and the assistant's mute switch stay. The assistant's
+// conversation goes, because the next person to sign in on this browser must
+// not read it. Doctor drafts are deliberately kept - they are unsaved clinical
+// notes, and losing one to a sign-out is data loss.
+const CLIENT_SESSION_KEYS = ['clinicToken', 'clinicRole', 'clinicUsername', 'clinicCategory', 'clinicLastActivity', 'vaHistory'];
+
+function clearClientSession() {
+    CLIENT_SESSION_KEYS.forEach(key => localStorage.removeItem(key));
+    sessionStorage.clear();
+}
+
 function logout() {
-    // Track staff logout
-    const token = getToken();
-    const role = getRole();
-    if (token && role !== 'customer') {
+    // Track staff logout. keepalive, so the request survives the navigation.
+    if (getToken() && getRole() !== 'customer') {
         fetch('/api/staff-sessions/logout', {
             method: 'POST',
-            headers: authHeaders()
+            headers: authHeaders(),
+            keepalive: true
         }).catch(() => {});
     }
-    localStorage.removeItem('clinicToken');
-    localStorage.removeItem('clinicRole');
-    localStorage.removeItem('clinicUsername');
-    localStorage.removeItem('clinicCategory');
-    localStorage.removeItem('clinicLastActivity');
-    window.location.href = '/index.html';
+    clearClientSession();
+    // replace, not href: the dashboard's history entry is overwritten, so Back
+    // from the sign-in page has no signed-in page to return to.
+    window.location.replace('/index.html');
 }
 
 // ── SITE SETTINGS (Customize page) ───────────────────────────────
@@ -1323,10 +1337,7 @@ function endSessionForInactivity(manual = false) {
     fetch('/api/session/timeout', { method: 'POST', headers: authHeaders(), keepalive: true })
         .catch(() => {})
         .finally(() => {
-            localStorage.removeItem('clinicToken');
-            localStorage.removeItem('clinicRole');
-            localStorage.removeItem('clinicUsername');
-            localStorage.removeItem('clinicCategory');
+            clearClientSession();
             finish();
         });
 }
@@ -1341,11 +1352,7 @@ function installSessionExpiryInterceptor() {
         return nativeFetch(input, init).then(response => {
             if (response.status === 401 && response.headers.get('X-Session-Timeout') === '1' && !sessionEnding) {
                 sessionEnding = true;
-                localStorage.removeItem(IDLE_STORAGE_KEY);
-                localStorage.removeItem('clinicToken');
-                localStorage.removeItem('clinicRole');
-                localStorage.removeItem('clinicUsername');
-                localStorage.removeItem('clinicCategory');
+                clearClientSession();
                 window.location.replace('/index.html?timeout=1');
             }
             return response;
