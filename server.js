@@ -81,6 +81,7 @@ io.on('connection', (socket) => {
 });
 
 // Auth middleware
+const TOKEN_REFRESH_AFTER_S = 15 * 60;
 function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -100,6 +101,18 @@ function authenticateToken(req, res, next) {
         // req.user.id and don't otherwise validate req.user.role.
         if (user.purpose) return res.status(403).json({ error: 'Invalid token' });
         req.user = user;
+        // Sliding session. A request made while someone is actually using the
+        // page (X-Client-Active, sent by authHeaders() in shared.js after a tap
+        // or key press in the last 10 minutes) gets a fresh 8-hour token back
+        // once the current one is 15 minutes old, so a person using the app is
+        // never signed out mid-use. A page left alone - polling on its own -
+        // sends no such header and still expires. Staff remain held to the idle
+        // timeout, which runs after this and is not bypassed by it.
+        if (req.headers['x-client-active'] === '1' && Date.now() / 1000 - (user.iat || 0) > TOKEN_REFRESH_AFTER_S) {
+            res.set('X-Refreshed-Token', jwt.sign(
+                { id: user.id, username: user.username, role: user.role, category: user.category },
+                JWT_SECRET, { expiresIn: '8h' }));
+        }
         next();
     });
 }

@@ -15,8 +15,20 @@ function getUserId() {
     } catch(e) { return null; }
 }
 
+// Real use of the page - a tap, a click or a key press - as opposed to the
+// dashboards' own polling. Requests made within USER_ACTIVE_WINDOW_MS of it say
+// so, and the server answers those with a renewed token (see authenticateToken
+// in server.js), so someone using the app is never signed out in the middle of
+// it while a page left alone still expires.
+const USER_ACTIVE_WINDOW_MS = 10 * 60 * 1000;
+let lastUserInteraction = Date.now();
+['pointerdown', 'keydown', 'touchstart'].forEach(evt =>
+    document.addEventListener(evt, () => { lastUserInteraction = Date.now(); }, { capture: true, passive: true }));
+
 function authHeaders() {
-    return { 'Authorization': 'Bearer ' + getToken(), 'Content-Type': 'application/json' };
+    const headers = { 'Authorization': 'Bearer ' + getToken(), 'Content-Type': 'application/json' };
+    if (Date.now() - lastUserInteraction < USER_ACTIVE_WINDOW_MS) headers['X-Client-Active'] = '1';
+    return headers;
 }
 
 function requireAuth(allowedRoles) {
@@ -1361,6 +1373,11 @@ function installSessionExpiryInterceptor() {
     const nativeFetch = window.fetch.bind(window);
     window.fetch = function (input, init) {
         return nativeFetch(input, init).then(response => {
+            // A renewed token from the sliding session. Only from a successful
+            // answer, and only while still signed in, so a refusal or a sign-out
+            // already in flight cannot put a token back.
+            const fresh = response.ok && response.headers.get('X-Refreshed-Token');
+            if (fresh && getToken() && !sessionEnding) localStorage.setItem('clinicToken', fresh);
             if (response.status === 401 && !sessionEnding) {
                 if (response.headers.get('X-Session-Timeout') === '1') {
                     sessionEnding = true;
