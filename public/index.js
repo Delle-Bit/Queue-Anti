@@ -1408,10 +1408,15 @@ function setupRegisterHandlers() {
 // page is the difference between a security feature and an apparent bug.
 function announceSessionTimeout() {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('timeout') !== '1') return;
-    showToast('You were signed out after 15 minutes of inactivity. Please sign in again.', 'warning', 8000);
+    const timedOut = params.get('timeout') === '1';
+    const expired = params.get('expired') === '1';
+    if (!timedOut && !expired) return;
+    showToast(timedOut
+        ? 'You were signed out after a period of inactivity. Please sign in again.'
+        : 'Your session has expired. Please sign in again.', 'warning', 8000);
     // Cleared from the URL so a refresh or a bookmark does not repeat it.
     params.delete('timeout');
+    params.delete('expired');
     const query = params.toString();
     window.history.replaceState({}, '', window.location.pathname + (query ? '?' + query : ''));
     if (typeof openAuthPanel === 'function') openAuthPanel('login');

@@ -41,7 +41,11 @@ function authRequired(req, res, next) {
     const token = (req.headers['authorization'] || '').split(' ')[1];
     if (!token) return res.status(401).json({ error: 'Not authenticated' });
     try { req.user = jwt.verify(token, JWT_SECRET); next(); }
-    catch (e) { res.status(403).json({ error: 'Invalid token' }); }
+    // Same answer as authenticateToken in server.js, so the browser ends the session.
+    catch (e) {
+        res.set('X-Session-Expired', '1');
+        res.status(401).json({ error: 'Your session has expired. Please sign in again.', code: 'session_expired' });
+    }
 }
 
 // GET all packages with lab details

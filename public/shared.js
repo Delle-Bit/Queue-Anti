@@ -25,6 +25,11 @@ function requireAuth(allowedRoles) {
         return !!getToken() && !!role && (!allowedRoles || allowedRoles.includes(role));
     };
     if (!allowed()) { window.location.replace('/index.html'); return false; }
+    // A token past its 8-hour expiry is still in localStorage, so the check
+    // above passes and the page used to open with every request refused - the
+    // assistant answering "trouble reaching the clinic assistant" to everything.
+    if (tokenExpired()) { endExpiredSession(); return false; }
+    installSessionExpiryInterceptor();
     // Back and Forward do not re-run this script. A page restored from the
     // back/forward cache, or a history entry within it, comes back exactly as
     // it was left - so after Sign Out, Back used to show the dashboard again.
@@ -1346,18 +1351,44 @@ function endSessionForInactivity(manual = false) {
 // tab timed out, or the server restarted and rejected a stale token). Every
 // /api response is checked for the header it sets, which is why this wraps
 // fetch rather than being added to each of the dozens of existing call sites.
+// Installed for every signed-in page by requireAuth(), customers included: a
+// token can also be rejected outright (expired, or signed with a secret the
+// server no longer uses), which the server marks with X-Session-Expired.
+let sessionInterceptorInstalled = false;
 function installSessionExpiryInterceptor() {
+    if (sessionInterceptorInstalled) return;
+    sessionInterceptorInstalled = true;
     const nativeFetch = window.fetch.bind(window);
     window.fetch = function (input, init) {
         return nativeFetch(input, init).then(response => {
-            if (response.status === 401 && response.headers.get('X-Session-Timeout') === '1' && !sessionEnding) {
-                sessionEnding = true;
-                clearClientSession();
-                window.location.replace('/index.html?timeout=1');
+            if (response.status === 401 && !sessionEnding) {
+                if (response.headers.get('X-Session-Timeout') === '1') {
+                    sessionEnding = true;
+                    clearClientSession();
+                    window.location.replace('/index.html?timeout=1');
+                } else if (response.headers.get('X-Session-Expired') === '1') {
+                    endExpiredSession();
+                }
             }
             return response;
         });
     };
+}
+
+function tokenExpired() {
+    try {
+        const exp = JSON.parse(atob(getToken().split('.')[1])).exp;
+        return typeof exp === 'number' && exp * 1000 <= Date.now();
+    } catch (e) {
+        return false; // unreadable locally: let the server decide
+    }
+}
+
+function endExpiredSession() {
+    if (sessionEnding) return;
+    sessionEnding = true;
+    clearClientSession();
+    window.location.replace('/index.html?expired=1');
 }
 
 function initIdleTimeout() {
@@ -1366,7 +1397,6 @@ function initIdleTimeout() {
     // terminals sitting unattended in a public clinic.
     if (!getToken() || !role || role === 'customer') return;
 
-    installSessionExpiryInterceptor();
     localStorage.setItem(IDLE_STORAGE_KEY, String(Date.now()));
     sendHeartbeat(true);
     ACTIVITY_EVENTS.forEach(evt => document.addEventListener(evt, markActivity, { passive: true }));

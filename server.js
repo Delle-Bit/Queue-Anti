@@ -86,7 +86,15 @@ function authenticateToken(req, res, next) {
     const token = authHeader && authHeader.split(' ')[1];
     if (!token) return res.status(401).json({ error: 'Missing token' });
     jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) return res.status(403).json({ error: 'Invalid token' });
+        // 401 with a header, not a bare 403: an expired token has to end the
+        // session in the browser (installSessionExpiryInterceptor in shared.js).
+        // As a 403 it was indistinguishable from "not allowed", so a patient's
+        // page kept polling with a dead token and the assistant answered every
+        // question with "trouble reaching the clinic assistant".
+        if (err) {
+            res.set('X-Session-Expired', '1');
+            return res.status(401).json({ error: 'Your session has expired. Please sign in again.', code: 'session_expired' });
+        }
         // Reject special-purpose tokens (e.g. the short-lived login-OTP challenge
         // token) here so the 2FA gate can't be bypassed on routes that only check
         // req.user.id and don't otherwise validate req.user.role.
