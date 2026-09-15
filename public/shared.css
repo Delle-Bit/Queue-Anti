@@ -1181,6 +1181,17 @@ tbody tr:last-child td { border-bottom: none; }
 .theme-toggle:hover { border-color: var(--primary); color: var(--primary); }
 .theme-toggle:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
 
+/* Desktop has no topbar for the switch to sit in, and fixed in the corner it
+   covered the right-hand end of every page header - "New Appointment" and
+   "Update Profile Form" sat underneath it - and anything that later scrolled
+   past. So it scrolls away with the page instead, and each header keeps its
+   right end clear of it (44px button + 16px gap). Mobile keeps it fixed inside
+   the topbar, which has room for it. */
+@media (min-width: 769px) {
+    .theme-toggle { position: absolute; }
+    .theme-toggle ~ .main-content .page-header { padding-right: 60px; }
+}
+
 /* Mobile topbar: hamburger, logo, clinic name, account category. Built by
    shared.js and shown only below 768px, where the sidebar is a drawer and would
    otherwise leave the page with no branding and a floating hamburger sitting on
