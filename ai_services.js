@@ -356,30 +356,67 @@ Use action.type "none" unless the customer clearly asked for that action.`;
  * Handles the arithmetic and queue-intent cases locally so the assistant degrades
  * gracefully instead of going silent. Returns the same shape as the LLM path.
  */
+const NUMBER_WORDS = {
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
+  eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60,
+  seventy: 70, eighty: 80, ninety: 90
+};
+
+/**
+ * Exact arithmetic for the assistant. Returns { expression, value } or null.
+ *
+ * `strict` answers only when the message is nothing but a sum ("1+1",
+ * "what is one plus one?", "calculate 450 x 2"). It runs *before* the model,
+ * because a language model does not compute: asked "1+1" it once answered with
+ * the number of services. Anything with words left over ("450 for CBC plus 900
+ * for X-ray, and my discount") still goes to the model, which has the context.
+ */
+function localArithmetic(input, { strict = false } = {}) {
+  const spelled = String(input || '').toLowerCase()
+    .replace(/\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b/g, w => NUMBER_WORDS[w])
+    .replace(/\b([2-9]0) ([1-9])\b/g, (m, tens, unit) => Number(tens) + Number(unit))  // "twenty one"
+    .replace(/\bplus\b|\band\b|\badded to\b/g, '+').replace(/\bminus\b|\bless\b/g, '-')
+    .replace(/\btimes\b|\bmultiplied by\b|\bx\b|×/g, '*').replace(/\bdivided by\b|\bover\b|÷/g, '/')
+    .replace(/[₱,]/g, '');
+  const expr = spelled.match(/-?\d+(?:\.\d+)?(?:\s*[-+*/]\s*-?\d+(?:\.\d+)?)+/);
+  if (!expr) return null;
+  if (strict) {
+    const rest = spelled.replace(expr[0], ' ')
+      .replace(/\b(what|whats|what's|is|are|how|much|calculate|compute|solve|equals?|the|answer|sum|of|to|please|pls|can|you|tell|me|nurse)\b|[=?!.:'\s]/g, '');
+    if (rest) return null;
+  } else if (!/(how much|total|compute|calculate|sum|[-+*/])/.test(spelled)) {
+    return null;
+  }
+  const safe = expr[0].replace(/[^0-9+\-*/.\s]/g, '');
+  try {
+    // eslint-disable-next-line no-new-func
+    const value = Function(`"use strict"; return (${safe});`)();
+    if (!Number.isFinite(value)) return null;
+    // Spoken words, not symbols: the reply is read aloud, and a speech engine
+    // says "*" as "asterisk".
+    const spoken = { '+': 'plus', '-': 'minus', '*': 'times', '/': 'divided by' };
+    const expression = safe.replace(/(\d)\s*([-+*/])\s*/g, (m, digit, op) => `${digit} ${spoken[op]} `).trim();
+    return { expression, value: Math.round(value * 100) / 100 };
+  } catch (e) {
+    return null;
+  }
+}
+
+function arithmeticReply(math) {
+  return {
+    reply: `${math.expression} equals ${math.value}.`,
+    intent: 'calculation',
+    action: { type: 'none', package_name: '' }
+  };
+}
+
 function assistantLocalFallback(data) {
   const text = String(data.text || '').toLowerCase().trim();
   const packages = data.context?.packages || [];
 
-  // Arithmetic: evaluate a safe expression built only from digits and operators.
-  const spelled = text
-    .replace(/\bplus\b|\band\b/g, '+').replace(/\bminus\b|\bless\b/g, '-')
-    .replace(/\btimes\b|\bmultiplied by\b|\bx\b/g, '*').replace(/\bdivided by\b|\bover\b/g, '/')
-    .replace(/[₱,]/g, '');
-  const expr = spelled.match(/-?\d+(?:\.\d+)?(?:\s*[-+*/]\s*-?\d+(?:\.\d+)?)+/);
-  if (expr && /(how much|total|compute|calculate|sum|plus|minus|times|divided|[-+*/])/.test(spelled)) {
-    const safe = expr[0].replace(/[^0-9+\-*/.\s]/g, '');
-    try {
-      // eslint-disable-next-line no-new-func
-      const value = Function(`"use strict"; return (${safe});`)();
-      if (Number.isFinite(value)) {
-        return {
-          reply: `That comes to ${Math.round(value * 100) / 100}.`,
-          intent: 'calculation',
-          action: { type: 'none', package_name: '' }
-        };
-      }
-    } catch (e) { /* fall through to other intents */ }
-  }
+  const math = localArithmetic(text);
+  if (math) return arithmeticReply(math);
 
   // Queue dispatch: match a package name mentioned in the request.
   if (/\b(join|enqueue|queue me|line up|book|register|sign me up|route)\b/.test(text)) {
@@ -1265,7 +1302,12 @@ const aiServices = {
         let output = null;
         let provider = 'local';
 
-        if (isEnabled) {
+        // A bare sum is answered exactly, never by the model.
+        const math = localArithmetic(payload.text, { strict: true });
+        if (math) {
+            output = arithmeticReply(math);
+            provider = 'calculator';
+        } else if (isEnabled) {
             const history = (payload.history || []).slice(-6).map(h => ({
                 role: h.role === 'user' ? 'user' : 'assistant',
                 content: String(h.text || '')

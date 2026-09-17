@@ -107,7 +107,7 @@ for (const name of [
 const source = fs.readFileSync(SRC, 'utf8').replace(
     'module.exports = aiServices;',
     'module.exports = aiServices;\n'
-    + 'module.exports.__test = { geminiApiKeys, geminiKeySpent, withGeminiKey,'
+    + 'module.exports.__test = { localArithmetic, geminiApiKeys, geminiKeySpent, withGeminiKey,'
     + ' geminiIdScan, geminiChat, ageFromBirthdate, GEMINI_OCR_MODEL, GEMINI_CHAT_MODEL,'
     + ' deepseekIdScan, normaliseIdScan, readImageBase64, DEEPSEEK_VISION_MODEL,'
     + ' deepseekState: () => deepseekOffReason,'
@@ -505,6 +505,22 @@ const IMAGE = 'data:image/jpeg;base64,' + Buffer.alloc(64, 7).toString('base64')
         if (await ai.ocrScan(IMAGE)) fabricated += 1;
     }
     check('and it is null every time, not one in three', fabricated, 0);
+
+    console.log('\n29. the assistant computes a sum instead of asking the model');
+    // Asked "1+1", the model once answered with the number of services.
+    const sum = (t) => { const m = T.localArithmetic(t, { strict: true }); return m && m.value; };
+    check('1+1', sum('1+1'), 2);
+    check('what is one plus one?', sum('what is one plus one?'), 2);
+    check('calculate 450 x 2', sum('Calculate 450 x 2'), 900);
+    check('twenty one divided by three', sum('twenty one divided by three'), 7);
+    check('precedence', sum('2 + 3 * 4'), 14);
+    check('peso amounts', sum('how much is ₱1,200 - 450'), 750);
+    check('words left over go to the model', sum('450 for CBC plus 900 for x-ray with my discount'), null);
+    check('a service question is not a sum', sum('how much is the ultrasound'), null);
+    calls.length = 0;
+    const answer = await ai.assistantDialogue({ text: '1+1', history: [], context: { packages: [{ name: 'Ultrasound', price: 2800 }] } });
+    check('dialogue answers 2', answer.reply, '1 plus 1 equals 2.');
+    check('without asking any model', calls.length, 0);
 
     console.log(`\n${passed} passed, ${failed} failed\n`);
     process.exit(failed ? 1 : 0);
