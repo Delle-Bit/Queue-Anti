@@ -64,7 +64,7 @@ router.get('/', async (req, res) => {
         }
 
         res.json({
-            clinic_name: (settings[0] && settings[0].site_name) || 'Real Labs',
+            clinic_name: (settings[0] && settings[0].site_name) || 'ReaLab',
             generated_at: new Date().toISOString(),
             stations
         });

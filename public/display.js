@@ -216,8 +216,8 @@ function dispEscape(text) {
 
 // ── The station grid ────────────────────────────────────────────────────────
 function dispRenderStations(data) {
-    document.getElementById('disp-clinic').textContent = data.clinic_name || 'Real Labs';
-    document.title = `Queue Display — ${data.clinic_name || 'Real Labs'}`;
+    document.getElementById('disp-clinic').textContent = data.clinic_name || 'ReaLab';
+    document.title = `Queue Display — ${data.clinic_name || 'ReaLab'}`;
 
     const callingKey = dispLastAnnouncement
         ? (dispLastAnnouncement.station_type === 'frontdesk'
