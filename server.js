@@ -44,6 +44,34 @@ app.use(bodyParser.json());
 // server. no-store on the HTML also keeps pages out of the back/forward cache,
 // so a restored page re-runs requireAuth() instead of replaying a snapshot.
 app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+
+// The landing page, with its link-preview tags filled in. Messenger and Facebook
+// read og:* without running scripts and want absolute URLs, so the origin and
+// the clinic's logo are written into the HTML here rather than by index.js -
+// which also keeps the tags right when the domain changes. An SVG logo is left
+// out because Facebook will not show one; upload a PNG in Customize instead.
+const INDEX_TEMPLATE = require('fs').readFileSync(require('path').join(__dirname, 'public', 'index.html'), 'utf8');
+const escapeAttr = value => String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+app.get(['/', '/index.html'], async (req, res) => {
+    const origin = `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`;
+    let siteName = 'ReaLab';
+    let imageTag = '';
+    try {
+        const [rows] = await pool.query('SELECT site_name, logo_path FROM settings WHERE id=1');
+        if (rows[0] && rows[0].site_name) siteName = rows[0].site_name;
+        const logo = rows[0] && rows[0].logo_path;
+        if (logo && !/\.svg($|\?)/i.test(logo)) {
+            const imageUrl = /^https?:\/\//i.test(logo) ? logo : origin + logo;
+            imageTag = `<meta property="og:image" content="${escapeAttr(imageUrl)}">`;
+        }
+    } catch (err) { /* serve the page with the defaults */ }
+    res.set('Cache-Control', 'no-store');
+    res.type('html').send(INDEX_TEMPLATE
+        .replace(/__OG_URL__/g, escapeAttr(origin + '/'))
+        .replace(/__OG_SITE_NAME__/g, escapeAttr(siteName))
+        .replace('<!--__OG_IMAGE__-->', imageTag));
+});
+
 app.use(express.static('public', {
     setHeaders: (res, filePath) => {
         if (filePath.endsWith('.html')) res.set('Cache-Control', 'no-store');
