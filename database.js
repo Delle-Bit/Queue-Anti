@@ -612,7 +612,7 @@ async function initDB() {
         await pool.query(`
             CREATE TABLE IF NOT EXISTS settings (
                 id INT PRIMARY KEY DEFAULT 1,
-                site_name VARCHAR(255) DEFAULT 'Medical Clinic',
+                site_name VARCHAR(255) DEFAULT 'Real Labs',
                 logo_path VARCHAR(255) DEFAULT '/images/examplelogo.svg',
                 theme VARCHAR(20) DEFAULT 'light',
                 navbar_color VARCHAR(50) DEFAULT '#24303A',

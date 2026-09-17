@@ -1615,7 +1615,7 @@ async function exportMedicalRecordPDF() {
         const settings = settingsRes && settingsRes.ok ? await settingsRes.json().catch(() => ({})) : {};
 
         const clinic = {
-            name: settings.site_name || 'Medical Clinic',
+            name: settings.site_name || 'Real Labs',
             logoPath: settings.logo_path || '/images/examplelogo.svg'
         };
         const logo = await loadLogoDataUrl(clinic.logoPath);

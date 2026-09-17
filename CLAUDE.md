@@ -40,7 +40,7 @@ docker compose up --build   # the app plus its own MySQL, no local Node or MySQL
 
 ## Deploying
 
-The live site is `medical-cliniqueue.up.railway.app` (Railway project
+The live site is `real-labs.up.railway.app` (Railway project
 `respectful-enjoyment`, service `Queue-Anti`, plus its own MySQL service).
 
 **Pushing to `main` deploys.** A Railway deployment trigger watches
@@ -53,7 +53,7 @@ live site, check what the site is actually serving before re-diagnosing the
 change itself:
 
 ```bash
-curl -s https://medical-cliniqueue.up.railway.app/customer.js | grep -c someNewSymbol
+curl -s https://real-labs.up.railway.app/customer.js | grep -c someNewSymbol
 railway status          # project, environment and service link
 railway logs --build    # the most recent build
 ```

@@ -89,7 +89,7 @@ function logout() {
 // fetchSiteSettings() copies off /api/settings and what resetCustomization()
 // posts back, so a key listed here is a key the server must accept.
 const SITE_DEFAULTS = {
-    site_name: 'Medical Clinic',
+    site_name: 'Real Labs',
     logo_path: '/images/examplelogo.svg',
     navbar_color: '#24303A',   // matches --bg-sidebar in shared.css
     background_image: '',
@@ -320,7 +320,7 @@ function applyBranding() {
     const name = siteName();
     const logo = siteLogo();
 
-    // Titles are authored as "<Page> — Medical Clinic"; swap the clinic name in
+    // Titles are authored as "<Page> — Real Labs"; swap the clinic name in
     // place rather than replacing the whole title.
     if (siteTitleTemplate === null) siteTitleTemplate = document.title;
     document.title = siteTitleTemplate.split(SITE_DEFAULTS.site_name).join(name);

@@ -82,7 +82,7 @@ async function wfClinic() {
         console.warn('Clinic branding unavailable for the printed form', err);
     }
     const clinic = {
-        name: settings.site_name || 'Medical Clinic',
+        name: settings.site_name || 'Real Labs',
         logoPath: settings.logo_path || '/images/examplelogo.svg'
     };
     clinic.logo = await loadLogoDataUrl(clinic.logoPath);
