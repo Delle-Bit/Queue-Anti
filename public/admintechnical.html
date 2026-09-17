@@ -362,11 +362,11 @@
                             PDF.</small>
                     </div>
                     <div class="form-group">
-                        <label class="form-label" for="cust-logo-path">Logo Path or URL</label>
-                        <input type="text" id="cust-logo-path" class="form-input" maxlength="255"
-                            placeholder="/images/examplelogo.svg">
+                        <label class="form-label" for="cust-logo-path">Logo (upload or path/URL)</label>
+                        <div style="display:flex;gap:8px;"><input type="text" id="cust-logo-path" class="form-input" maxlength="255"
+                            placeholder="/images/examplelogo.svg"><button type="button" class="btn btn-outline" onclick="this.nextElementSibling.click()"><i class="fa-solid fa-upload"></i> Upload</button><input type="file" hidden accept="image/png,image/jpeg,image/webp,image/gif" onchange="uploadSiteImage('logo', this)"></div>
                         <small class="text-muted">Used for the sidebar logo, the browser tab icon, and the PDF
-                            letterhead. Leave blank for the default logo.</small>
+                            letterhead. PNG, JPG, WebP or GIF up to 1 MB. Leave blank for the default logo.</small>
                     </div>
                     <div class="form-group">
                         <label class="form-label" for="cust-nav-color-text">Navbar Color (Hex)</label>
@@ -380,9 +380,9 @@
                             light or dark colors.</small>
                     </div>
                     <div class="form-group">
-                        <label class="form-label" for="cust-bg-url">Background Image URL</label>
-                        <input type="text" id="cust-bg-url" class="form-input" maxlength="255"
-                            placeholder="/images/bg.jpg">
+                        <label class="form-label" for="cust-bg-url">Background Image (upload or URL)</label>
+                        <div style="display:flex;gap:8px;"><input type="text" id="cust-bg-url" class="form-input" maxlength="255"
+                            placeholder="/images/bg.jpg"><button type="button" class="btn btn-outline" onclick="this.nextElementSibling.click()"><i class="fa-solid fa-upload"></i> Upload</button><input type="file" hidden accept="image/png,image/jpeg,image/webp,image/gif" onchange="uploadSiteImage('background', this)"></div>
                         <small class="text-muted">Applied behind the dashboard pages. Leave blank for the plain
                             background.</small>
                     </div>

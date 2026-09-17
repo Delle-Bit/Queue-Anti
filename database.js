@@ -626,6 +626,19 @@ async function initDB() {
         // Bounds live in session_activity.js; this default matches its own.
         await addColumnIfMissing('settings', 'idle_timeout_minutes', 'INT DEFAULT 15');
 
+        // Logo and background uploaded from Customize. Kept in the database, not
+        // on disk, because the host's filesystem is wiped on every redeploy. A
+        // separate table so GET /api/settings (fetched by every page) stays small;
+        // the image is served on its own at /api/site-image/:kind.
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS site_images (
+                kind VARCHAR(20) PRIMARY KEY,
+                mime VARCHAR(40) NOT NULL,
+                data MEDIUMBLOB NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+
         // navbar_color drives the sidebar background (--bg-sidebar in shared.css),
         // which the design paints #24303A. The original schema default was #ffffff -
         // written for a top navbar that never shipped, and never applied to anything

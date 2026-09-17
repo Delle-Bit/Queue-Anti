@@ -383,6 +383,40 @@ const CUSTOMIZE_FIELDS = {
     background_image: 'cust-bg-url'
 };
 
+// Upload button beside the logo and background boxes. The upload saves on its
+// own (the server stores the image and points the setting at it), so the text
+// box is refilled from the server rather than waiting for Save Styles.
+async function uploadSiteImage(kind, input) {
+    const file = input.files && input.files[0];
+    input.value = '';   // choosing the same file again should fire change again
+    if (!file) return;
+    if (file.size > 1024 * 1024) { showToast('The image must be 1 MB or smaller.', 'error'); return; }
+    const reason = await promptReason({
+        title: kind === 'logo' ? 'Upload a new logo' : 'Upload a new background',
+        message: 'The image applies to every user of the clinic system.',
+        placeholder: 'e.g. new clinic logo',
+        confirmLabel: 'Upload',
+        presets: ['Rebranding update', 'Replaced a low-quality image']
+    });
+    if (!reason) return;
+    const form = new FormData();
+    form.append('kind', kind);
+    form.append('reason', reason);
+    form.append('image', file);
+    try {
+        // No Content-Type header: the browser has to write the multipart boundary.
+        const headers = authHeaders();
+        delete headers['Content-Type'];
+        const res = await fetch('/api/admin/settings/image', { method: 'POST', headers, body: form });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { showToast(data.error || 'Failed to upload the image', 'error'); return; }
+        showToast('Image uploaded', 'success');
+        await loadCustomization();
+    } catch (err) {
+        showToast('Failed to upload the image', 'error');
+    }
+}
+
 async function loadCustomization() {
     await refreshSiteSettings();
     for (const [field, id] of Object.entries(CUSTOMIZE_FIELDS)) {

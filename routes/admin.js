@@ -4,6 +4,7 @@ const { pool } = require('../database');
 const bcrypt = require('bcrypt');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
+const multer = require('multer');
 const { requireStaff, requireAdmin, STAFF_ROLES } = require('../config');
 const aiServices = require('../ai_services');
 const appointmentAutomation = require('../appointment_automation');
@@ -884,6 +885,63 @@ router.put('/settings', requireAdmin, requireReason, async (req, res) => {
         console.error('Update settings error:', err);
         res.status(500).json({ error: 'Failed to update settings' });
     }
+});
+
+// Upload a logo or background image. Stored in site_images and pointed at from
+// the matching settings column, so everything that already reads logo_path or
+// background_image picks it up unchanged. The type is decided by the file's
+// first bytes, not the name or the browser's claim; SVG is refused because an
+// SVG served from this origin can run script.
+const SITE_IMAGE_COLUMNS = { logo: 'logo_path', background: 'background_image' };
+const SITE_IMAGE_MAX_BYTES = 1024 * 1024;
+const siteImageUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: SITE_IMAGE_MAX_BYTES, files: 1 } });
+
+function sniffImageMime(buf) {
+    if (buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+    if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+    if (buf.length > 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+    if (buf.length > 6 && /^GIF8[79]a$/.test(buf.toString('ascii', 0, 6))) return 'image/gif';
+    return null;
+}
+
+router.post('/settings/image', requireAdmin, (req, res) => {
+    siteImageUpload.single('image')(req, res, (uploadErr) => {
+        if (uploadErr) {
+            const tooBig = uploadErr.code === 'LIMIT_FILE_SIZE';
+            return res.status(400).json({ error: tooBig ? 'The image must be 1 MB or smaller.' : 'The image could not be received.' });
+        }
+        const kind = req.body && req.body.kind;
+        const column = SITE_IMAGE_COLUMNS[kind];
+        if (!column) return res.status(400).json({ error: 'Unknown image kind' });
+        if (!req.file) return res.status(400).json({ error: 'Choose an image to upload.' });
+        const mime = sniffImageMime(req.file.buffer);
+        if (!mime) return res.status(400).json({ error: 'Use a PNG, JPG, WebP or GIF image.' });
+
+        // multer is what fills req.body here, so the reason guard runs after it.
+        requireReason(req, res, async () => {
+            try {
+                const url = `/api/site-image/${kind}?v=${Date.now()}`;
+                const before = await snapshotRow('settings', 'id', 1);
+                await pool.query(
+                    'INSERT INTO site_images (kind, mime, data) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE mime=VALUES(mime), data=VALUES(data)',
+                    [kind, mime, req.file.buffer]
+                );
+                await pool.query(`UPDATE settings SET ${column}=? WHERE id=1`, [url]);
+                const after = await snapshotRow('settings', 'id', 1);
+                await recordAudit({
+                    req, action: 'update', entityType: 'settings', entityId: 1,
+                    summary: `Uploaded a new ${kind} image (${mime}, ${Math.round(req.file.size / 1024)} KB)`,
+                    before, after
+                });
+                const io = req.app.get('io');
+                if (io) io.emit('settingsUpdate', {});
+                res.json({ success: true, url });
+            } catch (err) {
+                console.error('Upload site image error:', err);
+                res.status(500).json({ error: 'Failed to save the image' });
+            }
+        });
+    });
 });
 
 // --- MEDICAL RECORDS ---

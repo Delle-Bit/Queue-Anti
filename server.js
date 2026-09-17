@@ -60,6 +60,22 @@ app.get('/api/settings', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+// Uploaded logo/background (POST /api/admin/settings/image). Public because the
+// sign-in page shows the logo. The URL carries ?v=<upload time>, so a new upload
+// is a new URL and the old one can be cached for good.
+app.get('/api/site-image/:kind', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT mime, data FROM site_images WHERE kind=?', [req.params.kind]);
+        if (!rows.length) return res.status(404).end();
+        res.set({
+            'Content-Type': rows[0].mime,
+            'X-Content-Type-Options': 'nosniff',
+            'Cache-Control': 'public, max-age=31536000, immutable'
+        });
+        res.send(rows[0].data);
+    } catch (err) { res.status(500).end(); }
+});
+
 // Socket.io
 // One socket per open page, so every navigation and every sign-in retires one
 // and opens another - a few minutes of ordinary use fills the terminal with
