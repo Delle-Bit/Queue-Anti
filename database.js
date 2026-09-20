@@ -969,6 +969,21 @@ async function initDB() {
         // counter: a patient sent back to an earlier step rolls current_step
         // backwards, and they have still paid.
         await addColumnIfMissing('queue_sequences', 'paid_at', 'DATETIME DEFAULT NULL');
+
+        // What was actually taken at the cashier, which is what a sales report
+        // has to add up. The package price alone overstates income, because a
+        // Senior or a PWD is entitled to a 20 percent discount by law
+        // (RA 9994 / RA 10754) and the desk applies it at the counter.
+        // list_amount is stored rather than re-read from service_packages: a
+        // price edited next month must not rewrite last month's sales.
+        await addColumnIfMissing('queue_sequences', 'list_amount', 'DECIMAL(10,2) DEFAULT NULL');
+        await addColumnIfMissing('queue_sequences', 'discount_type', "VARCHAR(20) DEFAULT ''");
+        await addColumnIfMissing('queue_sequences', 'discount_percent', 'DECIMAL(5,2) DEFAULT 0');
+        await addColumnIfMissing('queue_sequences', 'discount_amount', 'DECIMAL(10,2) DEFAULT 0');
+        await addColumnIfMissing('queue_sequences', 'amount_paid', 'DECIMAL(10,2) DEFAULT NULL');
+        await addColumnIfMissing('queue_sequences', 'payment_method', "VARCHAR(20) DEFAULT ''");
+        await addColumnIfMissing('queue_sequences', 'receipt_no', "VARCHAR(50) DEFAULT ''");
+        await addIndexIfMissing('queue_sequences', 'idx_qs_paid_at', '(paid_at)');
         // Backfills the channel for visits that predate the column - an
         // appointment-linked sequence is an appointment, and everything else was
         // online, since walk-ins did not exist before this.

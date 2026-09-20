@@ -1885,3 +1885,19 @@ tbody tr:last-child td { border-bottom: none; }
     transform: none;
     filter: none;
 }
+
+/* ── PRINT ─────────────────────────────────────────────────────
+   Only one dashboard section is on screen at a time, so printing is the
+   visible section plus the page chrome. The chrome is what has to go: a
+   sales report handed to an accountant should not carry a navigation
+   sidebar, a sign-out button or a date picker down its side. */
+@media print {
+    .sidebar, .topbar, .header-actions, .theme-toggle, .toast-container,
+    .modal-overlay, .va-widget, .btn {
+        display: none !important;
+    }
+    .main-content { margin: 0 !important; padding: 0 !important; }
+    body { background: #fff !important; }
+    .card { box-shadow: none !important; border: 1px solid #ccc !important; break-inside: avoid; }
+    table { font-size: 11px; }
+}

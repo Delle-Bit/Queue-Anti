@@ -12,6 +12,10 @@ initDefaultSection();
 let currentServingQueueId = null;
 let currentServingUserId = null;
 let currentServingTicket = null;
+// Set only while the ticket at the counter is standing at the cashier step and
+// has not paid; null the rest of the time, which is what keeps the payment
+// dialog from reappearing on a patient sent back to the desk.
+let currentServingPayment = null;
 // Whether the ticket at the counter is on the closing front desk step. The
 // front desk sees the same station twice in every route - once as the cashier,
 // once as the gatekeeper - and the two offer different actions.
@@ -59,6 +63,15 @@ async function loadFdQueue() {
         document.getElementById('fd-serving').textContent = serving ? serving.number : '--';
         document.getElementById('fd-serving-name').textContent = serving ? (serving.full_name || serving.username || '') : 'No patient currently active';
         currentServingQueueId = serving ? serving.id : null;
+        // Only the cashier step takes payment; a patient standing at the closing
+        // step, or one sent back after paying, must not be charged again.
+        currentServingPayment = serving && Number(serving.step_index) === 0 ? {
+            paid_at: serving.paid_at,
+            price: Number(serving.package_price || 0),
+            package_name: serving.package_name || 'this service',
+            category: serving.customer_category || 'Regular',
+            ticket: serving.number
+        } : null;
         currentServingTicket = serving ? serving.number : null;
         // step_index 0 is the cashier step; anything later at this station is the
         // closing step, where the outcome is recorded instead of advancing.
@@ -160,11 +173,140 @@ async function fdCallNext() {
     loadFdQueue();
 }
 
+// ── PAYMENT AT THE CASHIER STEP ────────────────────────────────
+// The discount is chosen with a button, not typed: it is the same two statutory
+// rates every day - 20 percent for a senior citizen (RA 9994) and 20 percent
+// for a person with disability (RA 10754) - and the one the patient's own
+// category entitles them to is already selected when the dialog opens, so the
+// usual case is one click. The server re-derives the rate from the type it is
+// sent, so what the desk sees here is a preview, not the authority.
+const FD_DISCOUNTS = [
+    { type: 'none', label: 'No discount', percent: 0 },
+    { type: 'senior', label: 'Senior 20%', percent: 20 },
+    { type: 'pwd', label: 'PWD 20%', percent: 20 },
+    { type: 'other', label: 'Other', percent: null }
+];
+const FD_PAYMENT_METHODS = [
+    { value: 'cash', label: 'Cash' },
+    { value: 'gcash', label: 'GCash' },
+    { value: 'card', label: 'Card' },
+    { value: 'bank', label: 'Bank transfer' },
+    { value: 'hmo', label: 'HMO' }
+];
+
+function fdDefaultDiscount(category) {
+    const c = String(category || '').toLowerCase();
+    if (c === 'senior') return 'senior';
+    if (c === 'pwd') return 'pwd';
+    return 'none';
+}
+
+// Resolves { discount_type, discount_percent, payment_method, receipt_no }, or
+// null if the desk cancelled.
+function collectPayment(info) {
+    return new Promise(resolve => {
+        const preset = fdDefaultDiscount(info.category);
+        const bodyHtml = `
+            <p style="margin:0 0 4px;"><strong>${escapeHtml(info.ticket || '')}</strong> — ${escapeHtml(info.package_name)}</p>
+            <p class="text-muted text-sm" style="margin:0 0 12px;">Patient category: ${escapeHtml(info.category)}</p>
+            <div class="form-group">
+                <label class="form-label">Discount</label>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;" id="pay-discounts">
+                    ${FD_DISCOUNTS.map(d => `<button type="button" class="btn btn-sm ${d.type === preset ? 'btn-primary' : 'btn-outline'}"
+                        data-discount="${d.type}">${escapeHtml(d.label)}</button>`).join('')}
+                </div>
+                <small class="text-muted" id="pay-preset-note">${preset === 'none'
+                    ? 'No statutory discount for this category.'
+                    : 'Pre-selected from the patient&rsquo;s category. Change it if their ID says otherwise.'}</small>
+            </div>
+            <div class="form-group" id="pay-other-wrap" style="display:none;">
+                <label class="form-label" for="pay-other-percent">Other discount (percent)</label>
+                <input type="number" class="form-input" id="pay-other-percent" min="0" max="100" step="1" value="0">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="pay-method">Payment method</label>
+                <select class="form-input" id="pay-method">
+                    ${FD_PAYMENT_METHODS.map(m => `<option value="${m.value}">${escapeHtml(m.label)}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="pay-receipt">Receipt number <span class="text-muted">(optional)</span></label>
+                <input type="text" class="form-input" id="pay-receipt" maxlength="50" placeholder="e.g. OR-004821">
+            </div>
+            <div class="flex-between" style="border-top:1px solid var(--border);padding-top:10px;">
+                <span>Price <span class="text-muted" id="pay-list"></span></span>
+                <strong>Amount due: <span id="pay-total"></span></strong>
+            </div>`;
+        const overlay = buildDialog({
+            title: 'Record payment', icon: 'fa-solid fa-cash-register', bodyHtml,
+            confirmLabel: 'Take payment and send on', confirmClass: 'btn-success'
+        });
+
+        let type = preset;
+        const otherWrap = overlay.querySelector('#pay-other-wrap');
+        const otherPercent = overlay.querySelector('#pay-other-percent');
+
+        function percent() {
+            const chosen = FD_DISCOUNTS.find(d => d.type === type);
+            if (chosen.percent !== null) return chosen.percent;
+            const typed = Number(otherPercent.value);
+            return Number.isFinite(typed) ? Math.min(Math.max(typed, 0), 100) : 0;
+        }
+        function paint() {
+            const due = Math.round(info.price * (100 - percent())) / 100;
+            overlay.querySelector('#pay-list').textContent = formatCurrency(info.price);
+            overlay.querySelector('#pay-total').textContent = formatCurrency(due);
+            otherWrap.style.display = type === 'other' ? '' : 'none';
+            overlay.querySelectorAll('[data-discount]').forEach(b => {
+                b.className = `btn btn-sm ${b.dataset.discount === type ? 'btn-primary' : 'btn-outline'}`;
+            });
+        }
+        function close(result) {
+            document.removeEventListener('keydown', onKey);
+            overlay.remove();
+            resolve(result);
+        }
+        function onKey(e) { if (e.key === 'Escape') close(null); }
+
+        overlay.querySelectorAll('[data-discount]').forEach(b => {
+            b.addEventListener('click', () => { type = b.dataset.discount; paint(); });
+        });
+        otherPercent.addEventListener('input', paint);
+        overlay.querySelectorAll('[data-dialog-cancel]').forEach(b => b.addEventListener('click', () => close(null)));
+        overlay.querySelector('[data-dialog-confirm]').addEventListener('click', () => close({
+            discount_type: type,
+            discount_percent: percent(),
+            payment_method: overlay.querySelector('#pay-method').value,
+            receipt_no: overlay.querySelector('#pay-receipt').value.trim()
+        }));
+        overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+        document.addEventListener('keydown', onKey);
+
+        paint();
+        overlay.classList.add('active');
+        overlay.querySelector('[data-dialog-confirm]').focus();
+    });
+}
+
 // Hand the patient on to their next station. This no longer ends the visit -
 // that is what "Close transaction" is for.
 async function fdAdvance() {
     if (!currentServingQueueId) return showToast('No active transaction', 'error');
-    const res = await fetch('/api/queue/complete-step', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ queue_id: currentServingQueueId }) });
+
+    // Clearing the opening step is the moment money changes hands, so what was
+    // taken is recorded here rather than reconstructed later from the price
+    // list. Only on the first pass: a patient sent back to the desk mid-visit
+    // has already paid, and paid_at says so.
+    let payment = {};
+    if (currentServingPayment && !currentServingPayment.paid_at) {
+        payment = await collectPayment(currentServingPayment);
+        if (!payment) return;   // cancelled
+    }
+
+    const res = await fetch('/api/queue/complete-step', {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ queue_id: currentServingQueueId, ...payment })
+    });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
         showToast(data.error || 'Failed to advance', data.requires_finalize ? 'warning' : 'error');

@@ -10,6 +10,51 @@ const { REINSERT_SLOT } = queueAutomation;
 
 const getQueueType = queueTypeForCategory;
 
+// What the cashier may record when they clear the opening front desk step.
+//
+// The discount is a list, not a typed number, because it is the same two
+// statutory rates every time: RA 9994 gives a senior citizen 20 percent and
+// RA 10754 gives a person with disability the same, so the desk picks the one
+// the patient's ID says rather than retyping "20" fifty times a day. Pregnancy
+// carries a queue priority but no discount, which is why it is not here.
+// `other` exists for a clinic-granted courtesy and is the only one that takes
+// a typed percentage.
+const DISCOUNT_RATES = { none: 0, senior: 20, pwd: 20, other: null };
+const PAYMENT_METHODS = ['cash', 'gcash', 'card', 'bank', 'hmo'];
+
+// The discount the patient's own category entitles them to, which is what the
+// front desk form opens on.
+function defaultDiscountType(category) {
+    const c = String(category || '').toLowerCase();
+    if (c === 'senior') return 'senior';
+    if (c === 'pwd') return 'pwd';
+    return 'none';
+}
+
+// Returns { list_amount, discount_type, discount_percent, discount_amount, amount_paid }
+// or { error }. The percentage is taken from DISCOUNT_RATES rather than from
+// the request, so a client cannot send "senior, 90 percent".
+function resolvePayment(listAmount, body) {
+    const type = String(body.discount_type || 'none').toLowerCase();
+    if (!(type in DISCOUNT_RATES)) return { error: 'Unknown discount type' };
+    let percent = DISCOUNT_RATES[type];
+    if (percent === null) {
+        percent = Number(body.discount_percent);
+        if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+            return { error: 'The discount must be between 0 and 100 percent.' };
+        }
+    }
+    const list = Math.round(Number(listAmount || 0) * 100) / 100;
+    const discount = Math.round(list * percent) / 100;
+    return {
+        list_amount: list,
+        discount_type: type,
+        discount_percent: percent,
+        discount_amount: discount,
+        amount_paid: Math.round((list - discount) * 100) / 100
+    };
+}
+
 // A staff account may only act on its own station type. This is what actually
 // enforces "everyone passes through the front desk first": the queue row for a
 // later station is only created once the previous step is completed, so the only
@@ -274,10 +319,39 @@ router.post('/complete-step', requireStaff, async (req, res) => {
         // paid. COALESCE keeps the first payment's time if they come past the
         // cashier twice.
         if (currentIndex === 0 && q.station_type === 'frontdesk') {
-            await pool.query(
-                'UPDATE queue_sequences SET paid_at = COALESCE(paid_at, NOW()) WHERE id = ?',
-                [seq.id]
-            );
+            // What was actually taken, not the catalogue price: the sales report
+            // adds these up, and a Senior or PWD pays 20 percent less. Recorded
+            // only on the first pass, so a patient sent back through the cashier
+            // is not charged or counted twice.
+            if (!seq.paid_at) {
+                const [priceRows] = await pool.query(
+                    'SELECT price FROM service_packages WHERE id = ?', [seq.package_id]
+                );
+                let listAmount = priceRows.length ? Number(priceRows[0].price) : 0;
+                // An appointment carries its own agreed amount, surcharge included.
+                if (seq.appointment_id) {
+                    const [apptRows] = await pool.query(
+                        'SELECT amount_due FROM appointments WHERE id = ?', [seq.appointment_id]
+                    );
+                    if (apptRows.length && apptRows[0].amount_due != null) listAmount = Number(apptRows[0].amount_due);
+                }
+                const payment = resolvePayment(listAmount, req.body || {});
+                if (payment.error) return res.status(400).json({ error: payment.error });
+
+                const method = String((req.body || {}).payment_method || 'cash').toLowerCase();
+                if (!PAYMENT_METHODS.includes(method)) {
+                    return res.status(400).json({ error: 'Unknown payment method' });
+                }
+                await pool.query(
+                    `UPDATE queue_sequences
+                     SET paid_at = NOW(), list_amount = ?, discount_type = ?, discount_percent = ?,
+                         discount_amount = ?, amount_paid = ?, payment_method = ?, receipt_no = ?
+                     WHERE id = ?`,
+                    [payment.list_amount, payment.discount_type, payment.discount_percent,
+                     payment.discount_amount, payment.amount_paid, method,
+                     String((req.body || {}).receipt_no || '').trim().slice(0, 50), seq.id]
+                );
+            }
             // An appointment is settled on site, so the booking is marked paid too.
             if (seq.appointment_id) {
                 await pool.query(
@@ -1189,7 +1263,8 @@ router.get('/station', requireStaff, async (req, res) => {
         // on the result form the patient's own service expects, instead of
         // whatever the dropdown happened to be left on.
         let query = `SELECT q.*, u.username, u.full_name, u.customer_category,
-                            sp.test_structure_id, sp.name AS package_name
+                            sp.test_structure_id, sp.name AS package_name,
+                            sp.price AS package_price, qs.paid_at, qs.appointment_id
                      FROM queue q
                      LEFT JOIN users u ON q.customer_id = u.id
                      LEFT JOIN queue_sequences qs ON q.sequence_id = qs.id
