@@ -128,9 +128,10 @@ To see the names on the live service:
 railway variables --service Queue-Anti --kv | cut -d= -f1 | sort
 ```
 
-**Known stale value:** `BETTER_AUTH_URL` still points at the old
-`medical-cliniqueue.up.railway.app` address. It should be updated to the current
-domain; it is used when constructing the customer login OTP flow.
+`BETTER_AUTH_URL` must match the site's current address — it is used when
+constructing the customer login OTP flow, and it kept the old
+`medical-cliniqueue` address for a while after the domain was renamed. **Update
+it in Railway whenever the domain changes.**
 
 ---
 
