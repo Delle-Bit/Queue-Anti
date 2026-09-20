@@ -1,6 +1,10 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI coding assistants working in this repository.
+It is the architecture and the reasoning behind it. For how to run, test, deploy
+and configure the project, and for what is deliberately missing, read
+[HANDOVER.md](HANDOVER.md) first. [AGENTS.md](AGENTS.md) carries the same
+guidance for assistants that look for that name.
 
 ## graphify
 

@@ -1,5 +1,26 @@
 # AI Agent Instructions & Skills
 
+## Start here
+
+Read these two first, in order. They are the project, and they are kept current:
+
+1. **[HANDOVER.md](HANDOVER.md)** — how to run it, test it, deploy it, where the
+   configuration lives, and what is deliberately missing.
+2. **[CLAUDE.md](CLAUDE.md)** — the architecture and the reasoning behind it:
+   what was tried, what broke on a live clinic, and why the code is shaped the
+   way it is. Long, and worth it before changing anything.
+
+Three rules that are not negotiable, whichever assistant is driving:
+
+- Run `npm test` before claiming something works. It needs no key, no network
+  and no database.
+- Never put an API key, a password or patient data in this repository, a commit
+  message or a comment. **The repository is public** and a key leaked through
+  its history once already.
+- Every new route in `routes/admin.js` carries its own guard. That file is
+  mounted twice, so an unguarded handler is reachable by every signed-in
+  account, patients included.
+
 ## Skills Resolution Priority
 All AI Agents must use skills when handling tasks. Follow this resolution order:
 1. **Workspace Skills (Priority 1)**: If a skill exists in `.agents/skills/<name>/` or `.claude/skills/<name>/`, always use the workspace version first.

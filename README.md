@@ -1,4 +1,7 @@
-# Medical Clinic Queueing System
+# ReaLab Medical & Diagnostic Center — Queueing System
+
+New to the project? Read [HANDOVER.md](HANDOVER.md): how to run, test, deploy
+and configure it, plus the known gaps.
 
 Queue management app for a medical clinic: customers join queues or book appointments, staff call tickets across stations (front desk → laboratory(s) → doctor), with live status updates, priority queuing (Senior/PWD/Pregnant), analytics, and AI-assisted features.
 
