@@ -1,84 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../database');
-const aiServices = require('../ai_services');
-
-router.get('/summary', async (req, res) => {
-    const { period } = req.query; // 'daily', 'weekly', 'monthly'
-    let dateFilter = 'CURDATE()';
-    let periodName = 'Today';
-
-    if (period === 'weekly') {
-        dateFilter = 'DATE_SUB(CURDATE(), INTERVAL 7 DAY)';
-        periodName = 'Last 7 Days';
-    } else if (period === 'monthly') {
-        dateFilter = 'DATE_SUB(CURDATE(), INTERVAL 30 DAY)';
-        periodName = 'Last 30 Days';
-    }
-
-    try {
-        // 1. Patient Volume
-        const [volRows] = await pool.query(
-            `SELECT COUNT(*) as count FROM queue_logs WHERE join_time >= ${period === 'daily' ? 'CURDATE()' : dateFilter} AND archived = false`
-        );
-        const patientVolume = volRows[0].count;
-
-        // 2. Wait Time Avg
-        const [waitRows] = await pool.query(
-            `SELECT AVG(TIMESTAMPDIFF(MINUTE, join_time, serve_time)) as avg_wait 
-             FROM queue_logs 
-             WHERE join_time >= ${period === 'daily' ? 'CURDATE()' : dateFilter} AND serve_time IS NOT NULL AND archived = false`
-        );
-        const waitTimeAvg = Math.round(waitRows[0].avg_wait || 0);
-
-        // 3. Revenue
-        const [revRows] = await pool.query(
-            `SELECT SUM(price) as total FROM queue_logs WHERE join_time >= ${period === 'daily' ? 'CURDATE()' : dateFilter} AND archived = false`
-        );
-        const revenue = parseFloat(revRows[0].total || 0);
-
-        // 4. Top Service
-        const [servRows] = await pool.query(
-            `SELECT package_name, COUNT(*) as count FROM queue_logs 
-             WHERE join_time >= ${period === 'daily' ? 'CURDATE()' : dateFilter} AND archived = false
-             GROUP BY package_name ORDER BY count DESC LIMIT 1`
-        );
-        const topService = servRows.length > 0 ? servRows[0].package_name : 'N/A';
-
-        // 5. Category Distribution (for charts)
-        const [catRows] = await pool.query(
-            `SELECT type, COUNT(*) as count FROM queue_logs 
-             WHERE join_time >= ${period === 'daily' ? 'CURDATE()' : dateFilter} AND archived = false
-             GROUP BY type`
-        );
-
-        // AI Summary
-        const aiResponse = await aiServices.reportGeneration({
-            period: periodName,
-            patientVolume,
-            waitTimeAvg,
-            revenue,
-            topService
-        });
-
-        res.json({
-            success: true,
-            period: periodName,
-            stats: {
-                patientVolume,
-                waitTimeAvg,
-                revenue,
-                topService,
-                distribution: catRows
-            },
-            aiSummary: aiResponse.summary
-        });
-    } catch (err) {
-        console.error('Report error:', err);
-        res.status(500).json({ error: 'Failed to generate report' });
-    }
-});
-
 // ── SALES ────────────────────────────────────────────────────────────────────
 // What was actually taken at the cashier, between two dates. Every figure comes
 // from queue_sequences.amount_paid rather than the package price list, because
@@ -93,6 +15,9 @@ router.get('/sales', async (req, res) => {
     const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : null;
     if (!from || !to) return res.status(400).json({ error: 'from and to must be YYYY-MM-DD dates' });
     if (from > to) return res.status(400).json({ error: 'The start date must not be after the end date' });
+    // A yearly report reads as twelve months, not 365 days.
+    const group = req.query.group === 'month' ? 'month' : 'day';
+    const periodExpr = group === 'month' ? "DATE_FORMAT(qs.paid_at, '%Y-%m')" : 'DATE(qs.paid_at)';
 
     // paid_at < to + 1 day, so the last day is included whatever time it was paid.
     const range = [from, to];
@@ -117,11 +42,11 @@ router.get('/sales', async (req, res) => {
              WHERE ${where}
              GROUP BY sp.id ORDER BY net DESC`, range);
 
-        const [byDay] = await pool.query(
-            `SELECT DATE(qs.paid_at) AS day, COUNT(*) AS visits,
+        const [byPeriod] = await pool.query(
+            `SELECT ${periodExpr} AS period, COUNT(*) AS visits,
                     COALESCE(SUM(qs.amount_paid), 0) AS net
              FROM queue_sequences qs WHERE ${where}
-             GROUP BY DATE(qs.paid_at) ORDER BY day`, range);
+             GROUP BY period ORDER BY period`, range);
 
         const [byMethod] = await pool.query(
             `SELECT COALESCE(NULLIF(qs.payment_method, ''), 'unrecorded') AS method,
@@ -159,7 +84,7 @@ router.get('/sales', async (req, res) => {
         const visits = Number(totals.visits) || 0;
         res.json({
             success: true,
-            from, to,
+            from, to, group,
             totals: {
                 visits,
                 list_total: Number(totals.list_total),
@@ -168,7 +93,7 @@ router.get('/sales', async (req, res) => {
                 average_sale: visits ? Math.round((Number(totals.net_total) / visits) * 100) / 100 : 0,
                 unrecorded: Number(totals.unrecorded) || 0
             },
-            by_service: byService, by_day: byDay, by_method: byMethod,
+            by_service: byService, by_period: byPeriod, by_method: byMethod,
             by_discount: byDiscount, by_channel: byChannel, unfinished
         });
     } catch (err) {

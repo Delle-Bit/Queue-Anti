@@ -171,9 +171,6 @@ Honest list, so the next person does not rediscover them:
 **Sales and payments**
 - No refunds and no voided payments. A wrong amount can only be corrected in the
   database.
-- The **AI Reports** screen still totals the package price list, not what was
-  taken, so its revenue figure is higher than the Sales Report's. The Sales
-  Report is the correct one; AI Reports has not been converted.
 - Visits paid before payment recording shipped have no recorded amount. The
   Sales Report counts them separately rather than as zero, but they are missing
   from the totals.

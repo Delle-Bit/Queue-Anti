@@ -3,14 +3,13 @@ if (!requireAuth(['owner'])) throw new Error('Unauthorized');
 // Manage Accounts, Manage Laboratories, Service Management, Audit Logs and
 // Archives are identical to the admin dashboard's and live in admin-shared.js.
 // What stays here is what is genuinely this page's: its sidebar, the owner
-// dashboard, and the AI reports.
+// dashboard, and the sales report.
 
 renderSidebar([
     { section: 'OWNER' },
     { id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-building-columns' },
     { id: 'accounts', label: 'Manage Accounts', icon: 'fa-solid fa-users-gear' },
     { id: 'labs', label: 'Manage Laboratories', icon: 'fa-solid fa-flask-vial' },
-    { id: 'reports', label: 'AI Reports', icon: 'fa-solid fa-chart-line' },
     { id: 'sales', label: 'Sales Report', icon: 'fa-solid fa-receipt' },
     { id: 'services', label: 'Service Management', icon: 'fa-solid fa-box-open' },
     { id: 'structures', label: 'Test Structures', icon: 'fa-solid fa-vials' },
@@ -26,7 +25,6 @@ window.onSectionLoad = {
     dashboard: loadOwnerDash,
     accounts: loadAccounts,
     labs: loadLabs,
-    reports: loadReports,
     sales: initSalesReport,
     services: loadServiceMgmt,
     create: initCreateForm,
@@ -79,65 +77,76 @@ async function loadOwnerDash() {
     clearSkeleton('ow-revenue', 'ow-services', 'ow-dist', 'ow-sessions');
 }
 
-// ── REPORTS ──
-async function loadReports() {
-    const period = document.getElementById('report-period').value;
-    const aiBox = document.getElementById('ai-report-summary');
-    aiBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating insights...';
-
-    try {
-        const res = await fetch(`/api/reports/summary?period=${period}`, { headers: authHeaders() });
-        const data = await res.json();
-
-        if (data.success) {
-            document.getElementById('rep-vol').textContent = data.stats.patientVolume;
-            document.getElementById('rep-wait').textContent = data.stats.waitTimeAvg + 'm';
-            document.getElementById('rep-rev').textContent = '₱' + data.stats.revenue.toLocaleString();
-            document.getElementById('rep-top').textContent = data.stats.topService;
-
-            aiBox.innerHTML = data.aiSummary;
-        } else {
-            aiBox.innerHTML = '<span class="text-danger">Failed to load reports.</span>';
-        }
-    } catch (err) {
-        aiBox.innerHTML = '<span class="text-danger">Error connecting to server.</span>';
-    }
-}
-
 fetchAllLabs();
 loadOwnerDash();
 
 // ── SALES REPORT ───────────────────────────────────────────────
 // Money only: every figure is what the cashier recorded at the opening front
-// desk step, so a Senior's 20 percent is already off it. The AI Reports screen
-// above still reports the package price list, which is a different question.
+// desk step, so a Senior's 20 percent is already off it.
 function salesDateValue(d) {
     // Local date, not toISOString - that converts to UTC and in Manila reports
     // yesterday for anything before 8am.
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+const SALES_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+    'August', 'September', 'October', 'November', 'December'];
+
+// Monthly and Yearly pick a calendar period; Custom dates shows the two date
+// inputs. Whatever is chosen, the report is still asked for as from/to.
+function syncSalesMode() {
+    const mode = document.getElementById('sales-mode').value;
+    document.querySelectorAll('.sales-monthly, .sales-yearly, .sales-range').forEach(el => {
+        el.style.display = el.classList.contains(`sales-${mode}`) ? '' : 'none';
+    });
+}
+
+// The quick buttons. Month and year shortcuts switch to that mode, so the
+// controls always show what the report is covering.
 function setSalesRange(range) {
     const today = new Date();
-    let from = new Date(today), to = new Date(today);
-    if (range === 'week') from.setDate(today.getDate() - 6);
-    if (range === 'month') from = new Date(today.getFullYear(), today.getMonth(), 1);
-    if (range === 'lastmonth') {
-        from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-        to = new Date(today.getFullYear(), today.getMonth(), 0);
+    const mode = document.getElementById('sales-mode');
+    const year = document.getElementById('sales-year');
+    const month = document.getElementById('sales-month');
+    if (range === 'month' || range === 'lastmonth') {
+        const d = new Date(today.getFullYear(), today.getMonth() - (range === 'lastmonth' ? 1 : 0), 1);
+        mode.value = 'monthly'; year.value = d.getFullYear(); month.value = d.getMonth();
+    } else if (range === 'year' || range === 'lastyear') {
+        mode.value = 'yearly'; year.value = today.getFullYear() - (range === 'lastyear' ? 1 : 0);
+    } else {
+        const from = new Date(today);
+        if (range === 'week') from.setDate(today.getDate() - 6);
+        mode.value = 'range';
+        document.getElementById('sales-from').value = salesDateValue(from);
+        document.getElementById('sales-to').value = salesDateValue(today);
     }
-    if (range === 'year') from = new Date(today.getFullYear(), 0, 1);
-    document.getElementById('sales-from').value = salesDateValue(from);
-    document.getElementById('sales-to').value = salesDateValue(to);
+    syncSalesMode();
     loadSalesReport();
 }
 
 function initSalesReport() {
-    if (!document.getElementById('sales-from').value) {
+    const month = document.getElementById('sales-month');
+    if (!month.options.length) {
+        month.innerHTML = SALES_MONTHS.map((m, i) => `<option value="${i}">${m}</option>`).join('');
         setSalesRange('month');
         return;
     }
     loadSalesReport();
+}
+
+// { from, to, group } for whatever the controls say, or null if incomplete.
+function salesPeriod() {
+    const mode = document.getElementById('sales-mode').value;
+    const year = parseInt(document.getElementById('sales-year').value, 10);
+    if (mode === 'range') {
+        const from = document.getElementById('sales-from').value;
+        const to = document.getElementById('sales-to').value;
+        return from && to ? { from, to, group: 'day' } : null;
+    }
+    if (!(year >= 2000 && year <= 2100)) return null;
+    if (mode === 'yearly') return { from: `${year}-01-01`, to: `${year}-12-31`, group: 'month' };
+    const m = parseInt(document.getElementById('sales-month').value, 10);
+    return { from: salesDateValue(new Date(year, m, 1)), to: salesDateValue(new Date(year, m + 1, 0)), group: 'day' };
 }
 
 const SALES_LABELS = {
@@ -149,14 +158,14 @@ const SALES_LABELS = {
 const salesLabel = key => SALES_LABELS[key] || key || '--';
 
 async function loadSalesReport() {
-    const from = document.getElementById('sales-from').value;
-    const to = document.getElementById('sales-to').value;
-    if (!from || !to) return showToast('Choose both dates', 'error');
+    const period = salesPeriod();
+    if (!period) return showToast('Choose the period to report on', 'error');
+    const { from, to, group } = period;
 
     const body = id => document.getElementById(id);
     skeletonValue(['sales-net', 'sales-visits', 'sales-discount', 'sales-average']);
     try {
-        const res = await fetch(`/api/reports/sales?from=${from}&to=${to}`, { headers: authHeaders() });
+        const res = await fetch(`/api/reports/sales?from=${from}&to=${to}&group=${group}`, { headers: authHeaders() });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) { showToast(data.error || 'Failed to load the sales report', 'error'); return; }
 
@@ -169,7 +178,10 @@ async function loadSalesReport() {
         // A visit paid for before payment recording shipped has no amount, and
         // counting it as zero would quietly understate the total.
         const notice = body('sales-notice');
-        if (t.unrecorded) {
+        if (!t.visits) {
+            notice.style.display = '';
+            notice.textContent = "No payments in this period. A sale is recorded when the front desk clears a patient's first step and fills in the payment box.";
+        } else if (t.unrecorded) {
             notice.style.display = '';
             notice.textContent = `${t.unrecorded} of these ${t.visits} paid visits were taken before the cashier recorded amounts, so their sales are not included.`;
         } else {
@@ -186,8 +198,11 @@ async function loadSalesReport() {
             <td><strong>${formatCurrency(r.net)}</strong></td>
             <td>${t.net_total ? Math.round((Number(r.net) / t.net_total) * 100) : 0}%</td></tr>`).join('') : empty(6);
 
-        body('sales-by-day').innerHTML = data.by_day.length ? data.by_day.map(r => `<tr>
-            <td>${salesDay(r.day)}</td><td>${r.visits}</td>
+        const monthly = group === 'month';
+        body('sales-period-title').textContent = monthly ? 'Sales by month' : 'Sales by day';
+        body('sales-period-head').textContent = monthly ? 'Month' : 'Date';
+        body('sales-by-day').innerHTML = data.by_period.length ? data.by_period.map(r => `<tr>
+            <td>${monthly ? salesMonth(r.period) : salesDay(r.period)}</td><td>${r.visits}</td>
             <td><strong>${formatCurrency(r.net)}</strong></td></tr>`).join('') : empty(3);
 
         body('sales-by-method').innerHTML = data.by_method.length ? data.by_method.map(r => `<tr>
@@ -226,6 +241,12 @@ function printSalesReport() {
 // Date only, in the viewer's locale. shared.js has formatDateTime, but a sales
 // row is a day, and printing a time of 00:00:00 next to every day reads as data
 // the clinic does not have.
+// '2026-09' as 'September 2026'.
+function salesMonth(value) {
+    const [y, m] = String(value || '').split('-').map(Number);
+    return SALES_MONTHS[m - 1] ? `${SALES_MONTHS[m - 1]} ${y}` : String(value || '--');
+}
+
 function salesDay(value) {
     const d = new Date(value);
     return isNaN(d) ? String(value || '--') : d.toLocaleDateString();

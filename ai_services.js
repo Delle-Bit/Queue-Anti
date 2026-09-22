@@ -659,23 +659,10 @@ async function logAI(feature, input, output) {
     }
 }
 
-// HuggingFace retired api-inference.huggingface.co - the hostname no longer
-// resolves at all, so every primary call was failing at DNS and falling through
-// to the local logic. Inference now goes through the router, which routes to a
-// provider: hf-inference is HuggingFace's own. Verified against the live API -
-// this path answers, while router.huggingface.co/models/<model> returns 404.
-//
-// One constant rather than eight literals, and overridable, so the next time
-// they move it this is a line in .env instead of a hunt through the file.
-const HF_INFERENCE_BASE = process.env.HF_INFERENCE_BASE
-  || 'https://router.huggingface.co/hf-inference/models';
-
-const hfModel = (model) => `${HF_INFERENCE_BASE}/${model}`;
-
 // Which features actually have a model behind them.
 //
-// OCR (trocr, image-to-text) and report generation (gpt2, text-generation) ask
-// a model something it can answer, and they now work once the token is valid.
+// OCR (trocr, image-to-text) asks a model something it can answer. The AI
+// Reports screen, which asked gpt2 for a summary, was removed.
 //
 // The six analytics features did not. They posted queue figures to
 // distilbert-base-uncased, a masked-language model: it replies with fill-mask
@@ -1063,8 +1050,8 @@ async function callMockAI(featureKey, endpoint, apiKey, data, firstFallback, moc
   };
 
   // No endpoint means there is no remote model worth asking - the feature's
-  // local logic is the answer, not a fallback from one. See the note on
-  // hfModel() below for which features are which and why.
+  // local logic is the answer, not a fallback from one. See "Which features
+  // actually have a model behind them" above for which are which and why.
   if (isEnabled && endpoint) {
     try {
       // Primary API call (may fail)
@@ -1278,18 +1265,6 @@ const aiServices = {
         return await callMockAI('feedback', null, process.env.API_ALLAROUND, feedbackArray, (data) => {
             return { sentiment: "Mixed", issues: ["Long wait times"] };
         }, null, 'Feedback NLP');
-    },
-
-    reportGeneration: async (reportData) => {
-        return await callMockAI('report', hfModel('gpt2'), process.env.API_ALLAROUND, reportData, (data) => {
-            const { period, patientVolume, waitTimeAvg, revenue, topService } = data;
-            return {
-                summary: `Reporting Insight for ${period}: The clinic observed a patient volume of ${patientVolume} individuals.
-                Operational efficiency was maintained with an average wait time of ${waitTimeAvg} minutes.
-                Financial performance reached a total revenue of ₱${revenue.toLocaleString()}.
-                The most utilized service was ${topService}. Overall, the system shows stable throughput with opportunities for wait time optimization during peak periods.`
-            };
-        }, null, 'Report Generation');
     },
 
     /**

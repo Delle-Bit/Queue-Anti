@@ -54,57 +54,6 @@
                 </div>
             </div>
 
-            <!-- REPORTS -->
-            <div id="section-reports" class="content-section" style="display:none;">
-                <div class="page-header">
-                    <div>
-                        <div class="page-title"><i class="fa-solid fa-chart-pie"></i> AI-Powered Reporting</div>
-                        <div class="page-subtitle">Insightful analytics and automated summaries</div>
-                    </div>
-                    <div class="header-actions">
-                        <select id="report-period" class="form-input" style="width:150px;" onchange="loadReports()">
-                            <option value="daily">Daily</option>
-                            <option value="weekly">Weekly</option>
-                            <option value="monthly">Monthly</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="report-grid">
-                    <div class="card stat-card">
-                        <div class="stat-icon" style="background:rgba(198,40,40,0.1);color:var(--primary);"><i class="fa-solid fa-users"></i></div>
-                        <div class="stat-value" id="rep-vol">0</div>
-                        <div class="stat-label">Patient Volume</div>
-                    </div>
-                    <div class="card stat-card">
-                        <div class="stat-icon" style="background:rgba(46,204,113,0.1);color:var(--success);"><i class="fa-solid fa-clock"></i></div>
-                        <div class="stat-value" id="rep-wait">0m</div>
-                        <div class="stat-label">Avg Wait Time</div>
-                    </div>
-                    <div class="card stat-card">
-                        <div class="stat-icon" style="background:rgba(241,196,15,0.1);color:var(--warning);"><i class="fa-solid fa-hand-holding-dollar"></i></div>
-                        <div class="stat-value" id="rep-rev">₱0</div>
-                        <div class="stat-label">Total Revenue</div>
-                    </div>
-                    <div class="card stat-card">
-                        <div class="stat-icon" style="background:rgba(155,89,182,0.1);color:var(--secondary);"><i class="fa-solid fa-star"></i></div>
-                        <div class="stat-value" id="rep-top">--</div>
-                        <div class="stat-label">Top Service</div>
-                    </div>
-                </div>
-
-                <div class="card ai-insight-card mt-md">
-                    <div class="card-header">
-                        <div class="card-title"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Automated Summary</div>
-                    </div>
-                    <div class="card-body">
-                        <div id="ai-report-summary" class="ai-text">
-                            <i class="fa-solid fa-spinner fa-spin"></i> Generating insights...
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <!-- SALES REPORT -->
             <div id="section-sales" class="content-section" style="display:none;">
                 <div class="page-header">
@@ -114,10 +63,26 @@
                     </div>
                     <div class="header-actions" style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;">
                         <div>
+                            <label class="form-label text-sm" for="sales-mode">Report</label>
+                            <select id="sales-mode" class="form-input" style="width:150px;" onchange="syncSalesMode(); loadSalesReport();">
+                                <option value="monthly">Monthly</option>
+                                <option value="yearly">Yearly</option>
+                                <option value="range">Custom dates</option>
+                            </select>
+                        </div>
+                        <div class="sales-monthly">
+                            <label class="form-label text-sm" for="sales-month">Month</label>
+                            <select id="sales-month" class="form-input" style="width:140px;" onchange="loadSalesReport()"></select>
+                        </div>
+                        <div class="sales-monthly sales-yearly">
+                            <label class="form-label text-sm" for="sales-year">Year</label>
+                            <input type="number" id="sales-year" class="form-input" style="width:100px;" min="2020" max="2100" onchange="loadSalesReport()">
+                        </div>
+                        <div class="sales-range">
                             <label class="form-label text-sm" for="sales-from">From</label>
                             <input type="date" id="sales-from" class="form-input" style="width:160px;">
                         </div>
-                        <div>
+                        <div class="sales-range">
                             <label class="form-label text-sm" for="sales-to">To</label>
                             <input type="date" id="sales-to" class="form-input" style="width:160px;">
                         </div>
@@ -132,6 +97,7 @@
                     <button class="btn btn-sm btn-outline" onclick="setSalesRange('month')">This month</button>
                     <button class="btn btn-sm btn-outline" onclick="setSalesRange('lastmonth')">Last month</button>
                     <button class="btn btn-sm btn-outline" onclick="setSalesRange('year')">This year</button>
+                    <button class="btn btn-sm btn-outline" onclick="setSalesRange('lastyear')">Last year</button>
                 </div>
 
                 <div id="sales-notice" class="text-sm" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:8px;background:rgba(241,196,15,0.12);"></div>
@@ -170,10 +136,10 @@
                 </div>
 
                 <div class="card mt-md">
-                    <div class="card-header"><div class="card-title">Sales by day</div></div>
+                    <div class="card-header"><div class="card-title" id="sales-period-title">Sales by day</div></div>
                     <div class="table-wrapper">
                         <table>
-                            <thead><tr><th>Date</th><th>Paid visits</th><th>Net sales</th></tr></thead>
+                            <thead><tr><th id="sales-period-head">Date</th><th>Paid visits</th><th>Net sales</th></tr></thead>
                             <tbody id="sales-by-day"></tbody>
                         </table>
                     </div>
