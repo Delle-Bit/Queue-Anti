@@ -238,6 +238,54 @@ function printSalesReport() {
     window.print();
 }
 
+async function exportSalesExcel() {
+    const period = salesPeriod();
+    if (!period) return showToast('Choose the period to report on', 'error');
+    const { from, to } = period;
+
+    const btn = document.getElementById('btn-export-excel');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Exporting...'; }
+
+    try {
+        const res = await fetch(`/api/reports/sales/export-xlsx?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, {
+            headers: authHeaders()
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            showToast(err.error || 'Failed to export sales Excel', 'error');
+            return;
+        }
+
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+            const json = await res.json();
+            if (json.empty) {
+                showToast(json.message || 'No sales records found for this period.', 'info');
+                return;
+            }
+        }
+
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const cd = res.headers.get('content-disposition') || '';
+        const match = cd.match(/filename="?([^"]+)"?/);
+        a.download = match ? match[1] : `Sales_${from}_to_${to}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        showToast('Sales Excel exported successfully!', 'success');
+    } catch (err) {
+        console.error('Export Excel error:', err);
+        showToast('Export failed', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-file-excel"></i> Export Excel'; }
+    }
+}
+
 // Date only, in the viewer's locale. shared.js has formatDateTime, but a sales
 // row is a day, and printing a time of 00:00:00 next to every day reads as data
 // the clinic does not have.

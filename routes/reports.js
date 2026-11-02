@@ -1,6 +1,203 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../database');
+const ExcelJS = require('exceljs');
+
+function sanitizeCellValue(val) {
+    if (val === null || val === undefined) return '';
+    const str = String(val);
+    if (/^[=+\-@]/.test(str)) {
+        return `'${str}`;
+    }
+    return str;
+}
+
+// ── EXCEL EXPORT (FEATURE 3) ──────────────────────────────────────────────────
+router.get('/sales/export-xlsx', async (req, res) => {
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : null;
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : null;
+
+    // Default to current month if no dates provided
+    const now = new Date();
+    const defaultFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const defaultTo = now.toISOString().slice(0, 10);
+
+    const startDate = from || defaultFrom;
+    const endDate = to || defaultTo;
+
+    if (startDate > endDate) {
+        return res.status(400).json({ error: 'Start date cannot be after end date' });
+    }
+
+    const conditions = [
+        'qs.paid_at >= ?',
+        'qs.paid_at < DATE_ADD(?, INTERVAL 1 DAY)',
+        'qs.archived = false',
+        "qs.status != 'cancelled'"
+    ];
+    const params = [startDate, endDate];
+
+    if (req.query.service_id) {
+        conditions.push('sp.id = ?');
+        params.push(req.query.service_id);
+    }
+    if (req.query.payment_method) {
+        conditions.push('qs.payment_method = ?');
+        params.push(req.query.payment_method);
+    }
+
+    try {
+        const [rows] = await pool.query(
+            `SELECT qs.id,
+                    COALESCE(NULLIF(qs.receipt_no, ''), CONCAT('REC-', LPAD(qs.id, 6, '0'))) AS receipt_number,
+                    DATE_FORMAT(qs.paid_at, '%Y-%m-%d') AS transaction_date,
+                    COALESCE(u.full_name, u.username, 'Walk-in Customer') AS customer_name,
+                    sp.name AS service_name,
+                    1 AS quantity,
+                    COALESCE(qs.list_amount, sp.price, 0) AS unit_price,
+                    COALESCE(qs.discount_amount, 0) AS discount,
+                    COALESCE(qs.amount_paid, sp.price, 0) AS total,
+                    COALESCE(NULLIF(qs.payment_method, ''), 'Cash') AS payment_method,
+                    qs.status AS status,
+                    COALESCE(
+                        (SELECT u_staff.full_name FROM queue_logs ql JOIN users u_staff ON ql.station_id = u_staff.id WHERE ql.sequence_id = qs.id AND ql.station_type = 'frontdesk' LIMIT 1),
+                        'Front Desk'
+                    ) AS processed_by
+             FROM queue_sequences qs
+             JOIN service_packages sp ON qs.package_id = sp.id
+             LEFT JOIN users u ON qs.customer_id = u.id
+             WHERE ${conditions.join(' AND ')}
+             ORDER BY qs.paid_at ASC`,
+            params
+        );
+
+        if (rows.length === 0) {
+            return res.status(200).json({ empty: true, message: 'No sales records found for the selected filters.' });
+        }
+
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'ReaLab Medical System';
+        workbook.created = new Date();
+
+        // ── Sheet 1: Transactions
+        const sheet = workbook.addWorksheet('Transactions');
+        sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+        const headers = [
+            'Receipt No.', 'Date', 'Customer Name', 'Service',
+            'Qty', 'Unit Price (PHP)', 'Discount (PHP)', 'Total (PHP)',
+            'Payment Method', 'Status', 'Processed By'
+        ];
+        sheet.addRow(headers);
+
+        const headerRow = sheet.getRow(1);
+        headerRow.font = { bold: true, color: { argb: 'FF1F2937' } };
+        headerRow.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFD9E1F2' }
+        };
+
+        rows.forEach(r => {
+            sheet.addRow([
+                sanitizeCellValue(r.receipt_number),
+                r.transaction_date,
+                sanitizeCellValue(r.customer_name),
+                sanitizeCellValue(r.service_name),
+                Number(r.quantity),
+                Number(r.unit_price),
+                Number(r.discount),
+                Number(r.total),
+                sanitizeCellValue(r.payment_method),
+                sanitizeCellValue(r.status),
+                sanitizeCellValue(r.processed_by)
+            ]);
+        });
+
+        // Money format on columns F, G, H (indices 6, 7, 8)
+        [6, 7, 8].forEach(colIdx => {
+            sheet.getColumn(colIdx).numFmt = '₱#,##0.00';
+        });
+
+        // Totals row at the bottom
+        const lastRow = sheet.rowCount;
+        const totalsRow = sheet.addRow([
+            '', '', '', 'TOTAL',
+            { formula: `SUM(E2:E${lastRow})` },
+            { formula: `SUM(F2:F${lastRow})` },
+            { formula: `SUM(G2:G${lastRow})` },
+            { formula: `SUM(H2:H${lastRow})` },
+            '', '', ''
+        ]);
+        totalsRow.font = { bold: true };
+        totalsRow.getCell(4).alignment = { horizontal: 'right' };
+
+        // Auto-width columns
+        sheet.columns.forEach(col => {
+            let maxLen = 10;
+            col.eachCell({ includeEmpty: false }, cell => {
+                const len = cell.value ? String(cell.value).length : 0;
+                if (len > maxLen) maxLen = len;
+            });
+            col.width = Math.min(maxLen + 3, 40);
+        });
+
+        // ── Sheet 2: Summary
+        const summarySheet = workbook.addWorksheet('Summary');
+        summarySheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+        summarySheet.addRow(['By Service', 'Total (PHP)', '', 'By Payment Method', 'Total (PHP)']);
+        summarySheet.getRow(1).font = { bold: true };
+        summarySheet.getRow(1).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFE8EAED' }
+        };
+
+        const byService = {};
+        const byMethod = {};
+        rows.forEach(r => {
+            byService[r.service_name] = (byService[r.service_name] || 0) + Number(r.total);
+            byMethod[r.payment_method] = (byMethod[r.payment_method] || 0) + Number(r.total);
+        });
+
+        const svcs = Object.keys(byService);
+        const methods = Object.keys(byMethod);
+        const maxLen = Math.max(svcs.length, methods.length);
+
+        for (let i = 0; i < maxLen; i++) {
+            summarySheet.addRow([
+                svcs[i] ? sanitizeCellValue(svcs[i]) : '',
+                svcs[i] ? Number(byService[svcs[i]]) : '',
+                '',
+                methods[i] ? sanitizeCellValue(methods[i]) : '',
+                methods[i] ? Number(byMethod[methods[i]]) : ''
+            ]);
+        }
+        summarySheet.getColumn(2).numFmt = '₱#,##0.00';
+        summarySheet.getColumn(5).numFmt = '₱#,##0.00';
+        summarySheet.columns.forEach(col => { col.width = 24; });
+
+        // Log export in audit log
+        try {
+            const userId = req.user?.id || 1;
+            const ip = req.ip || req.connection?.remoteAddress || '';
+            await pool.query(
+                `INSERT INTO export_audit_log (user_id, action, status, ip_address) VALUES (?, 'sales_excel_export', 'success', ?)`,
+                [userId, ip]
+            );
+        } catch (_) {}
+
+        const filename = `Sales_${startDate}_to_${endDate}.xlsx`;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (err) {
+        console.error('Export Excel error:', err);
+        res.status(500).json({ error: 'Failed to generate Excel file' });
+    }
+});
 // ── SALES ────────────────────────────────────────────────────────────────────
 // What was actually taken at the cashier, between two dates. Every figure comes
 // from queue_sequences.amount_paid rather than the package price list, because
