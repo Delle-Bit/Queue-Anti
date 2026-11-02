@@ -761,13 +761,122 @@ async function loadFdAppointments() {
     // amount_due already includes the priority booking surcharge, and payment is
     // marked paid automatically when this station clears the patient's front desk
     // step. Falls back to the package price for rows booked before the surcharge.
-    document.getElementById('fd-appt-list').innerHTML = appts.map(a => `<tr>
-        <td>${a.full_name||a.username}</td><td>${a.package_name}</td><td>${a.appointment_date}</td>
-        <td>${a.appointment_time}</td><td><span class="badge ${a.status==='scheduled'?'badge-warning':'badge-success'}">${a.status}</span></td>
+    document.getElementById('fd-appt-list').innerHTML = appts.map(a => {
+        const isCorrected = (a.notes && a.notes.includes('Service corrected'));
+        const pkgSafe = (a.package_name || '').replace(/'/g, "\\'");
+        return `<tr>
+        <td>${escapeHtml(a.full_name||a.username)}</td>
+        <td>
+            ${escapeHtml(a.package_name)}
+            ${isCorrected ? '<br><span class="badge badge-warning" style="font-size:0.7rem; padding:2px 6px;">Corrected</span>' : ''}
+        </td>
+        <td>${a.appointment_date}</td>
+        <td>${a.appointment_time}</td>
+        <td><span class="badge ${a.status==='scheduled'?'badge-warning':a.status==='completed'?'badge-success':'badge-secondary'}">${a.status}</span></td>
         <td><strong>${formatCurrency(a.amount_due ?? a.price)}</strong>${Number(a.surcharge_pct) > 0 ? `<br><small class="text-muted">incl. ${a.surcharge_pct}% priority</small>` : ''}</td>
         <td><span class="badge ${a.payment_status==='paid'?'badge-success':'badge-warning'}">${a.payment_status}</span></td>
-        <td><button class="btn btn-sm btn-secondary" onclick="generateAppointmentQr(${a.id})"><i class="fa-solid fa-qrcode"></i> QR</button></td>
-    </tr>`).join('');
+        <td>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                <button class="btn btn-sm btn-secondary" onclick="generateAppointmentQr(${a.id})"><i class="fa-solid fa-qrcode"></i> QR</button>
+                <button class="btn btn-sm btn-outline" onclick="openCorrectServiceModal(${a.id}, '${pkgSafe}', ${Number(a.price) || 0})"><i class="fa-solid fa-pen-to-square"></i> Correct</button>
+            </div>
+        </td>
+    </tr>`;
+    }).join('');
+}
+
+let correctionOldPrice = 0;
+let cachedPackagesForCorrection = [];
+
+async function openCorrectServiceModal(apptId, currentPkgName, currentPrice) {
+    document.getElementById('corr-appt-id').value = apptId;
+    correctionOldPrice = Number(currentPrice) || 0;
+    document.getElementById('corr-current-service').textContent = `${currentPkgName} (${formatCurrency(correctionOldPrice)})`;
+    document.getElementById('corr-reason').value = '';
+    document.getElementById('corr-notes').value = '';
+
+    // Load available packages
+    const res = await fetch('/api/packages', { headers: authHeaders() });
+    cachedPackagesForCorrection = await res.json().catch(() => []);
+    const select = document.getElementById('corr-new-service');
+    select.innerHTML = '<option value="">-- Select new service --</option>' +
+        cachedPackagesForCorrection.map(p => `<option value="${p.id}" data-price="${p.price}" data-duration="${p.est_time_minutes || 15}">${escapeHtml(p.name)} - ${formatCurrency(p.price)} (${p.est_time_minutes || 15}m)</option>`).join('');
+
+    updateCorrectionDiff();
+
+    // Load correction history for this appointment
+    const histRes = await fetch(`/api/service-corrections/${apptId}`, { headers: authHeaders() });
+    const history = await histRes.json().catch(() => []);
+    const histBox = document.getElementById('corr-history-box');
+    if (history.length > 0) {
+        histBox.innerHTML = '<strong>Correction History:</strong><ul style="margin:4px 0 0;padding-left:18px;">' +
+            history.map(h => `<li>${escapeHtml(h.old_service_name)} &rarr; ${escapeHtml(h.new_service_name)} (${h.price_diff >= 0 ? '+' : ''}${formatCurrency(h.price_diff)}) by ${escapeHtml(h.corrected_by_name || h.corrected_by_username)}: <em>${escapeHtml(h.reason)}</em></li>`).join('') +
+            '</ul>';
+        histBox.style.display = 'block';
+    } else {
+        histBox.innerHTML = '<span class="text-muted">No prior corrections for this appointment.</span>';
+        histBox.style.display = 'block';
+    }
+
+    openModal('correct-service-modal');
+}
+
+function updateCorrectionDiff() {
+    const select = document.getElementById('corr-new-service');
+    const diffBox = document.getElementById('corr-diff-box');
+    const selectedOption = select.options[select.selectedIndex];
+    if (!selectedOption || !selectedOption.value) {
+        diffBox.style.display = 'none';
+        return;
+    }
+    const newPrice = Number(selectedOption.getAttribute('data-price')) || 0;
+    const diff = newPrice - correctionOldPrice;
+    diffBox.style.display = 'block';
+    if (diff > 0) {
+        diffBox.style.background = 'rgba(234, 134, 0, 0.15)';
+        diffBox.style.color = '#b36200';
+        diffBox.innerHTML = `<i class="fa-solid fa-arrow-up"></i> Additional charge required: <strong>${formatCurrency(diff)}</strong>`;
+    } else if (diff < 0) {
+        diffBox.style.background = 'rgba(0, 150, 60, 0.15)';
+        diffBox.style.color = '#00702c';
+        diffBox.innerHTML = `<i class="fa-solid fa-arrow-down"></i> Refund/Credit required: <strong>${formatCurrency(Math.abs(diff))}</strong>`;
+    } else {
+        diffBox.style.background = 'rgba(100, 100, 100, 0.1)';
+        diffBox.style.color = 'inherit';
+        diffBox.innerHTML = `<i class="fa-solid fa-equals"></i> Same price (${formatCurrency(newPrice)}). No price adjustment needed.`;
+    }
+}
+
+async function submitServiceCorrection() {
+    const apptId = document.getElementById('corr-appt-id').value;
+    const newServiceId = document.getElementById('corr-new-service').value;
+    const reason = document.getElementById('corr-reason').value;
+    const notes = document.getElementById('corr-notes').value;
+
+    if (!newServiceId) return showToast('Please select a new service package', 'error');
+    if (!reason) return showToast('Reason for correction is required', 'error');
+
+    try {
+        const res = await fetch('/api/service-correction', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({
+                appointment_id: Number(apptId),
+                new_service_id: Number(newServiceId),
+                reason,
+                notes
+            })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            return showToast(data.error || 'Failed to correct service', 'error');
+        }
+        closeModal('correct-service-modal');
+        showToast(`Service corrected to ${data.new_service}! Price diff: ${data.price_diff >= 0 ? '+' : ''}${formatCurrency(data.price_diff)}`, 'success');
+        loadFdAppointments();
+    } catch (err) {
+        showToast('Failed to apply service correction', 'error');
+    }
 }
 
 async function generateAppointmentQr(id) {

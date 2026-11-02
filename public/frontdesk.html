@@ -124,9 +124,50 @@
         <!-- APPOINTMENTS -->
         <div id="section-appointments" class="content-section" style="display:none;">
             <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-calendar"></i> Appointments</div></div></div>
-            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Customer</th><th>Service</th><th>Date</th><th>Time</th><th>Status</th><th>To Collect</th><th>Payment</th><th>QR</th></tr></thead><tbody id="fd-appt-list"></tbody></table></div></div>
+            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Customer</th><th>Service</th><th>Date</th><th>Time</th><th>Status</th><th>To Collect</th><th>Payment</th><th>Actions</th></tr></thead><tbody id="fd-appt-list"></tbody></table></div></div>
         </div>
     </main>
+
+    <!-- Correct Service Modal (Feature 4) -->
+    <div id="correct-service-modal" class="modal-overlay">
+        <div class="modal-box" style="max-width:520px;">
+            <div class="modal-header">
+                <div class="modal-title"><i class="fa-solid fa-pen-to-square"></i> Correct Service Entry</div>
+                <button class="modal-close" onclick="closeModal('correct-service-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="corr-appt-id">
+                <div class="form-group">
+                    <label class="form-label">Current Service</label>
+                    <div id="corr-current-service" style="font-weight:600; padding:10px 12px; background:var(--bg-card); border:1px solid var(--border); border-radius:6px;"></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">New Service</label>
+                    <select class="form-select" id="corr-new-service" onchange="updateCorrectionDiff()"></select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Reason for Correction (Required)</label>
+                    <select class="form-select" id="corr-reason">
+                        <option value="">-- Select reason --</option>
+                        <option value="Wrong entry">Wrong entry</option>
+                        <option value="Customer changed request">Customer changed request</option>
+                        <option value="Duplicate entry">Duplicate entry</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Notes (Optional)</label>
+                    <input type="text" class="form-input" id="corr-notes" placeholder="Additional details...">
+                </div>
+                <div id="corr-diff-box" style="display:none; padding:12px; border-radius:6px; margin-top:8px; font-weight:500;"></div>
+                <div id="corr-history-box" style="margin-top:16px; font-size:0.85rem; border-top:1px solid var(--border); padding-top:10px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('correct-service-modal')">Cancel</button>
+                <button class="btn btn-primary" onclick="submitServiceCorrection()"><i class="fa-solid fa-check"></i> Apply Correction</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Add/Edit Service Modal -->
     <div id="svc-modal" class="modal-overlay">

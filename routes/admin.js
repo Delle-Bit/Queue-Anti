@@ -1305,5 +1305,151 @@ router.delete('/archives/:id', requireAdmin, requireReason, async (req, res) => 
     }
 });
 
+// --- SERVICE CORRECTION (FEATURE 4) ---
+const VALID_CORRECTION_REASONS = ['Wrong entry', 'Customer changed request', 'Duplicate entry', 'Other'];
+
+router.post('/service-correction', requireStaff, async (req, res) => {
+    const { appointment_id, new_service_id, reason, notes } = req.body;
+    if (!appointment_id || !new_service_id || !reason) {
+        return res.status(400).json({ error: 'appointment_id, new_service_id, and reason are required' });
+    }
+    if (!VALID_CORRECTION_REASONS.includes(reason)) {
+        return res.status(400).json({ error: 'Invalid correction reason' });
+    }
+
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+
+        // 1. Fetch current appointment and old service package
+        const [appts] = await conn.query(
+            `SELECT a.*, sp.name as current_service_name, sp.price as current_price,
+                    sp.est_time_minutes as current_duration
+             FROM appointments a
+             JOIN service_packages sp ON a.package_id = sp.id
+             WHERE a.id = ? AND a.archived = false FOR UPDATE`,
+            [appointment_id]
+        );
+        if (appts.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ error: 'Appointment not found' });
+        }
+        const appt = appts[0];
+
+        // 2. Fetch new service package
+        const [newSvcs] = await conn.query(
+            'SELECT id, name, price, est_time_minutes FROM service_packages WHERE id = ? AND archived = false',
+            [new_service_id]
+        );
+        if (newSvcs.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ error: 'New service package not found' });
+        }
+        const newSvc = newSvcs[0];
+
+        const oldPrice = Number(appt.current_price) || 0;
+        const newPrice = Number(newSvc.price) || 0;
+        const priceDiff = newPrice - oldPrice;
+        const oldDuration = Number(appt.current_duration) || 15;
+        const newDuration = Number(newSvc.est_time_minutes) || 15;
+
+        // 3. If new duration conflicts with a subsequent appointment, warn and block
+        if (newDuration > oldDuration) {
+            const [hStr, mStr] = String(appt.appointment_time).slice(0, 5).split(':');
+            const startMinutes = parseInt(hStr, 10) * 60 + parseInt(mStr, 10);
+            const newEndMinutes = startMinutes + newDuration;
+            const endHour = String(Math.floor(newEndMinutes / 60)).padStart(2, '0');
+            const endMin = String(newEndMinutes % 60).padStart(2, '0');
+            const newEndTime = `${endHour}:${endMin}:00`;
+
+            const [conflicts] = await conn.query(
+                `SELECT id, appointment_time FROM appointments
+                 WHERE appointment_date = ? AND id != ?
+                   AND status NOT IN ('cancelled', 'no-show') AND archived = false
+                   AND appointment_time > ? AND appointment_time < ?
+                 LIMIT 1`,
+                [appt.appointment_date, appt.id, appt.appointment_time, newEndTime]
+            );
+            if (conflicts.length > 0) {
+                await conn.rollback();
+                return res.status(409).json({
+                    error: `New service duration (${newDuration}m) conflicts with another appointment at ${conflicts[0].appointment_time.slice(0, 5)}`
+                });
+            }
+        }
+
+        // 4. Record correction in audit trail
+        await conn.query(
+            `INSERT INTO service_corrections
+             (appointment_id, old_service_id, new_service_id, old_price, new_price, price_diff, reason, notes, corrected_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [appt.id, appt.package_id, newSvc.id, oldPrice, newPrice, priceDiff, reason, notes || null, req.user.id]
+        );
+
+        // 5. Update appointment with new package
+        let adjNote = appt.notes || '';
+        if (appt.payment_status === 'paid' && priceDiff !== 0) {
+            const adjText = priceDiff > 0
+                ? `[Service corrected to ${newSvc.name}: Additional charge PHP ${priceDiff.toFixed(2)}]`
+                : `[Service corrected to ${newSvc.name}: Refund/Credit PHP ${Math.abs(priceDiff).toFixed(2)}]`;
+            adjNote = adjNote ? `${adjNote} ${adjText}` : adjText;
+        }
+
+        await conn.query(
+            `UPDATE appointments
+             SET package_id = ?, notes = ?
+             WHERE id = ?`,
+            [newSvc.id, adjNote, appt.id]
+        );
+
+        // Also update any linked active queue_sequences if any
+        await conn.query(
+            `UPDATE queue_sequences SET package_id = ? WHERE appointment_id = ? AND archived = false`,
+            [newSvc.id, appt.id]
+        );
+
+        await conn.commit();
+
+        if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
+        res.json({
+            success: true,
+            old_service: appt.current_service_name,
+            new_service: newSvc.name,
+            old_price: oldPrice,
+            new_price: newPrice,
+            price_diff: priceDiff
+        });
+    } catch (err) {
+        await conn.rollback();
+        console.error('Service correction error:', err);
+        res.status(500).json({ error: 'Failed to correct service' });
+    } finally {
+        conn.release();
+    }
+});
+
+router.get('/service-corrections/:appointmentId', requireStaff, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT sc.*,
+                    sp_old.name as old_service_name,
+                    sp_new.name as new_service_name,
+                    u.username as corrected_by_username,
+                    u.full_name as corrected_by_name
+             FROM service_corrections sc
+             LEFT JOIN service_packages sp_old ON sc.old_service_id = sp_old.id
+             LEFT JOIN service_packages sp_new ON sc.new_service_id = sp_new.id
+             LEFT JOIN users u ON sc.corrected_by = u.id
+             WHERE sc.appointment_id = ?
+             ORDER BY sc.corrected_at DESC`,
+            [req.params.appointmentId]
+        );
+        res.json(rows);
+    } catch (err) {
+        console.error('Fetch service corrections error:', err);
+        res.status(500).json({ error: 'Failed to fetch correction history' });
+    }
+});
+
 module.exports = router;
 module.exports.checkElevatedOtp = checkElevatedOtp;
