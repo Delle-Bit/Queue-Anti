@@ -20,7 +20,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const http = require('http');
 const socketIo = require('socket.io');
-const { JWT_SECRET, requireAdmin } = require('./config');
+const { JWT_SECRET, requireAdmin, requireSalesReport } = require('./config');
 const { APPOINTMENT_PRIORITY_BOOST } = require('./queue_automation');
 const { startPackageQueue } = require('./queue_start');
 const { startMissedAppointmentSweep } = require('./appointment_automation');
@@ -161,13 +161,6 @@ function authenticateToken(req, res, next) {
     });
 }
 
-function verifyRoles(...roles) {
-    return (req, res, next) => {
-        if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Access denied' });
-        next();
-    };
-}
-
 // ── STAFF SESSION ACTIVITY ──────────────────────────────────────────────────
 // The 15-minute inactivity timeout. `enforceIdleTimeout` rejects a stale staff
 // token; the two endpoints below are how the browser reports that the user is
@@ -235,7 +228,7 @@ app.use('/api/queue', authenticateToken, idleTimeout, queueRoutes);
 // them), writes are administrator-only - both guarded inside the router.
 app.use('/api/test-structures', authenticateToken, idleTimeout, testStructureRoutes);
 app.use('/api/assistant', authenticateToken, idleTimeout, assistantRoutes);
-app.use('/api/reports', authenticateToken, idleTimeout, verifyRoles('owner'), reportRoutes);
+app.use('/api/reports', authenticateToken, idleTimeout, requireSalesReport, reportRoutes);
 app.use('/api/admin', authenticateToken, idleTimeout, requireAdmin, adminRoutes);
 // routes/admin.js a second time, at the bare /api prefix and WITHOUT
 // requireAdmin. Not a loophole - it is what serves the customer-facing routes

@@ -153,7 +153,33 @@
                 <button class="btn btn-primary" onclick="openModal('appt-modal')"><i class="fa-solid fa-plus"></i> New
                     Appointment</button>
             </div>
-            <div class="card">
+
+            <!-- AVAILABLE SLOTS - a read-only look at which times are open this
+                 month, so a patient can see availability before opening the
+                 booking form. It shows open/full counts only, never who holds a
+                 slot, and never another patient's data. Tapping an open day
+                 reveals its times; tapping an open time carries that date and
+                 time into the booking modal. -->
+            <div class="card mt-md">
+                <div class="card-header avail-header">
+                    <div class="card-title"><i class="fa-solid fa-calendar-days"></i> Available Slots</div>
+                    <div class="avail-legend">
+                        <span class="avail-key"><span class="avail-dot open" aria-hidden="true"></span> Open</span>
+                        <span class="avail-key"><span class="avail-dot full" aria-hidden="true"></span> Full</span>
+                        <span class="avail-key"><span class="avail-dot past" aria-hidden="true"></span> Past</span>
+                    </div>
+                </div>
+                <div class="avail-toolbar">
+                    <button type="button" class="btn btn-sm btn-secondary btn-icon" onclick="changeAvailMonth(-1)" aria-label="Previous month"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
+                    <strong id="avail-month-label" aria-live="polite"></strong>
+                    <button type="button" class="btn btn-sm btn-secondary btn-icon" onclick="changeAvailMonth(1)" aria-label="Next month"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline" onclick="availToday()"><i class="fa-solid fa-calendar-day" aria-hidden="true"></i> Today</button>
+                </div>
+                <div class="appointment-calendar" id="avail-calendar" aria-label="Monthly slot availability"></div>
+                <div id="avail-day" class="avail-day" hidden></div>
+            </div>
+
+            <div class="card mt-md">
                 <div class="table-wrapper">
                     <table>
                         <thead>

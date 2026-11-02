@@ -1900,4 +1900,56 @@ tbody tr:last-child td { border-bottom: none; }
     body { background: #fff !important; }
     .card { box-shadow: none !important; border: 1px solid #ccc !important; break-inside: avoid; }
     table { font-size: 11px; }
+    /* The export dropdown is an action, like any other .btn - keep it off the
+       printed report even when it is open. */
+    .export-menu { display: none !important; }
 }
+
+/* ── EXPORT DROPDOWN ──
+   A <details> disclosure, so it opens with the keyboard and needs no JS to
+   toggle. Used by the sales report to offer Excel and PDF from one button. */
+.export-menu { position: relative; display: inline-block; }
+.export-menu > summary { list-style: none; cursor: pointer; }
+.export-menu > summary::-webkit-details-marker { display: none; }
+.export-menu .export-caret { font-size: 0.75em; transition: transform 0.2s ease; }
+.export-menu[open] .export-caret { transform: rotate(180deg); }
+
+.export-menu-list {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 30;
+    min-width: 190px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px;
+    background: var(--bg-card, #fff);
+    border: 1px solid var(--border, #E2E8F0);
+    border-radius: 10px;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
+}
+
+.export-menu-list button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 12px;
+    border: none;
+    border-radius: 7px;
+    background: none;
+    color: var(--text-primary, #1a2332);
+    font: inherit;
+    font-size: 0.9em;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.export-menu-list button:hover,
+.export-menu-list button:focus-visible {
+    background: var(--primary-surface, rgba(198, 40, 58, 0.08));
+    color: var(--primary, #C6283A);
+}
+.export-menu-list button:disabled { opacity: 0.6; cursor: default; }
+.export-menu-list button i { width: 1.1em; text-align: center; }

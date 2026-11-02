@@ -5,7 +5,7 @@ const bcrypt = require('bcrypt');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const multer = require('multer');
-const { requireStaff, requireAdmin, STAFF_ROLES } = require('../config');
+const { requireStaff, requireAdmin, requireSalesReport, STAFF_ROLES } = require('../config');
 const aiServices = require('../ai_services');
 const appointmentAutomation = require('../appointment_automation');
 const sessionActivity = require('../session_activity');
@@ -645,41 +645,78 @@ router.post('/appointments', async (req, res) => {
             `SELECT COUNT(*) as cnt FROM package_laboratories pl JOIN laboratories l ON pl.laboratory_id = l.id
              WHERE pl.package_id = ? AND pl.archived = false AND l.archived = false`, [package_id]
         );
-        const [pkgRows] = await pool.query('SELECT doctor_id, price FROM service_packages WHERE id = ? AND archived = false', [package_id]);
+        const [pkgRows] = await pool.query('SELECT doctor_id, price, est_time_minutes FROM service_packages WHERE id = ? AND archived = false', [package_id]);
         if (pkgRows.length === 0) return res.status(404).json({ error: 'Package not found' });
         if (labCount[0].cnt === 0 && !pkgRows[0].doctor_id) return res.status(400).json({ error: 'This service is currently unavailable.' });
-        const [slotCount] = await pool.query(
-            `SELECT COUNT(*) as cnt FROM appointments WHERE appointment_date=? AND status != 'cancelled' AND archived=false`,
-            [appointment_date]
-        );
-        if (slotCount[0].cnt >= 6) return res.status(400).json({ error: 'This date is fully booked.' });
-        const [slotTaken] = await pool.query(
-            `SELECT id FROM appointments WHERE appointment_date=? AND appointment_time=? AND status != 'cancelled' AND archived=false`,
-            [appointment_date, appointment_time]
-        );
-        if (slotTaken.length > 0) return res.status(400).json({ error: 'This appointment slot is already booked.' });
+        // Availability is re-checked inside a transaction that locks the day's
+        // live appointments, because the calendar the patient clicked can be
+        // stale by the time this request arrives. Two requests for the same slot
+        // must not both read it as free and both insert.
+        const requestDuration = Number(pkgRows[0].est_time_minutes) || 30;
+        const [reqH, reqM] = String(appointment_time).slice(0, 5).split(':').map(Number);
+        const requestStart = reqH * 60 + reqM;
+        const requestEnd = requestStart + requestDuration;
 
-        // Priority surcharge on the package price, stored on the row so a later
-        // price change cannot alter what this patient was quoted. Left 'pending':
-        // the front desk collects it when they clear the cashier step.
-        const surchargePct = appointmentAutomation.APPOINTMENT_SURCHARGE_PCT;
-        const amountDue = appointmentAutomation.appointmentPrice(pkgRows[0].price, surchargePct);
+        const conn = await pool.getConnection();
+        try {
+            await conn.beginTransaction();
+            // Lock the day's appointments so a concurrent booking for the same
+            // date waits here rather than racing the checks below. Cancelled and
+            // no-show rows are excluded - they have freed their slot.
+            const [sameDay] = await conn.query(
+                `SELECT a.id, a.appointment_time,
+                        COALESCE(sp.est_time_minutes, 30) AS duration_minutes
+                 FROM appointments a
+                 JOIN service_packages sp ON a.package_id = sp.id
+                 WHERE a.appointment_date = ? AND a.status NOT IN ('cancelled', 'no-show') AND a.archived = false
+                 FOR UPDATE`,
+                [appointment_date]
+            );
+            if (sameDay.length >= 6) {
+                await conn.rollback();
+                return res.status(400).json({ error: 'This date is fully booked.' });
+            }
+            // Overlap, not just an exact-time match: a 60-minute appointment at
+            // 09:00 also occupies the 09:30 slot.
+            const clash = sameDay.find(a => {
+                const [ah, am] = String(a.appointment_time).slice(0, 5).split(':').map(Number);
+                const aStart = ah * 60 + am;
+                const aEnd = aStart + (Number(a.duration_minutes) || 30);
+                return aStart < requestEnd && aEnd > requestStart;
+            });
+            if (clash) {
+                await conn.rollback();
+                return res.status(400).json({ error: 'This appointment slot is already booked.' });
+            }
 
-        const [ins] = await pool.query(
-            `INSERT INTO appointments (customer_id, package_id, appointment_date, appointment_time,
-                                       payment_status, payment_method, payment_ref, notes,
-                                       amount_due, surcharge_pct)
-             VALUES (?, ?, ?, ?, 'pending', 'onsite', '', ?, ?, ?)`,
-            [req.user.id, package_id, appointment_date, appointment_time, notes || '', amountDue, surchargePct]
-        );
-        res.json({
-            success: true,
-            id: ins.insertId,
-            base_price: Number(pkgRows[0].price),
-            surcharge_pct: surchargePct,
-            amount_due: amountDue,
-            payment_status: 'pending'
-        });
+            // Priority surcharge on the package price, stored on the row so a later
+            // price change cannot alter what this patient was quoted. Left 'pending':
+            // the front desk collects it when they clear the cashier step.
+            const surchargePct = appointmentAutomation.APPOINTMENT_SURCHARGE_PCT;
+            const amountDue = appointmentAutomation.appointmentPrice(pkgRows[0].price, surchargePct);
+
+            const [ins] = await conn.query(
+                `INSERT INTO appointments (customer_id, package_id, appointment_date, appointment_time,
+                                           payment_status, payment_method, payment_ref, notes,
+                                           amount_due, surcharge_pct)
+                 VALUES (?, ?, ?, ?, 'pending', 'onsite', '', ?, ?, ?)`,
+                [req.user.id, package_id, appointment_date, appointment_time, notes || '', amountDue, surchargePct]
+            );
+            await conn.commit();
+            res.json({
+                success: true,
+                id: ins.insertId,
+                base_price: Number(pkgRows[0].price),
+                surcharge_pct: surchargePct,
+                amount_due: amountDue,
+                payment_status: 'pending'
+            });
+        } catch (txErr) {
+            await conn.rollback();
+            throw txErr;
+        } finally {
+            conn.release();
+        }
     } catch (err) {
         console.error('Book appointment error:', err);
         res.status(500).json({ error: 'Failed' });
@@ -1567,7 +1604,7 @@ function sanitizeCellValue(val) {
 }
 
 // --- SALES EXCEL EXPORT (FEATURE 3) ---
-router.get('/sales/export-xlsx', requireStaff, async (req, res) => {
+router.get('/sales/export-xlsx', requireSalesReport, async (req, res) => {
     const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : null;
     const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : null;
 

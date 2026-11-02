@@ -1332,6 +1332,39 @@ router.get('/booked-dates', async (req, res) => {
     }
 });
 
+// Monthly slot availability for the customer's appointment preview. Returns the
+// taken times and their durations only - never who holds them - so a patient can
+// see which slots are open without ever seeing another patient's data. The
+// client maps these onto its own bookable slot list (APPT_SLOTS).
+router.get('/appointment-availability', async (req, res) => {
+    const { month } = req.query;
+    try {
+        if (!month || !/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({ error: 'Month must be YYYY-MM' });
+        const [rows] = await pool.query(
+            `SELECT DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS date,
+                    TIME_FORMAT(a.appointment_time, '%H:%i') AS time,
+                    COALESCE(sp.est_time_minutes, 30) AS duration_minutes
+             FROM appointments a
+             JOIN service_packages sp ON a.package_id = sp.id
+             WHERE DATE_FORMAT(a.appointment_date, '%Y-%m') = ?
+               AND a.status NOT IN ('cancelled', 'no-show')
+               AND a.archived = false`,
+            [month]
+        );
+        res.json({
+            month,
+            appointments: rows.map(r => ({
+                date: r.date,
+                time: r.time,
+                duration_minutes: Number(r.duration_minutes) || 30
+            }))
+        });
+    } catch (err) {
+        console.error('Appointment availability error:', err);
+        res.status(500).json({ error: 'Failed to fetch availability' });
+    }
+});
+
 module.exports = router;
 module.exports.stationDisplayName = stationDisplayName;
 // Exposed for the Virtual Assistant dialogue controller (routes/assistant.js),

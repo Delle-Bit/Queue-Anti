@@ -1278,8 +1278,11 @@ function renderDayOrWeekCalendar(data, wrapper) {
                     <span style="opacity:0.6;">Closed</span>
                 </td>`;
             } else {
-                html += `<td style="padding:6px;border-right:1px solid var(--border);background:#e6f4ea;text-align:center;cursor:pointer;transition:background 0.2s;" onmouseover="this.style.background='#c8e6c9'" onmouseout="this.style.background='#e6f4ea'" onclick="clickAvailableSlot('${dStr}', '${t}')" title="Click to book">
-                    <span style="color:#2e7d32;font-size:0.8rem;font-weight:600;"><i class="fa-solid fa-plus"></i> Open</span>
+                // Open slots are shown for context only. Patients book their own
+                // appointments, so the desk does not create one here - this is a
+                // schedule view, not a booking surface.
+                html += `<td style="padding:6px;border-right:1px solid var(--border);background:#e6f4ea;text-align:center;" title="Available slot">
+                    <span style="color:#2e7d32;font-size:0.8rem;font-weight:600;"><i class="fa-solid fa-circle-check"></i> Open</span>
                 </td>`;
             }
         });
@@ -1365,6 +1368,6 @@ async function openSlotApptDetail(apptId) {
     }
 }
 
-function clickAvailableSlot(date, time) {
-    showToast(`Selected available slot: ${date} at ${time}`, 'info');
-}
+// Open cells in the staff calendar are informational: patients book their own
+// appointments, so there is no desk-side booking action here. The customer's
+// own availability calendar lives on the customer dashboard.

@@ -242,6 +242,7 @@ async function exportSalesExcel() {
     const period = salesPeriod();
     if (!period) return showToast('Choose the period to report on', 'error');
     const { from, to } = period;
+    closeSalesExportMenu();
 
     const btn = document.getElementById('btn-export-excel');
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Exporting...'; }
@@ -282,7 +283,145 @@ async function exportSalesExcel() {
         console.error('Export Excel error:', err);
         showToast('Export failed', 'error');
     } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-file-excel"></i> Export Excel'; }
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-file-excel"></i> Excel (.xlsx)'; }
+    }
+}
+
+// ── SALES PDF EXPORT ──
+function closeSalesExportMenu() {
+    const menu = document.getElementById('sales-export-menu');
+    if (menu) menu.open = false;
+}
+
+// The <details> handles its own open/close; these only handle "clicked away"
+// and Escape, the two cases the disclosure cannot see on its own.
+document.addEventListener('click', (e) => {
+    const menu = document.getElementById('sales-export-menu');
+    if (menu && menu.open && !menu.contains(e.target)) menu.open = false;
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeSalesExportMenu();
+});
+
+function salesPdfFooter(doc, generatedAt) {
+    const { margin, pageW, muted, hairline, footerTop } = PDF;
+    doc.setDrawColor(hairline[0], hairline[1], hairline[2]);
+    doc.setLineWidth(0.2);
+    doc.line(margin, footerTop, pageW - margin, footerTop);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.setTextColor(muted[0], muted[1], muted[2]);
+    doc.text('Sales report - internal financial document.', margin, footerTop + 4.5);
+    doc.text('Generated ' + generatedAt, margin, footerTop + 8);
+}
+
+// A real generated PDF, not the browser's print dialog. Built client-side with
+// jsPDF and the same clinic letterhead the patient documents use, so the sales
+// report and the medical record look like they come from one system.
+async function exportSalesPdf() {
+    const period = salesPeriod();
+    if (!period) return showToast('Choose the period to report on', 'error');
+    const { from, to, group } = period;
+    closeSalesExportMenu();
+
+    const btn = document.getElementById('btn-export-pdf');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...'; }
+
+    try {
+        // Same endpoint and period as the report on screen, so the file's totals
+        // match what the operator is looking at.
+        const res = await fetch(`/api/reports/sales?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&group=${group}`, { headers: authHeaders() });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { showToast(data.error || 'Failed to load the sales report', 'error'); return; }
+        // A PDF of headers with no rows is not a report. Say so and stop.
+        const t = data.totals || {};
+        if (!t.visits) { showToast('No payments in this period to export', 'info'); return; }
+
+        const settings = await fetch('/api/settings').then(r => r.ok ? r.json() : {}).catch(() => ({}));
+        const clinic = { name: settings.site_name || 'ReaLab', logoPath: settings.logo_path || '/images/examplelogo.svg' };
+        const logo = await loadLogoDataUrl(clinic.logoPath);
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+        const generatedAt = new Date().toLocaleString('en-PH', { timeZone: 'Asia/Manila' });
+
+        pdfLetterhead(doc, clinic, logo, { title: 'Sales Report', marker: 'INTERNAL', markerNote: 'Financial Report' });
+
+        const monthly = group === 'month';
+        let y = PDF.headerBottom + 3;
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(PDF.ink[0], PDF.ink[1], PDF.ink[2]);
+        doc.text(`Period: ${from} to ${to}`, PDF.margin, y + 2);
+        y += 9;
+
+        y = pdfSectionHeading(doc, 'Summary', y) + 3;
+        y = pdfFieldGrid(doc, [
+            ['Net sales', formatCurrency(t.net_total || 0)],
+            ['Paid visits', String(t.visits || 0)],
+            ['Discounts given', formatCurrency(t.discount_total || 0)],
+            ['Average sale', formatCurrency(t.average_sale || 0)]
+        ], y) + 7;
+
+        const right = { halign: 'right' };
+        const table = (title, head, body, columnStyles) => {
+            y = pdfSectionHeading(doc, title, y) + 2;
+            doc.autoTable({
+                startY: y,
+                head: [head],
+                body,
+                theme: 'grid',
+                margin: { left: PDF.margin, right: PDF.margin, top: PDF.runningHeaderBottom, bottom: 24 },
+                styles: { font: 'helvetica', fontSize: 8, cellPadding: 1.9, textColor: PDF.ink, lineColor: PDF.hairline, lineWidth: 0.15 },
+                headStyles: { fillColor: PDF.brand, textColor: [255, 255, 255], fontSize: 7.8, fontStyle: 'bold' },
+                alternateRowStyles: { fillColor: [250, 251, 252] },
+                columnStyles: columnStyles || {},
+                didDrawPage: () => salesPdfFooter(doc, generatedAt)
+            });
+            y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 7;
+        };
+
+        table('By service', ['Service', 'Category', 'Visits', 'Discount', 'Net', 'Share'],
+            (data.by_service || []).map(r => [
+                r.service || '--', r.category || '--', String(r.visits),
+                formatCurrency(r.discount), formatCurrency(r.net),
+                (t.net_total ? Math.round((Number(r.net) / t.net_total) * 100) : 0) + '%'
+            ]),
+            { 2: right, 3: right, 4: right, 5: right });
+
+        table(monthly ? 'By month' : 'By day', [monthly ? 'Month' : 'Date', 'Visits', 'Net'],
+            (data.by_period || []).map(r => [monthly ? salesMonth(r.period) : salesDay(r.period), String(r.visits), formatCurrency(r.net)]),
+            { 1: right, 2: right });
+
+        table('By payment method', ['Method', 'Visits', 'Net'],
+            (data.by_method || []).map(r => [salesLabel(r.method), String(r.visits), formatCurrency(r.net)]),
+            { 1: right, 2: right });
+
+        table('By discount', ['Discount', 'Visits', 'Discount', 'Net'],
+            (data.by_discount || []).map(r => [salesLabel(r.discount_type), String(r.visits), formatCurrency(r.discount), formatCurrency(r.net)]),
+            { 1: right, 2: right, 3: right });
+
+        table('By intake channel', ['Channel', 'Visits', 'Net'],
+            (data.by_channel || []).map(r => [salesLabel(r.channel), String(r.visits), formatCurrency(r.net)]),
+            { 1: right, 2: right });
+
+        const totalPages = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= totalPages; i++) {
+            doc.setPage(i);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.8);
+            doc.setTextColor(PDF.muted[0], PDF.muted[1], PDF.muted[2]);
+            doc.text('Page ' + i + ' of ' + totalPages, PDF.pageW - PDF.margin, PDF.footerTop + 4.5, { align: 'right' });
+        }
+
+        doc.save(`Sales_${from}_to_${to}.pdf`);
+        showToast('Sales PDF exported successfully!', 'success');
+    } catch (err) {
+        console.error('Export PDF error:', err);
+        showToast('Failed to generate the sales PDF', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-file-pdf"></i> PDF'; }
     }
 }
 
