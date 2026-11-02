@@ -132,9 +132,31 @@ function renderStaffTable() {
             <td>${escapeHtml(s.full_name || '--')}<br><small class="text-muted">${escapeHtml(s.email || '')}</small></td>
             <td><span class="badge badge-primary">${escapeHtml(s.role)}</span></td>
             <td>${formatDateTime(s.created_at)}</td>
-            <td><button class="btn btn-sm btn-secondary" onclick="editUser(${s.id})" title="Edit account"><i class="fa-solid fa-pen"></i></button>
-            <button class="btn btn-sm btn-danger" onclick="deleteUser(${s.id})" title="Archive account"><i class="fa-solid fa-box-archive"></i></button></td>
+            <td>
+                <button class="btn btn-sm btn-secondary" onclick="editUser(${s.id})" title="Edit account"><i class="fa-solid fa-pen"></i></button>
+                <button class="btn btn-sm btn-outline" onclick="adminResetPin(${s.id}, '${escapeHtml(s.username)}')" title="Reset Export PIN"><i class="fa-solid fa-key"></i></button>
+                <button class="btn btn-sm btn-danger" onclick="deleteUser(${s.id})" title="Archive account"><i class="fa-solid fa-box-archive"></i></button>
+            </td>
         </tr>`).join('');
+}
+
+async function adminResetPin(userId, username) {
+    if (!confirm(`Reset the Export PIN for "${username}"? They will be required to create a new 6-digit PIN on their next export.`)) return;
+    try {
+        const res = await fetch('/api/export-pin/admin-reset', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ user_id: userId })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            showToast(data.message || 'Export PIN reset successfully', 'success');
+        } else {
+            showToast(data.error || 'Failed to reset PIN', 'error');
+        }
+    } catch (err) {
+        showToast('Network error resetting PIN', 'error');
+    }
 }
 
 function renderCustomerTable() {

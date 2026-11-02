@@ -1601,6 +1601,12 @@ async function loadMyMedicalRecords() {
 // stationery. Loaded before this file; see customer.html.
 
 async function exportMedicalRecordPDF() {
+    promptExportPin(null, async () => {
+        await executeMedicalRecordPDFExport();
+    });
+}
+
+async function executeMedicalRecordPDFExport() {
     const btn = document.getElementById('export-med-pdf-btn');
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...'; }
     try {

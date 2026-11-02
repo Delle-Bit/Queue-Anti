@@ -1746,5 +1746,240 @@ router.get('/sales/export-xlsx', requireStaff, async (req, res) => {
     }
 });
 
+// --- EXPORT PIN SYSTEM (FEATURE 1) ---
+const WEAK_PINS = new Set([
+    '000000', '111111', '222222', '333333', '444444',
+    '555555', '666666', '777777', '888888', '999999',
+    '123456', '654321', '112233', '121212', '696969',
+    '102030', '010101'
+]);
+
+function isWeakPin(pin) {
+    if (!/^\d{6}$/.test(String(pin || ''))) return true;
+    if (WEAK_PINS.has(pin)) return true;
+    const digits = pin.split('').map(Number);
+    const allSame = digits.every(d => d === digits[0]);
+    if (allSame) return true;
+    let asc = true, desc = true;
+    for (let i = 1; i < digits.length; i++) {
+        if (digits[i] !== digits[i - 1] + 1) asc = false;
+        if (digits[i] !== digits[i - 1] - 1) desc = false;
+    }
+    return asc || desc;
+}
+
+// In-memory short-lived single-use export authorization tokens (2 min TTL)
+const exportAuthTokens = new Map();
+
+function issueExportToken(userId) {
+    const token = crypto.randomBytes(32).toString('hex');
+    exportAuthTokens.set(token, { userId, expiresAt: Date.now() + 2 * 60 * 1000 });
+    return token;
+}
+
+function validateExportToken(token, userId) {
+    if (!token) return false;
+    const entry = exportAuthTokens.get(token);
+    if (!entry) return false;
+    exportAuthTokens.delete(token); // Single-use!
+    return entry.userId === userId && entry.expiresAt > Date.now();
+}
+
+// Check PIN status for current user
+router.get('/export-pin/status', async (req, res) => {
+    try {
+        const [users] = await pool.query(
+            'SELECT export_pin_hash, export_pin_failed_attempts, export_pin_locked_until FROM users WHERE id = ?',
+            [req.user.id]
+        );
+        if (users.length === 0) return res.status(404).json({ error: 'User not found' });
+        const u = users[0];
+        const isLocked = u.export_pin_locked_until && new Date(u.export_pin_locked_until) > new Date();
+        res.json({
+            has_pin: !!u.export_pin_hash,
+            is_locked: !!isLocked,
+            locked_until: isLocked ? u.export_pin_locked_until : null
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch PIN status' });
+    }
+});
+
+// Set PIN for the first time
+router.post('/export-pin/set', async (req, res) => {
+    const { pin } = req.body;
+    if (!pin || !/^\d{6}$/.test(String(pin))) {
+        return res.status(400).json({ error: 'PIN must be exactly 6 digits.' });
+    }
+    if (isWeakPin(pin)) {
+        return res.status(400).json({ error: 'PIN is too weak. Avoid repeating or sequential numbers.' });
+    }
+
+    try {
+        const [users] = await pool.query('SELECT export_pin_hash FROM users WHERE id = ?', [req.user.id]);
+        if (users.length > 0 && users[0].export_pin_hash) {
+            return res.status(400).json({ error: 'PIN is already set. Use change PIN instead.' });
+        }
+
+        const hash = await bcrypt.hash(pin, 10);
+        await pool.query(
+            'UPDATE users SET export_pin_hash = ?, export_pin_failed_attempts = 0, export_pin_locked_until = NULL WHERE id = ?',
+            [hash, req.user.id]
+        );
+        res.json({ success: true, message: '6-digit Export PIN set successfully.' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to set PIN' });
+    }
+});
+
+// Change PIN
+router.post('/export-pin/change', async (req, res) => {
+    const { current_credential, new_pin, use_password } = req.body;
+    if (!new_pin || !/^\d{6}$/.test(String(new_pin))) {
+        return res.status(400).json({ error: 'New PIN must be exactly 6 digits.' });
+    }
+    if (isWeakPin(new_pin)) {
+        return res.status(400).json({ error: 'New PIN is too weak. Avoid repeating or sequential numbers.' });
+    }
+
+    try {
+        const [users] = await pool.query('SELECT export_pin_hash, password FROM users WHERE id = ?', [req.user.id]);
+        if (users.length === 0) return res.status(404).json({ error: 'User not found' });
+        const u = users[0];
+
+        const hashToCheck = use_password ? u.password : u.export_pin_hash;
+        if (!hashToCheck) {
+            return res.status(400).json({ error: 'No existing credential found to verify.' });
+        }
+
+        const match = await bcrypt.compare(String(current_credential || ''), hashToCheck);
+        if (!match) {
+            return res.status(403).json({ error: use_password ? 'Incorrect account password.' : 'Incorrect current PIN.' });
+        }
+
+        const newHash = await bcrypt.hash(new_pin, 10);
+        await pool.query(
+            'UPDATE users SET export_pin_hash = ?, export_pin_failed_attempts = 0, export_pin_locked_until = NULL WHERE id = ?',
+            [newHash, req.user.id]
+        );
+        res.json({ success: true, message: 'Export PIN changed successfully.' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to change PIN' });
+    }
+});
+
+// Verify PIN and issue short-lived single-use export authorization token
+router.post('/export-pin/verify', async (req, res) => {
+    const { pin, customer_id } = req.body;
+    const ip = req.ip || req.connection?.remoteAddress || '';
+
+    if (!pin || !/^\d{6}$/.test(String(pin))) {
+        return res.status(400).json({ error: 'PIN must be exactly 6 digits.' });
+    }
+
+    try {
+        const [users] = await pool.query(
+            'SELECT export_pin_hash, export_pin_failed_attempts, export_pin_locked_until FROM users WHERE id = ?',
+            [req.user.id]
+        );
+        if (users.length === 0) return res.status(404).json({ error: 'User not found' });
+        const u = users[0];
+
+        if (!u.export_pin_hash) {
+            return res.status(428).json({ error: 'no_pin', message: 'No Export PIN set. Please create one.' });
+        }
+
+        // Lockout check
+        if (u.export_pin_locked_until && new Date(u.export_pin_locked_until) > new Date()) {
+            const untilStr = new Date(u.export_pin_locked_until).toLocaleTimeString('en-PH', { timeZone: 'Asia/Manila' });
+            await pool.query(
+                `INSERT INTO export_audit_log (user_id, customer_id, action, status, ip_address) VALUES (?, ?, 'pin_verify', 'locked_out', ?)`,
+                [req.user.id, customer_id || null, ip]
+            );
+            return res.status(429).json({ error: 'locked', message: `Account locked from exporting until ${untilStr}. (5 failed attempts limit)` });
+        }
+
+        const match = await bcrypt.compare(String(pin), u.export_pin_hash);
+        if (!match) {
+            const failed = (u.export_pin_failed_attempts || 0) + 1;
+            const lockUntil = failed >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+
+            await pool.query(
+                'UPDATE users SET export_pin_failed_attempts = ?, export_pin_locked_until = ? WHERE id = ?',
+                [failed, lockUntil, req.user.id]
+            );
+
+            await pool.query(
+                `INSERT INTO export_audit_log (user_id, customer_id, action, status, ip_address) VALUES (?, ?, 'pin_verify', 'wrong_pin', ?)`,
+                [req.user.id, customer_id || null, ip]
+            );
+
+            const remaining = Math.max(0, 5 - failed);
+            if (failed >= 5) {
+                return res.status(429).json({ error: 'locked', message: 'Too many incorrect attempts. Export locked for 15 minutes.' });
+            }
+            return res.status(403).json({ error: 'wrong_pin', remaining, message: `Incorrect PIN. ${remaining} attempt(s) remaining.` });
+        }
+
+        // Correct PIN
+        await pool.query(
+            'UPDATE users SET export_pin_failed_attempts = 0, export_pin_locked_until = NULL WHERE id = ?',
+            [req.user.id]
+        );
+
+        await pool.query(
+            `INSERT INTO export_audit_log (user_id, customer_id, action, status, ip_address) VALUES (?, ?, 'pin_verify', 'success', ?)`,
+            [req.user.id, customer_id || null, ip]
+        );
+
+        const exportToken = issueExportToken(req.user.id);
+        res.json({ success: true, export_token: exportToken });
+    } catch (err) {
+        console.error('PIN verify error:', err);
+        res.status(500).json({ error: 'Failed to verify PIN' });
+    }
+});
+
+// Authorize medical record export using short-lived token
+router.get('/medical-records/export/authorize', async (req, res) => {
+    const { export_token, customer_id } = req.query;
+    const ip = req.ip || req.connection?.remoteAddress || '';
+
+    if (!validateExportToken(export_token, req.user.id)) {
+        try {
+            await pool.query(
+                `INSERT INTO export_audit_log (user_id, customer_id, action, status, ip_address) VALUES (?, ?, 'medical_record_export', 'refused_invalid_token', ?)`,
+                [req.user.id, customer_id || null, ip]
+            );
+        } catch (_) {}
+        return res.status(403).json({ error: 'Export authorization missing or expired. Please enter PIN again.' });
+    }
+
+    try {
+        await pool.query(
+            `INSERT INTO export_audit_log (user_id, customer_id, action, status, ip_address) VALUES (?, ?, 'medical_record_export', 'authorized', ?)`,
+            [req.user.id, customer_id || null, ip]
+        );
+    } catch (_) {}
+
+    res.json({ success: true, authorized: true });
+});
+
+// Admin reset user's PIN
+router.post('/export-pin/admin-reset', requireAdmin, async (req, res) => {
+    const { user_id } = req.body;
+    if (!user_id) return res.status(400).json({ error: 'user_id is required' });
+
+    try {
+        await pool.query(
+            'UPDATE users SET export_pin_hash = NULL, export_pin_failed_attempts = 0, export_pin_locked_until = NULL WHERE id = ?',
+            [user_id]
+        );
+        res.json({ success: true, message: 'User PIN has been reset. They will be prompted to set a new PIN on next export.' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to reset PIN' });
+    }
+});
+
 module.exports = router;
 module.exports.checkElevatedOtp = checkElevatedOtp;

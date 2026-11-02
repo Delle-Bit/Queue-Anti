@@ -1829,3 +1829,156 @@ document.addEventListener('DOMContentLoaded', () => {
     initAnnouncements();
     initIdleTimeout();
 });
+
+// ── EXPORT PIN VERIFICATION SYSTEM (FEATURE 1) ─────────────────
+function promptExportPin(customerId, onAuthorized) {
+    let modal = document.getElementById('export-pin-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'export-pin-modal';
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal-box" style="max-width:420px;text-align:center;">
+                <div class="modal-header">
+                    <div class="modal-title" id="pin-modal-title"><i class="fa-solid fa-shield-halved"></i> Security Verification</div>
+                    <button class="modal-close" onclick="closeModal('export-pin-modal')">&times;</button>
+                </div>
+                <div class="modal-body" style="padding:20px 24px;">
+                    <p id="pin-modal-desc" style="color:var(--text-muted);font-size:0.9rem;margin-bottom:16px;">
+                        Enter your 6-digit PIN to export medical records.
+                    </p>
+                    <div style="display:flex;gap:8px;justify-content:center;margin:16px 0;" id="pin-boxes-container">
+                        <input type="password" maxlength="1" inputmode="numeric" class="form-input pin-digit" style="width:44px;height:52px;text-align:center;font-size:1.5rem;font-weight:700;" data-idx="0">
+                        <input type="password" maxlength="1" inputmode="numeric" class="form-input pin-digit" style="width:44px;height:52px;text-align:center;font-size:1.5rem;font-weight:700;" data-idx="1">
+                        <input type="password" maxlength="1" inputmode="numeric" class="form-input pin-digit" style="width:44px;height:52px;text-align:center;font-size:1.5rem;font-weight:700;" data-idx="2">
+                        <input type="password" maxlength="1" inputmode="numeric" class="form-input pin-digit" style="width:44px;height:52px;text-align:center;font-size:1.5rem;font-weight:700;" data-idx="3">
+                        <input type="password" maxlength="1" inputmode="numeric" class="form-input pin-digit" style="width:44px;height:52px;text-align:center;font-size:1.5rem;font-weight:700;" data-idx="4">
+                        <input type="password" maxlength="1" inputmode="numeric" class="form-input pin-digit" style="width:44px;height:52px;text-align:center;font-size:1.5rem;font-weight:700;" data-idx="5">
+                    </div>
+                    <div id="pin-modal-error" style="color:var(--danger, #d32f2f);font-size:0.85rem;margin-top:8px;display:none;font-weight:600;"></div>
+                </div>
+                <div class="modal-footer" style="justify-content:center;gap:12px;">
+                    <button class="btn btn-secondary" onclick="closeModal('export-pin-modal')">Cancel</button>
+                    <button class="btn btn-primary" id="btn-submit-pin"><i class="fa-solid fa-lock"></i> Verify &amp; Export</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        const digits = modal.querySelectorAll('.pin-digit');
+        digits.forEach((input, i) => {
+            input.addEventListener('input', (e) => {
+                input.value = input.value.replace(/[^0-9]/g, '');
+                if (input.value && i < digits.length - 1) {
+                    digits[i + 1].focus();
+                }
+            });
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace' && !input.value && i > 0) {
+                    digits[i - 1].focus();
+                } else if (e.key === 'Enter') {
+                    document.getElementById('btn-submit-pin').click();
+                }
+            });
+        });
+    }
+
+    const digits = modal.querySelectorAll('.pin-digit');
+    digits.forEach(d => { d.value = ''; d.disabled = false; });
+    const errBox = document.getElementById('pin-modal-error');
+    errBox.style.display = 'none';
+    errBox.textContent = '';
+
+    fetch('/api/export-pin/status', { headers: authHeaders() })
+        .then(r => r.json())
+        .then(status => {
+            const titleEl = document.getElementById('pin-modal-title');
+            const descEl = document.getElementById('pin-modal-desc');
+            const btnSubmit = document.getElementById('btn-submit-pin');
+
+            if (status.is_locked) {
+                digits.forEach(d => d.disabled = true);
+                errBox.textContent = `Account export locked until ${new Date(status.locked_until).toLocaleTimeString()}.`;
+                errBox.style.display = 'block';
+                btnSubmit.disabled = true;
+                openModal('export-pin-modal');
+                return;
+            }
+
+            btnSubmit.disabled = false;
+
+            if (!status.has_pin) {
+                titleEl.innerHTML = '<i class="fa-solid fa-key"></i> Create 6-Digit Export PIN';
+                descEl.textContent = 'You have not set an Export PIN yet. Please create a 6-digit numeric PIN to protect medical records.';
+                btnSubmit.innerHTML = '<i class="fa-solid fa-check"></i> Set PIN &amp; Export';
+                btnSubmit.onclick = async () => {
+                    const pinVal = Array.from(digits).map(d => d.value).join('');
+                    if (pinVal.length !== 6) return showPinModalError('Please enter all 6 digits.');
+                    try {
+                        const setRes = await fetch('/api/export-pin/set', {
+                            method: 'POST',
+                            headers: authHeaders(),
+                            body: JSON.stringify({ pin: pinVal })
+                        });
+                        const setJson = await setRes.json();
+                        if (!setRes.ok) return showPinModalError(setJson.error || 'Failed to set PIN');
+                        verifyAndAuthorize(pinVal);
+                    } catch (e) {
+                        showPinModalError('Network error setting PIN');
+                    }
+                };
+            } else {
+                titleEl.innerHTML = '<i class="fa-solid fa-shield-halved"></i> Enter 6-Digit Export PIN';
+                descEl.textContent = 'Enter your 6-digit PIN to authorize exporting sensitive medical records.';
+                btnSubmit.innerHTML = '<i class="fa-solid fa-lock-open"></i> Verify &amp; Export';
+                btnSubmit.onclick = () => {
+                    const pinVal = Array.from(digits).map(d => d.value).join('');
+                    if (pinVal.length !== 6) return showPinModalError('Please enter all 6 digits.');
+                    verifyAndAuthorize(pinVal);
+                };
+            }
+
+            openModal('export-pin-modal');
+            setTimeout(() => digits[0]?.focus(), 150);
+        })
+        .catch(err => {
+            showToast('Failed to check export PIN status', 'error');
+        });
+
+    function showPinModalError(msg) {
+        errBox.textContent = msg;
+        errBox.style.display = 'block';
+        digits.forEach(d => d.value = '');
+        digits[0]?.focus();
+    }
+
+    async function verifyAndAuthorize(pinVal) {
+        try {
+            const vRes = await fetch('/api/export-pin/verify', {
+                method: 'POST',
+                headers: authHeaders(),
+                body: JSON.stringify({ pin: pinVal, customer_id: customerId })
+            });
+            const vData = await vRes.json();
+            if (!vRes.ok) {
+                return showPinModalError(vData.message || vData.error || 'Incorrect PIN');
+            }
+
+            const authRes = await fetch(`/api/medical-records/export/authorize?export_token=${vData.export_token}&customer_id=${customerId || ''}`, {
+                headers: authHeaders()
+            });
+            const authData = await authRes.json();
+            if (!authRes.ok) {
+                return showPinModalError(authData.error || 'Export authorization refused');
+            }
+
+            closeModal('export-pin-modal');
+            showToast('PIN verified! Export authorized.', 'success');
+            if (typeof onAuthorized === 'function') {
+                onAuthorized(vData.export_token);
+            }
+        } catch (err) {
+            showPinModalError('Error verifying PIN');
+        }
+    }
+}
