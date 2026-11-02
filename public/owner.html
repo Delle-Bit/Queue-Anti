@@ -86,7 +86,7 @@
                             <label class="form-label text-sm" for="sales-to">To</label>
                             <input type="date" id="sales-to" class="form-input" style="width:160px;">
                         </div>
-                        <button class="btn btn-primary" onclick="loadSalesReport()"><i class="fa-solid fa-magnifying-glass-dollar"></i> Show</button>
+                        <button type="button" class="btn btn-primary btn-icon" onclick="loadSalesReport()" title="Reload report" aria-label="Reload report"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i></button>
                         <details class="export-menu" id="sales-export-menu">
                             <summary class="btn btn-outline" title="Export this report"><i class="fa-solid fa-file-export"></i> Export</summary>
                             <div class="export-menu-list" role="menu" aria-label="Export sales report">
