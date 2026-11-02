@@ -99,12 +99,12 @@
                 </div>
 
                 <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">
-                    <button class="btn btn-sm btn-outline" onclick="setSalesRange('today')">Today</button>
-                    <button class="btn btn-sm btn-outline" onclick="setSalesRange('week')">Last 7 days</button>
-                    <button class="btn btn-sm btn-outline" onclick="setSalesRange('month')">This month</button>
-                    <button class="btn btn-sm btn-outline" onclick="setSalesRange('lastmonth')">Last month</button>
-                    <button class="btn btn-sm btn-outline" onclick="setSalesRange('year')">This year</button>
-                    <button class="btn btn-sm btn-outline" onclick="setSalesRange('lastyear')">Last year</button>
+                    <button type="button" class="btn btn-sm btn-outline" data-sales-range="today" aria-pressed="false" onclick="setSalesRange('today')">Today</button>
+                    <button type="button" class="btn btn-sm btn-outline" data-sales-range="week" aria-pressed="false" onclick="setSalesRange('week')">Last 7 days</button>
+                    <button type="button" class="btn btn-sm btn-outline" data-sales-range="month" aria-pressed="false" onclick="setSalesRange('month')">This month</button>
+                    <button type="button" class="btn btn-sm btn-outline" data-sales-range="lastmonth" aria-pressed="false" onclick="setSalesRange('lastmonth')">Last month</button>
+                    <button type="button" class="btn btn-sm btn-outline" data-sales-range="year" aria-pressed="false" onclick="setSalesRange('year')">This year</button>
+                    <button type="button" class="btn btn-sm btn-outline" data-sales-range="lastyear" aria-pressed="false" onclick="setSalesRange('lastyear')">Last year</button>
                 </div>
 
                 <div id="sales-notice" class="text-sm" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:8px;background:rgba(241,196,15,0.12);"></div>

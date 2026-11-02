@@ -149,6 +149,47 @@ function salesPeriod() {
     return { from: salesDateValue(new Date(year, m, 1)), to: salesDateValue(new Date(year, m + 1, 0)), group: 'day' };
 }
 
+// Which quick range (if any) the controls currently exactly match. Drives the
+// highlight on the Today / This month / This year buttons so the active filter
+// is visible rather than only implied by the dropdowns.
+function currentSalesRange() {
+    const mode = document.getElementById('sales-mode').value;
+    const today = new Date();
+    const todayStr = salesDateValue(today);
+    if (mode === 'yearly') {
+        const y = parseInt(document.getElementById('sales-year').value, 10);
+        if (y === today.getFullYear()) return 'year';
+        if (y === today.getFullYear() - 1) return 'lastyear';
+        return null;
+    }
+    if (mode === 'monthly') {
+        const y = parseInt(document.getElementById('sales-year').value, 10);
+        const m = parseInt(document.getElementById('sales-month').value, 10);
+        if (y === today.getFullYear() && m === today.getMonth()) return 'month';
+        const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        if (y === prev.getFullYear() && m === prev.getMonth()) return 'lastmonth';
+        return null;
+    }
+    // Custom range: only the two date shortcuts can match exactly.
+    const from = document.getElementById('sales-from').value;
+    const to = document.getElementById('sales-to').value;
+    if (from === todayStr && to === todayStr) return 'today';
+    const weekFrom = new Date(today);
+    weekFrom.setDate(today.getDate() - 6);
+    if (from === salesDateValue(weekFrom) && to === todayStr) return 'week';
+    return null;
+}
+
+function syncSalesRangeButtons() {
+    const active = currentSalesRange();
+    document.querySelectorAll('[data-sales-range]').forEach(btn => {
+        const on = btn.dataset.salesRange === active;
+        btn.classList.toggle('btn-primary', on);
+        btn.classList.toggle('btn-outline', !on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+}
+
 const SALES_LABELS = {
     none: 'No discount', senior: 'Senior (20%)', pwd: 'PWD (20%)', other: 'Other',
     cash: 'Cash', gcash: 'GCash', card: 'Card', bank: 'Bank transfer', hmo: 'HMO',
@@ -158,6 +199,7 @@ const SALES_LABELS = {
 const salesLabel = key => SALES_LABELS[key] || key || '--';
 
 async function loadSalesReport() {
+    syncSalesRangeButtons();
     const period = salesPeriod();
     if (!period) return showToast('Choose the period to report on', 'error');
     const { from, to, group } = period;
