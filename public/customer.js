@@ -15,6 +15,19 @@ let medicalFormComplete = false;
 let calendarDate = new Date();
 let latestQueuePreview = null;
 const APPT_SLOTS = ['08:00', '09:00', '10:00', '11:00', '13:00', '14:00'];
+
+// ── AVAILABLE-SLOTS PREVIEW (appointments section) ──
+// A read-only month of availability, separate from the booking modal's own
+// calendar. availAppointments holds only {date,time,duration} for the month -
+// the server never sends patient identity - and the client maps it onto
+// APPT_SLOTS so "open" here means "bookable in the form".
+let availCalendarDate = new Date();
+let availAppointments = [];
+let availSelectedDate = null;
+// Set when a customer starts booking from the preview; folded into the modal's
+// date/time step once they reach it. Only one service is bookable at a time, so
+// the service still has to be chosen first.
+let apptPrefillSlot = null;
 window.onSectionLoad = {
     dashboard: loadDashboard,
     services: loadServices,
@@ -533,6 +546,8 @@ async function loadAppointments() {
         renderAppointmentCalendar();
     } catch (err) { console.error(err); }
     clearSkeleton('appointments-list');
+    // The availability preview lives in the same section and shares this load.
+    loadAvailCalendar();
 }
 
 async function bookAppointment() {
@@ -760,6 +775,13 @@ function updateApptModalView() {
         }
     }
 
+    // Fold in a slot chosen from the availability preview the first time the
+    // customer reaches the date/time step. applyApptPrefill clears the pending
+    // slot immediately, so this runs once per booking.
+    if (apptStep === 3 && apptPrefillSlot) {
+        applyApptPrefill();
+    }
+
     const prev = document.getElementById('appt-prev-btn');
     const next = document.getElementById('appt-next-btn');
     const confirm = document.getElementById('appt-confirm-btn');
@@ -953,6 +975,178 @@ function selectAppointmentDate(iso) {
 }
 
 // ── MANDATORY MEDICAL FORM ─────────────────────────────────────────
+
+// ── AVAILABLE-SLOTS PREVIEW ──
+function availMonthKey(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+async function loadAvailCalendar() {
+    const cal = document.getElementById('avail-calendar');
+    if (!cal) return;
+    const label = document.getElementById('avail-month-label');
+    if (label) label.textContent = availCalendarDate.toLocaleDateString([], { month: 'long', year: 'numeric' });
+    try {
+        const res = await fetch(`/api/queue/appointment-availability?month=${availMonthKey(availCalendarDate)}`, { headers: authHeaders() });
+        const data = await res.json().catch(() => ({}));
+        availAppointments = Array.isArray(data.appointments) ? data.appointments : [];
+    } catch (err) { availAppointments = []; }
+    renderAvailCalendar();
+}
+
+// Overlap, not an exact-time match: a 60-minute appointment at 09:00 also
+// occupies the 09:00 preview slot. Mirrors the server's booking rule.
+function availSlotTaken(iso, timeStr) {
+    const [h, m] = timeStr.split(':').map(Number);
+    const slotStart = h * 60 + m;
+    const slotEnd = slotStart + 60;
+    return availAppointments.some(a => {
+        if (a.date !== iso) return false;
+        const [ah, am] = String(a.time).split(':').map(Number);
+        const aStart = ah * 60 + am;
+        const aEnd = aStart + (Number(a.duration_minutes) || 30);
+        return aStart < slotEnd && aEnd > slotStart;
+    });
+}
+
+function availOpenCount(iso) {
+    return APPT_SLOTS.filter(t => !availSlotTaken(iso, t)).length;
+}
+
+function renderAvailCalendar() {
+    const cal = document.getElementById('avail-calendar');
+    if (!cal) return;
+    const year = availCalendarDate.getFullYear();
+    const month = availCalendarDate.getMonth();
+    const first = new Date(year, month, 1);
+    const start = new Date(first);
+    start.setDate(first.getDate() - first.getDay());
+    const heads = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+        .map(d => `<div class="calendar-head">${d}</div>`).join('');
+    let days = '';
+    for (let i = 0; i < 42; i++) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        const iso = formatLocalDate(d);
+        const muted = d.getMonth() !== month ? 'muted' : '';
+        const past = isPastDate(iso);
+        const blockedToday = isQueuedTodayDate(iso);
+        const disabled = past || blockedToday;
+        const open = availOpenCount(iso);
+        const cls = ['calendar-day', muted, disabled ? 'past' : '', (!disabled && open === 0) ? 'no-open' : '']
+            .filter(Boolean).join(' ');
+        const selected = availSelectedDate === iso ? 'selected' : '';
+        const stateText = past ? 'past date'
+            : blockedToday ? 'you are in the queue today'
+                : open > 0 ? `${open} slot${open === 1 ? '' : 's'} open`
+                    : 'fully booked';
+        const attrs = disabled
+            ? 'disabled aria-disabled="true"'
+            : `onclick="availSelectDate('${iso}')" aria-pressed="${availSelectedDate === iso}"`;
+        days += `<button type="button" class="${cls} ${selected}" ${attrs} aria-label="${escapeHtml(d.toLocaleDateString([], { month: 'short', day: 'numeric' }))}: ${stateText}">
+            <span class="cal-num" aria-hidden="true">${d.getDate()}</span>
+            ${disabled ? '' : `<span class="avail-count" aria-hidden="true">${open}</span>`}
+        </button>`;
+    }
+    cal.innerHTML = heads + days;
+
+    // Nothing before the current month can be booked, so don't let the user page
+    // back into a grid of dead cells.
+    const prev = document.querySelector('.avail-toolbar button[aria-label="Previous month"]');
+    if (prev) {
+        const now = new Date();
+        prev.disabled = (year === now.getFullYear() && month === now.getMonth());
+    }
+
+    if (availSelectedDate && availSelectedDate.slice(0, 7) === availMonthKey(availCalendarDate)) {
+        renderAvailDay(availSelectedDate);
+    } else {
+        availSelectedDate = null;
+        const dayEl = document.getElementById('avail-day');
+        if (dayEl) { dayEl.hidden = true; dayEl.innerHTML = ''; }
+    }
+}
+
+function availSelectDate(iso) {
+    if (isPastDate(iso)) return showToast('Please choose today or a future date.', 'warning');
+    if (isQueuedTodayDate(iso)) return showToast('You are in the queue today. Please pick a later date.', 'warning');
+    availSelectedDate = iso;
+    renderAvailCalendar();
+}
+
+function renderAvailDay(iso) {
+    const el = document.getElementById('avail-day');
+    if (!el) return;
+    const openCount = availOpenCount(iso);
+    const pretty = new Date(iso + 'T00:00:00').toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+    const slots = APPT_SLOTS.map(t => {
+        const taken = availSlotTaken(iso, t);
+        const past = isPastSlot(iso, t);
+        const blocked = taken || past;
+        const cls = ['time-slot', taken ? 'full' : '', past ? 'past' : ''].filter(Boolean).join(' ');
+        const label = taken ? 'booked' : past ? 'past' : 'available';
+        const attrs = blocked
+            ? 'disabled aria-disabled="true"'
+            : `onclick="openApptFromSlot('${iso}', '${t}')"`;
+        return `<button type="button" class="${cls}" ${attrs} aria-label="${t} ${label}">${t}</button>`;
+    }).join('');
+    el.hidden = false;
+    el.innerHTML = `
+        <div class="avail-day-head">
+            <strong>${escapeHtml(pretty)}</strong>
+            <span class="text-muted text-sm">${openCount > 0 ? openCount + ' open' : 'No slots left'}</span>
+        </div>
+        <div class="time-slots-grid">${slots}</div>
+        <p class="avail-empty mt-sm">${openCount > 0
+            ? 'Choose an open time to begin booking.'
+            : 'This day is fully booked. Please choose another date.'}</p>`;
+}
+
+function changeAvailMonth(delta) {
+    const target = new Date(availCalendarDate.getFullYear(), availCalendarDate.getMonth() + delta, 1);
+    const now = new Date();
+    if (target < new Date(now.getFullYear(), now.getMonth(), 1)) return;
+    availCalendarDate = target;
+    availSelectedDate = null;
+    loadAvailCalendar();
+}
+
+function availToday() {
+    availCalendarDate = new Date();
+    availSelectedDate = formatLocalDate(new Date());
+    loadAvailCalendar();
+}
+
+// Start a booking from the preview: remember the slot, open the booking modal
+// at its first step, and fold the date/time in when the customer reaches the
+// date step (see updateApptModalView).
+function openApptFromSlot(date, time) {
+    apptPrefillSlot = { date, time };
+    resetApptModal();
+    openModal('appt-modal');
+    showToast('Choose a service to continue. Your selected slot is saved.', 'info');
+}
+
+async function applyApptPrefill() {
+    const p = apptPrefillSlot;
+    apptPrefillSlot = null;
+    if (!p) return;
+    if (isPastSlot(p.date, p.time)) {
+        return showToast('That slot has already passed. Please pick another time.', 'warning');
+    }
+    document.getElementById('appt-date').value = p.date;
+    document.getElementById('selected-appt-date').textContent = p.date;
+    calendarDate = new Date(p.date + 'T00:00:00');
+    renderAppointmentCalendar();
+    document.getElementById('appt-slot-section').style.display = 'block';
+    await fetchTimeSlots();
+    const chip = document.getElementById('ts-' + p.time);
+    if (chip && !chip.classList.contains('full') && !chip.classList.contains('past')) {
+        selectTimeSlot(p.time);
+    } else {
+        showToast('That slot was just taken. Please choose another time.', 'warning');
+    }
+}
 
 async function checkMandatoryMedicalForm(force = false) {
     try {
@@ -1601,6 +1795,12 @@ async function loadMyMedicalRecords() {
 // stationery. Loaded before this file; see customer.html.
 
 async function exportMedicalRecordPDF() {
+    promptExportPin(null, async () => {
+        await executeMedicalRecordPDFExport();
+    });
+}
+
+async function executeMedicalRecordPDFExport() {
     const btn = document.getElementById('export-med-pdf-btn');
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...'; }
     try {

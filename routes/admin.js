@@ -5,7 +5,7 @@ const bcrypt = require('bcrypt');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const multer = require('multer');
-const { requireStaff, requireAdmin, STAFF_ROLES } = require('../config');
+const { requireStaff, requireAdmin, requireSalesReport, STAFF_ROLES } = require('../config');
 const aiServices = require('../ai_services');
 const appointmentAutomation = require('../appointment_automation');
 const sessionActivity = require('../session_activity');
@@ -424,6 +424,110 @@ router.get('/appointments', requireStaff, async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+// --- APPOINTMENT CALENDAR VIEW (FEATURE 2) ---
+router.get('/appointments/calendar', requireStaff, async (req, res) => {
+    const { start, end, service_id } = req.query;
+    if (!start || !end) {
+        return res.status(400).json({ error: 'start and end dates are required (YYYY-MM-DD)' });
+    }
+
+    try {
+        const [settingsRows] = await pool.query('SELECT * FROM settings LIMIT 1');
+        const settings = settingsRows[0] || {};
+        const bizStart = settings.business_hours_start || '08:00';
+        const bizEnd = settings.business_hours_end || '17:00';
+        const slotMin = Number(settings.slot_duration_minutes) || 30;
+
+        const conditions = [
+            'a.appointment_date >= ?',
+            'a.appointment_date <= ?',
+            'a.archived = false',
+            "a.status NOT IN ('cancelled', 'no-show')"
+        ];
+        const params = [start, end];
+
+        if (service_id) {
+            conditions.push('a.package_id = ?');
+            params.push(service_id);
+        }
+
+        const [appts] = await pool.query(
+            `SELECT a.id,
+                    DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+                    TIME_FORMAT(a.appointment_time, '%H:%i') AS appointment_time,
+                    a.status, a.payment_status, a.notes,
+                    sp.id AS package_id, sp.name AS service_name,
+                    COALESCE(sp.est_time_minutes, ?) AS duration_minutes,
+                    u.id AS customer_id, COALESCE(u.full_name, u.username) AS customer_name,
+                    u.customer_category
+             FROM appointments a
+             JOIN service_packages sp ON a.package_id = sp.id
+             JOIN users u ON a.customer_id = u.id
+             WHERE ${conditions.join(' AND ')}
+             ORDER BY a.appointment_date, a.appointment_time`,
+            [slotMin, ...params]
+        );
+
+        const [startH, startM] = bizStart.split(':').map(Number);
+        const [endH, endM] = bizEnd.split(':').map(Number);
+        const dayStartMin = startH * 60 + startM;
+        const dayEndMin = endH * 60 + endM;
+
+        const slots = [];
+        const cursor = new Date(start + 'T00:00:00');
+        const endDateObj = new Date(end + 'T00:00:00');
+
+        while (cursor <= endDateObj) {
+            const dateStr = cursor.toISOString().slice(0, 10);
+            for (let min = dayStartMin; min < dayEndMin; min += slotMin) {
+                const h = String(Math.floor(min / 60)).padStart(2, '0');
+                const m = String(min % 60).padStart(2, '0');
+                const timeStr = `${h}:${m}`;
+                const slotEndMin = min + slotMin;
+
+                const matchingAppt = appts.find(a => {
+                    if (a.appointment_date !== dateStr) return false;
+                    const [ah, am] = a.appointment_time.split(':').map(Number);
+                    const apptStart = ah * 60 + am;
+                    const apptEnd = apptStart + (Number(a.duration_minutes) || slotMin);
+                    return apptStart < slotEndMin && apptEnd > min;
+                });
+
+                slots.push({
+                    date: dateStr,
+                    time: timeStr,
+                    status: matchingAppt ? 'taken' : 'available',
+                    appointment: matchingAppt ? {
+                        id: matchingAppt.id,
+                        customer_name: matchingAppt.customer_name,
+                        customer_category: matchingAppt.customer_category,
+                        service_name: matchingAppt.service_name,
+                        package_id: matchingAppt.package_id,
+                        status: matchingAppt.status,
+                        payment_status: matchingAppt.payment_status,
+                        appointment_time: matchingAppt.appointment_time
+                    } : null
+                });
+            }
+            cursor.setDate(cursor.getDate() + 1);
+        }
+
+        res.json({
+            start, end,
+            settings: {
+                business_hours_start: bizStart,
+                business_hours_end: bizEnd,
+                slot_duration_minutes: slotMin
+            },
+            appointments: appts,
+            slots
+        });
+    } catch (err) {
+        console.error('Calendar appointments error:', err);
+        res.status(500).json({ error: 'Failed to generate calendar view' });
+    }
+});
+
 router.get('/appointments/my', async (req, res) => {
     try {
         await appointmentAutomation.sweepQuietly();
@@ -541,41 +645,78 @@ router.post('/appointments', async (req, res) => {
             `SELECT COUNT(*) as cnt FROM package_laboratories pl JOIN laboratories l ON pl.laboratory_id = l.id
              WHERE pl.package_id = ? AND pl.archived = false AND l.archived = false`, [package_id]
         );
-        const [pkgRows] = await pool.query('SELECT doctor_id, price FROM service_packages WHERE id = ? AND archived = false', [package_id]);
+        const [pkgRows] = await pool.query('SELECT doctor_id, price, est_time_minutes FROM service_packages WHERE id = ? AND archived = false', [package_id]);
         if (pkgRows.length === 0) return res.status(404).json({ error: 'Package not found' });
         if (labCount[0].cnt === 0 && !pkgRows[0].doctor_id) return res.status(400).json({ error: 'This service is currently unavailable.' });
-        const [slotCount] = await pool.query(
-            `SELECT COUNT(*) as cnt FROM appointments WHERE appointment_date=? AND status != 'cancelled' AND archived=false`,
-            [appointment_date]
-        );
-        if (slotCount[0].cnt >= 6) return res.status(400).json({ error: 'This date is fully booked.' });
-        const [slotTaken] = await pool.query(
-            `SELECT id FROM appointments WHERE appointment_date=? AND appointment_time=? AND status != 'cancelled' AND archived=false`,
-            [appointment_date, appointment_time]
-        );
-        if (slotTaken.length > 0) return res.status(400).json({ error: 'This appointment slot is already booked.' });
+        // Availability is re-checked inside a transaction that locks the day's
+        // live appointments, because the calendar the patient clicked can be
+        // stale by the time this request arrives. Two requests for the same slot
+        // must not both read it as free and both insert.
+        const requestDuration = Number(pkgRows[0].est_time_minutes) || 30;
+        const [reqH, reqM] = String(appointment_time).slice(0, 5).split(':').map(Number);
+        const requestStart = reqH * 60 + reqM;
+        const requestEnd = requestStart + requestDuration;
 
-        // Priority surcharge on the package price, stored on the row so a later
-        // price change cannot alter what this patient was quoted. Left 'pending':
-        // the front desk collects it when they clear the cashier step.
-        const surchargePct = appointmentAutomation.APPOINTMENT_SURCHARGE_PCT;
-        const amountDue = appointmentAutomation.appointmentPrice(pkgRows[0].price, surchargePct);
+        const conn = await pool.getConnection();
+        try {
+            await conn.beginTransaction();
+            // Lock the day's appointments so a concurrent booking for the same
+            // date waits here rather than racing the checks below. Cancelled and
+            // no-show rows are excluded - they have freed their slot.
+            const [sameDay] = await conn.query(
+                `SELECT a.id, a.appointment_time,
+                        COALESCE(sp.est_time_minutes, 30) AS duration_minutes
+                 FROM appointments a
+                 JOIN service_packages sp ON a.package_id = sp.id
+                 WHERE a.appointment_date = ? AND a.status NOT IN ('cancelled', 'no-show') AND a.archived = false
+                 FOR UPDATE`,
+                [appointment_date]
+            );
+            if (sameDay.length >= 6) {
+                await conn.rollback();
+                return res.status(400).json({ error: 'This date is fully booked.' });
+            }
+            // Overlap, not just an exact-time match: a 60-minute appointment at
+            // 09:00 also occupies the 09:30 slot.
+            const clash = sameDay.find(a => {
+                const [ah, am] = String(a.appointment_time).slice(0, 5).split(':').map(Number);
+                const aStart = ah * 60 + am;
+                const aEnd = aStart + (Number(a.duration_minutes) || 30);
+                return aStart < requestEnd && aEnd > requestStart;
+            });
+            if (clash) {
+                await conn.rollback();
+                return res.status(400).json({ error: 'This appointment slot is already booked.' });
+            }
 
-        const [ins] = await pool.query(
-            `INSERT INTO appointments (customer_id, package_id, appointment_date, appointment_time,
-                                       payment_status, payment_method, payment_ref, notes,
-                                       amount_due, surcharge_pct)
-             VALUES (?, ?, ?, ?, 'pending', 'onsite', '', ?, ?, ?)`,
-            [req.user.id, package_id, appointment_date, appointment_time, notes || '', amountDue, surchargePct]
-        );
-        res.json({
-            success: true,
-            id: ins.insertId,
-            base_price: Number(pkgRows[0].price),
-            surcharge_pct: surchargePct,
-            amount_due: amountDue,
-            payment_status: 'pending'
-        });
+            // Priority surcharge on the package price, stored on the row so a later
+            // price change cannot alter what this patient was quoted. Left 'pending':
+            // the front desk collects it when they clear the cashier step.
+            const surchargePct = appointmentAutomation.APPOINTMENT_SURCHARGE_PCT;
+            const amountDue = appointmentAutomation.appointmentPrice(pkgRows[0].price, surchargePct);
+
+            const [ins] = await conn.query(
+                `INSERT INTO appointments (customer_id, package_id, appointment_date, appointment_time,
+                                           payment_status, payment_method, payment_ref, notes,
+                                           amount_due, surcharge_pct)
+                 VALUES (?, ?, ?, ?, 'pending', 'onsite', '', ?, ?, ?)`,
+                [req.user.id, package_id, appointment_date, appointment_time, notes || '', amountDue, surchargePct]
+            );
+            await conn.commit();
+            res.json({
+                success: true,
+                id: ins.insertId,
+                base_price: Number(pkgRows[0].price),
+                surcharge_pct: surchargePct,
+                amount_due: amountDue,
+                payment_status: 'pending'
+            });
+        } catch (txErr) {
+            await conn.rollback();
+            throw txErr;
+        } finally {
+            conn.release();
+        }
     } catch (err) {
         console.error('Book appointment error:', err);
         res.status(500).json({ error: 'Failed' });
@@ -1302,6 +1443,596 @@ router.delete('/archives/:id', requireAdmin, requireReason, async (req, res) => 
     } catch (err) {
         console.error('Purge error:', err);
         res.status(500).json({ error: 'Failed to permanently delete' });
+    }
+});
+
+// --- SERVICE CORRECTION (FEATURE 4) ---
+const VALID_CORRECTION_REASONS = ['Wrong entry', 'Customer changed request', 'Duplicate entry', 'Other'];
+
+router.post('/service-correction', requireStaff, async (req, res) => {
+    const { appointment_id, new_service_id, reason, notes } = req.body;
+    if (!appointment_id || !new_service_id || !reason) {
+        return res.status(400).json({ error: 'appointment_id, new_service_id, and reason are required' });
+    }
+    if (!VALID_CORRECTION_REASONS.includes(reason)) {
+        return res.status(400).json({ error: 'Invalid correction reason' });
+    }
+
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+
+        // 1. Fetch current appointment and old service package
+        const [appts] = await conn.query(
+            `SELECT a.*, sp.name as current_service_name, sp.price as current_price,
+                    sp.est_time_minutes as current_duration
+             FROM appointments a
+             JOIN service_packages sp ON a.package_id = sp.id
+             WHERE a.id = ? AND a.archived = false FOR UPDATE`,
+            [appointment_id]
+        );
+        if (appts.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ error: 'Appointment not found' });
+        }
+        const appt = appts[0];
+
+        // 2. Fetch new service package
+        const [newSvcs] = await conn.query(
+            'SELECT id, name, price, est_time_minutes FROM service_packages WHERE id = ? AND archived = false',
+            [new_service_id]
+        );
+        if (newSvcs.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ error: 'New service package not found' });
+        }
+        const newSvc = newSvcs[0];
+
+        const oldPrice = Number(appt.current_price) || 0;
+        const newPrice = Number(newSvc.price) || 0;
+        const priceDiff = newPrice - oldPrice;
+        const oldDuration = Number(appt.current_duration) || 15;
+        const newDuration = Number(newSvc.est_time_minutes) || 15;
+
+        // 3. If new duration conflicts with a subsequent appointment, warn and block
+        if (newDuration > oldDuration) {
+            const [hStr, mStr] = String(appt.appointment_time).slice(0, 5).split(':');
+            const startMinutes = parseInt(hStr, 10) * 60 + parseInt(mStr, 10);
+            const newEndMinutes = startMinutes + newDuration;
+            const endHour = String(Math.floor(newEndMinutes / 60)).padStart(2, '0');
+            const endMin = String(newEndMinutes % 60).padStart(2, '0');
+            const newEndTime = `${endHour}:${endMin}:00`;
+
+            const [conflicts] = await conn.query(
+                `SELECT id, appointment_time FROM appointments
+                 WHERE appointment_date = ? AND id != ?
+                   AND status NOT IN ('cancelled', 'no-show') AND archived = false
+                   AND appointment_time > ? AND appointment_time < ?
+                 LIMIT 1`,
+                [appt.appointment_date, appt.id, appt.appointment_time, newEndTime]
+            );
+            if (conflicts.length > 0) {
+                await conn.rollback();
+                return res.status(409).json({
+                    error: `New service duration (${newDuration}m) conflicts with another appointment at ${conflicts[0].appointment_time.slice(0, 5)}`
+                });
+            }
+        }
+
+        // 4. Record correction in audit trail
+        await conn.query(
+            `INSERT INTO service_corrections
+             (appointment_id, old_service_id, new_service_id, old_price, new_price, price_diff, reason, notes, corrected_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [appt.id, appt.package_id, newSvc.id, oldPrice, newPrice, priceDiff, reason, notes || null, req.user.id]
+        );
+
+        // 5. Update appointment with new package
+        let adjNote = appt.notes || '';
+        if (appt.payment_status === 'paid' && priceDiff !== 0) {
+            const adjText = priceDiff > 0
+                ? `[Service corrected to ${newSvc.name}: Additional charge PHP ${priceDiff.toFixed(2)}]`
+                : `[Service corrected to ${newSvc.name}: Refund/Credit PHP ${Math.abs(priceDiff).toFixed(2)}]`;
+            adjNote = adjNote ? `${adjNote} ${adjText}` : adjText;
+        }
+
+        await conn.query(
+            `UPDATE appointments
+             SET package_id = ?, notes = ?
+             WHERE id = ?`,
+            [newSvc.id, adjNote, appt.id]
+        );
+
+        // Also update any linked active queue_sequences if any
+        await conn.query(
+            `UPDATE queue_sequences SET package_id = ? WHERE appointment_id = ? AND archived = false`,
+            [newSvc.id, appt.id]
+        );
+
+        await conn.commit();
+
+        if (req.app.get('io')) req.app.get('io').emit('queueUpdate', {});
+        res.json({
+            success: true,
+            old_service: appt.current_service_name,
+            new_service: newSvc.name,
+            old_price: oldPrice,
+            new_price: newPrice,
+            price_diff: priceDiff
+        });
+    } catch (err) {
+        await conn.rollback();
+        console.error('Service correction error:', err);
+        res.status(500).json({ error: 'Failed to correct service' });
+    } finally {
+        conn.release();
+    }
+});
+
+router.get('/service-corrections/:appointmentId', requireStaff, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT sc.*,
+                    sp_old.name as old_service_name,
+                    sp_new.name as new_service_name,
+                    u.username as corrected_by_username,
+                    u.full_name as corrected_by_name
+             FROM service_corrections sc
+             LEFT JOIN service_packages sp_old ON sc.old_service_id = sp_old.id
+             LEFT JOIN service_packages sp_new ON sc.new_service_id = sp_new.id
+             LEFT JOIN users u ON sc.corrected_by = u.id
+             WHERE sc.appointment_id = ?
+             ORDER BY sc.corrected_at DESC`,
+            [req.params.appointmentId]
+        );
+        res.json(rows);
+    } catch (err) {
+        console.error('Fetch service corrections error:', err);
+        res.status(500).json({ error: 'Failed to fetch correction history' });
+    }
+});
+
+const ExcelJS = require('exceljs');
+
+function sanitizeCellValue(val) {
+    if (val === null || val === undefined) return '';
+    const str = String(val);
+    if (/^[=+\-@]/.test(str)) {
+        return `'${str}`;
+    }
+    return str;
+}
+
+// --- SALES EXCEL EXPORT (FEATURE 3) ---
+router.get('/sales/export-xlsx', requireSalesReport, async (req, res) => {
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : null;
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : null;
+
+    const now = new Date();
+    const defaultFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const defaultTo = now.toISOString().slice(0, 10);
+
+    const startDate = from || defaultFrom;
+    const endDate = to || defaultTo;
+
+    if (startDate > endDate) {
+        return res.status(400).json({ error: 'Start date cannot be after end date' });
+    }
+
+    const conditions = [
+        'qs.paid_at >= ?',
+        'qs.paid_at < DATE_ADD(?, INTERVAL 1 DAY)',
+        'qs.archived = false',
+        "qs.status != 'cancelled'"
+    ];
+    const params = [startDate, endDate];
+
+    if (req.query.service_id) {
+        conditions.push('sp.id = ?');
+        params.push(req.query.service_id);
+    }
+    if (req.query.payment_method) {
+        conditions.push('qs.payment_method = ?');
+        params.push(req.query.payment_method);
+    }
+
+    try {
+        const [rows] = await pool.query(
+            `SELECT qs.id,
+                    COALESCE(NULLIF(qs.receipt_no, ''), CONCAT('REC-', LPAD(qs.id, 6, '0'))) AS receipt_number,
+                    DATE_FORMAT(qs.paid_at, '%Y-%m-%d') AS transaction_date,
+                    COALESCE(u.full_name, u.username, 'Walk-in Customer') AS customer_name,
+                    sp.name AS service_name,
+                    1 AS quantity,
+                    COALESCE(qs.list_amount, sp.price, 0) AS unit_price,
+                    COALESCE(qs.discount_amount, 0) AS discount,
+                    COALESCE(qs.amount_paid, sp.price, 0) AS total,
+                    COALESCE(NULLIF(qs.payment_method, ''), 'Cash') AS payment_method,
+                    qs.status AS status,
+                    COALESCE(
+                        (SELECT u_staff.full_name FROM queue_logs ql JOIN users u_staff ON ql.station_id = u_staff.id WHERE ql.sequence_id = qs.id AND ql.station_type = 'frontdesk' LIMIT 1),
+                        'Front Desk'
+                    ) AS processed_by
+             FROM queue_sequences qs
+             JOIN service_packages sp ON qs.package_id = sp.id
+             LEFT JOIN users u ON qs.customer_id = u.id
+             WHERE ${conditions.join(' AND ')}
+             ORDER BY qs.paid_at ASC`,
+            params
+        );
+
+        if (rows.length === 0) {
+            return res.status(200).json({ empty: true, message: 'No sales records found for the selected filters.' });
+        }
+
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'ReaLab Medical System';
+        workbook.created = new Date();
+
+        const sheet = workbook.addWorksheet('Transactions');
+        sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+        const headers = [
+            'Receipt No.', 'Date', 'Customer Name', 'Service',
+            'Qty', 'Unit Price (PHP)', 'Discount (PHP)', 'Total (PHP)',
+            'Payment Method', 'Status', 'Processed By'
+        ];
+        sheet.addRow(headers);
+
+        const headerRow = sheet.getRow(1);
+        headerRow.font = { bold: true, color: { argb: 'FF1F2937' } };
+        headerRow.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFD9E1F2' }
+        };
+
+        rows.forEach(r => {
+            sheet.addRow([
+                sanitizeCellValue(r.receipt_number),
+                r.transaction_date,
+                sanitizeCellValue(r.customer_name),
+                sanitizeCellValue(r.service_name),
+                Number(r.quantity),
+                Number(r.unit_price),
+                Number(r.discount),
+                Number(r.total),
+                sanitizeCellValue(r.payment_method),
+                sanitizeCellValue(r.status),
+                sanitizeCellValue(r.processed_by)
+            ]);
+        });
+
+        [6, 7, 8].forEach(colIdx => {
+            sheet.getColumn(colIdx).numFmt = '₱#,##0.00';
+        });
+
+        const lastRow = sheet.rowCount;
+        const totalsRow = sheet.addRow([
+            '', '', '', 'TOTAL',
+            { formula: `SUM(E2:E${lastRow})` },
+            { formula: `SUM(F2:F${lastRow})` },
+            { formula: `SUM(G2:G${lastRow})` },
+            { formula: `SUM(H2:H${lastRow})` },
+            '', '', ''
+        ]);
+        totalsRow.font = { bold: true };
+        totalsRow.getCell(4).alignment = { horizontal: 'right' };
+
+        sheet.columns.forEach(col => {
+            let maxLen = 10;
+            col.eachCell({ includeEmpty: false }, cell => {
+                const len = cell.value ? String(cell.value).length : 0;
+                if (len > maxLen) maxLen = len;
+            });
+            col.width = Math.min(maxLen + 3, 40);
+        });
+
+        const summarySheet = workbook.addWorksheet('Summary');
+        summarySheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+        summarySheet.addRow(['By Service', 'Total (PHP)', '', 'By Payment Method', 'Total (PHP)']);
+        summarySheet.getRow(1).font = { bold: true };
+        summarySheet.getRow(1).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFE8EAED' }
+        };
+
+        const byService = {};
+        const byMethod = {};
+        rows.forEach(r => {
+            byService[r.service_name] = (byService[r.service_name] || 0) + Number(r.total);
+            byMethod[r.payment_method] = (byMethod[r.payment_method] || 0) + Number(r.total);
+        });
+
+        const svcs = Object.keys(byService);
+        const methods = Object.keys(byMethod);
+        const maxLen = Math.max(svcs.length, methods.length);
+
+        for (let i = 0; i < maxLen; i++) {
+            summarySheet.addRow([
+                svcs[i] ? sanitizeCellValue(svcs[i]) : '',
+                svcs[i] ? Number(byService[svcs[i]]) : '',
+                '',
+                methods[i] ? sanitizeCellValue(methods[i]) : '',
+                methods[i] ? Number(byMethod[methods[i]]) : ''
+            ]);
+        }
+        summarySheet.getColumn(2).numFmt = '₱#,##0.00';
+        summarySheet.getColumn(5).numFmt = '₱#,##0.00';
+        summarySheet.columns.forEach(col => { col.width = 24; });
+
+        try {
+            const userId = req.user?.id || 1;
+            const ip = req.ip || req.connection?.remoteAddress || '';
+            await pool.query(
+                `INSERT INTO export_audit_log (user_id, action, status, ip_address) VALUES (?, 'sales_excel_export', 'success', ?)`,
+                [userId, ip]
+            );
+        } catch (_) {}
+
+        const filename = `Sales_${startDate}_to_${endDate}.xlsx`;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (err) {
+        console.error('Export Excel error:', err);
+        res.status(500).json({ error: 'Failed to generate Excel file' });
+    }
+});
+
+// --- EXPORT PIN SYSTEM (FEATURE 1) ---
+const WEAK_PINS = new Set([
+    '000000', '111111', '222222', '333333', '444444',
+    '555555', '666666', '777777', '888888', '999999',
+    '123456', '654321', '112233', '121212', '696969',
+    '102030', '010101'
+]);
+
+function isWeakPin(pin) {
+    if (!/^\d{6}$/.test(String(pin || ''))) return true;
+    if (WEAK_PINS.has(pin)) return true;
+    const digits = pin.split('').map(Number);
+    const allSame = digits.every(d => d === digits[0]);
+    if (allSame) return true;
+    let asc = true, desc = true;
+    for (let i = 1; i < digits.length; i++) {
+        if (digits[i] !== digits[i - 1] + 1) asc = false;
+        if (digits[i] !== digits[i - 1] - 1) desc = false;
+    }
+    return asc || desc;
+}
+
+// In-memory short-lived single-use export authorization tokens (2 min TTL)
+const exportAuthTokens = new Map();
+
+function issueExportToken(userId) {
+    const token = crypto.randomBytes(32).toString('hex');
+    exportAuthTokens.set(token, { userId, expiresAt: Date.now() + 2 * 60 * 1000 });
+    return token;
+}
+
+function validateExportToken(token, userId) {
+    if (!token) return false;
+    const entry = exportAuthTokens.get(token);
+    if (!entry) return false;
+    exportAuthTokens.delete(token); // Single-use!
+    return entry.userId === userId && entry.expiresAt > Date.now();
+}
+
+// Check PIN status for current user
+router.get('/export-pin/status', async (req, res) => {
+    try {
+        const [users] = await pool.query(
+            'SELECT export_pin_hash, export_pin_failed_attempts, export_pin_locked_until FROM users WHERE id = ?',
+            [req.user.id]
+        );
+        if (users.length === 0) return res.status(404).json({ error: 'User not found' });
+        const u = users[0];
+        const isLocked = u.export_pin_locked_until && new Date(u.export_pin_locked_until) > new Date();
+        res.json({
+            has_pin: !!u.export_pin_hash,
+            is_locked: !!isLocked,
+            locked_until: isLocked ? u.export_pin_locked_until : null
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch PIN status' });
+    }
+});
+
+// Set PIN for the first time
+router.post('/export-pin/set', async (req, res) => {
+    const { pin } = req.body;
+    if (!pin || !/^\d{6}$/.test(String(pin))) {
+        return res.status(400).json({ error: 'PIN must be exactly 6 digits.' });
+    }
+    if (isWeakPin(pin)) {
+        return res.status(400).json({ error: 'PIN is too weak. Avoid repeating or sequential numbers.' });
+    }
+
+    try {
+        const [users] = await pool.query('SELECT export_pin_hash FROM users WHERE id = ?', [req.user.id]);
+        if (users.length > 0 && users[0].export_pin_hash) {
+            return res.status(400).json({ error: 'PIN is already set. Use change PIN instead.' });
+        }
+
+        const hash = await bcrypt.hash(pin, 10);
+        await pool.query(
+            'UPDATE users SET export_pin_hash = ?, export_pin_failed_attempts = 0, export_pin_locked_until = NULL WHERE id = ?',
+            [hash, req.user.id]
+        );
+        res.json({ success: true, message: '6-digit Export PIN set successfully.' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to set PIN' });
+    }
+});
+
+// Change PIN
+router.post('/export-pin/change', async (req, res) => {
+    const { current_credential, new_pin, use_password } = req.body;
+    if (!new_pin || !/^\d{6}$/.test(String(new_pin))) {
+        return res.status(400).json({ error: 'New PIN must be exactly 6 digits.' });
+    }
+    if (isWeakPin(new_pin)) {
+        return res.status(400).json({ error: 'New PIN is too weak. Avoid repeating or sequential numbers.' });
+    }
+
+    try {
+        const [users] = await pool.query('SELECT export_pin_hash, password FROM users WHERE id = ?', [req.user.id]);
+        if (users.length === 0) return res.status(404).json({ error: 'User not found' });
+        const u = users[0];
+
+        const hashToCheck = use_password ? u.password : u.export_pin_hash;
+        if (!hashToCheck) {
+            return res.status(400).json({ error: 'No existing credential found to verify.' });
+        }
+
+        const match = await bcrypt.compare(String(current_credential || ''), hashToCheck);
+        if (!match) {
+            return res.status(403).json({ error: use_password ? 'Incorrect account password.' : 'Incorrect current PIN.' });
+        }
+
+        const newHash = await bcrypt.hash(new_pin, 10);
+        await pool.query(
+            'UPDATE users SET export_pin_hash = ?, export_pin_failed_attempts = 0, export_pin_locked_until = NULL WHERE id = ?',
+            [newHash, req.user.id]
+        );
+        res.json({ success: true, message: 'Export PIN changed successfully.' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to change PIN' });
+    }
+});
+
+// Verify PIN and issue short-lived single-use export authorization token
+router.post('/export-pin/verify', async (req, res) => {
+    const { pin, customer_id } = req.body;
+    const ip = req.ip || req.connection?.remoteAddress || '';
+
+    if (!pin || !/^\d{6}$/.test(String(pin))) {
+        return res.status(400).json({ error: 'PIN must be exactly 6 digits.' });
+    }
+
+    try {
+        const [users] = await pool.query(
+            'SELECT export_pin_hash, export_pin_failed_attempts, export_pin_locked_until FROM users WHERE id = ?',
+            [req.user.id]
+        );
+        if (users.length === 0) return res.status(404).json({ error: 'User not found' });
+        const u = users[0];
+
+        if (!u.export_pin_hash) {
+            return res.status(428).json({ error: 'no_pin', message: 'No Export PIN set. Please create one.' });
+        }
+
+        // Lockout check
+        if (u.export_pin_locked_until && new Date(u.export_pin_locked_until) > new Date()) {
+            const untilStr = new Date(u.export_pin_locked_until).toLocaleTimeString('en-PH', { timeZone: 'Asia/Manila' });
+            await pool.query(
+                `INSERT INTO export_audit_log (user_id, customer_id, action, status, ip_address) VALUES (?, ?, 'pin_verify', 'locked_out', ?)`,
+                [req.user.id, customer_id || null, ip]
+            );
+            return res.status(429).json({ error: 'locked', message: `Account locked from exporting until ${untilStr}. (5 failed attempts limit)` });
+        }
+
+        const match = await bcrypt.compare(String(pin), u.export_pin_hash);
+        if (!match) {
+            const failed = (u.export_pin_failed_attempts || 0) + 1;
+            const lockUntil = failed >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+
+            await pool.query(
+                'UPDATE users SET export_pin_failed_attempts = ?, export_pin_locked_until = ? WHERE id = ?',
+                [failed, lockUntil, req.user.id]
+            );
+
+            await pool.query(
+                `INSERT INTO export_audit_log (user_id, customer_id, action, status, ip_address) VALUES (?, ?, 'pin_verify', 'wrong_pin', ?)`,
+                [req.user.id, customer_id || null, ip]
+            );
+
+            const remaining = Math.max(0, 5 - failed);
+            if (failed >= 5) {
+                return res.status(429).json({ error: 'locked', message: 'Too many incorrect attempts. Export locked for 15 minutes.' });
+            }
+            return res.status(403).json({ error: 'wrong_pin', remaining, message: `Incorrect PIN. ${remaining} attempt(s) remaining.` });
+        }
+
+        // Correct PIN
+        await pool.query(
+            'UPDATE users SET export_pin_failed_attempts = 0, export_pin_locked_until = NULL WHERE id = ?',
+            [req.user.id]
+        );
+
+        await pool.query(
+            `INSERT INTO export_audit_log (user_id, customer_id, action, status, ip_address) VALUES (?, ?, 'pin_verify', 'success', ?)`,
+            [req.user.id, customer_id || null, ip]
+        );
+
+        const exportToken = issueExportToken(req.user.id);
+        res.json({ success: true, export_token: exportToken });
+    } catch (err) {
+        console.error('PIN verify error:', err);
+        res.status(500).json({ error: 'Failed to verify PIN' });
+    }
+});
+
+// Authorize medical record export using short-lived token
+router.get('/medical-records/export/authorize', async (req, res) => {
+    const { export_token, customer_id } = req.query;
+    const ip = req.ip || req.connection?.remoteAddress || '';
+
+    if (!validateExportToken(export_token, req.user.id)) {
+        try {
+            await pool.query(
+                `INSERT INTO export_audit_log (user_id, customer_id, action, status, ip_address) VALUES (?, ?, 'medical_record_export', 'refused_invalid_token', ?)`,
+                [req.user.id, customer_id || null, ip]
+            );
+        } catch (_) {}
+        return res.status(403).json({ error: 'Export authorization missing or expired. Please enter PIN again.' });
+    }
+
+    try {
+        await pool.query(
+            `INSERT INTO export_audit_log (user_id, customer_id, action, status, ip_address) VALUES (?, ?, 'medical_record_export', 'authorized', ?)`,
+            [req.user.id, customer_id || null, ip]
+        );
+    } catch (_) {}
+
+    res.json({ success: true, authorized: true });
+});
+
+// Admin reset user's PIN
+router.post('/export-pin/admin-reset', requireAdmin, async (req, res) => {
+    const { user_id } = req.body;
+    if (!user_id) return res.status(400).json({ error: 'user_id is required' });
+
+    try {
+        await pool.query(
+            'UPDATE users SET export_pin_hash = NULL, export_pin_failed_attempts = 0, export_pin_locked_until = NULL WHERE id = ?',
+            [user_id]
+        );
+        res.json({ success: true, message: 'User PIN has been reset. They will be prompted to set a new PIN on next export.' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to reset PIN' });
+    }
+});
+
+// --- COOKIE CONSENT AUDIT LOG (FEATURE 5) ---
+router.post('/consent-log', async (req, res) => {
+    const { anonymous_id, choice, policy_version } = req.body;
+    if (!anonymous_id || !choice) {
+        return res.status(400).json({ error: 'anonymous_id and choice are required' });
+    }
+
+    try {
+        await pool.query(
+            `INSERT INTO consent_log (anonymous_id, choice, policy_version) VALUES (?, ?, ?)`,
+            [String(anonymous_id).slice(0, 64), JSON.stringify(choice), String(policy_version || '1.0').slice(0, 20)]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.json({ success: true });
     }
 });
 

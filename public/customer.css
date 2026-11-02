@@ -756,3 +756,74 @@
     gap: 6px;
     flex-wrap: wrap;
 }
+
+/* ── AVAILABLE SLOTS PREVIEW (appointments section) ──
+   A read-only month of availability. It reuses the booking calendar's own
+   .calendar-day / .time-slot idiom so the preview and the booking form read as
+   one system, and states open/full in text as well as colour. */
+.avail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.avail-legend {
+    display: flex;
+    gap: 14px;
+    font-size: 0.8em;
+    color: var(--text-secondary);
+}
+.avail-key { display: inline-flex; align-items: center; gap: 6px; }
+.avail-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.avail-dot.open { background: var(--success); }
+.avail-dot.full { background: var(--danger); }
+.avail-dot.past { background: var(--border); }
+
+.avail-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 6px 0 14px;
+}
+#avail-month-label { min-width: 9em; text-align: center; }
+
+/* The per-day open count sits under the date number; colour is paired with the
+   day's disabled/title text so the meaning does not rest on hue alone. */
+.calendar-day .avail-count {
+    position: absolute;
+    bottom: 3px;
+    left: 0;
+    right: 0;
+    font-size: 0.62em;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--success);
+}
+.calendar-day.no-open { background: var(--bg-body); color: var(--text-muted); }
+.calendar-day.no-open .avail-count { color: var(--danger); }
+
+.avail-day {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+}
+.avail-day-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+.avail-empty { color: var(--text-muted); font-size: 0.88em; margin: 0; }
+
+/* The preview's time chips are real buttons, so the keyboard reaches them. They
+   keep the .time-slot look but reset the button chrome. */
+button.time-slot {
+    font: inherit;
+    width: 100%;
+    color: var(--text-primary);
+}
+button.time-slot.full,
+button.time-slot.past { color: var(--text-muted); }

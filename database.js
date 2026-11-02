@@ -599,6 +599,50 @@ async function initDB() {
             )
         `);
 
+        // Export Audit Log (Feature 1: PIN export & Excel export tracking)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS export_audit_log (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                customer_id INT DEFAULT NULL,
+                action VARCHAR(100) NOT NULL,
+                status VARCHAR(50) NOT NULL,
+                ip_address VARCHAR(45) DEFAULT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
+        // Service Corrections (Feature 4: Front desk service edit audit trail)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS service_corrections (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                appointment_id INT DEFAULT NULL,
+                sale_id INT DEFAULT NULL,
+                old_service_id INT NOT NULL,
+                new_service_id INT NOT NULL,
+                old_price DECIMAL(10,2) NOT NULL,
+                new_price DECIMAL(10,2) NOT NULL,
+                price_diff DECIMAL(10,2) NOT NULL,
+                reason VARCHAR(255) NOT NULL,
+                notes TEXT DEFAULT NULL,
+                corrected_by INT NOT NULL,
+                corrected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (corrected_by) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
+        // Consent Log (Feature 5: Cookie consent audit log)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS consent_log (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                anonymous_id VARCHAR(64) NOT NULL,
+                choice JSON NOT NULL,
+                policy_version VARCHAR(20) NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
         // Announcements
         await pool.query(`
             CREATE TABLE IF NOT EXISTS announcements (
@@ -984,6 +1028,16 @@ async function initDB() {
         await addColumnIfMissing('queue_sequences', 'payment_method', "VARCHAR(20) DEFAULT ''");
         await addColumnIfMissing('queue_sequences', 'receipt_no', "VARCHAR(50) DEFAULT ''");
         await addIndexIfMissing('queue_sequences', 'idx_qs_paid_at', '(paid_at)');
+
+        // Feature 1: Export PIN for medical records
+        await addColumnIfMissing('users', 'export_pin_hash', 'VARCHAR(255) DEFAULT NULL');
+        await addColumnIfMissing('users', 'export_pin_failed_attempts', 'INT DEFAULT 0');
+        await addColumnIfMissing('users', 'export_pin_locked_until', 'DATETIME DEFAULT NULL');
+
+        // Feature 2: Appointment Calendar settings
+        await addColumnIfMissing('settings', 'business_hours_start', "VARCHAR(5) DEFAULT '08:00'");
+        await addColumnIfMissing('settings', 'business_hours_end', "VARCHAR(5) DEFAULT '17:00'");
+        await addColumnIfMissing('settings', 'slot_duration_minutes', 'INT DEFAULT 30');
         // Backfills the channel for visits that predate the column - an
         // appointment-linked sequence is an appointment, and everything else was
         // online, since walk-ins did not exist before this.

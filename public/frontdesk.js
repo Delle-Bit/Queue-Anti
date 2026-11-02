@@ -761,13 +761,122 @@ async function loadFdAppointments() {
     // amount_due already includes the priority booking surcharge, and payment is
     // marked paid automatically when this station clears the patient's front desk
     // step. Falls back to the package price for rows booked before the surcharge.
-    document.getElementById('fd-appt-list').innerHTML = appts.map(a => `<tr>
-        <td>${a.full_name||a.username}</td><td>${a.package_name}</td><td>${a.appointment_date}</td>
-        <td>${a.appointment_time}</td><td><span class="badge ${a.status==='scheduled'?'badge-warning':'badge-success'}">${a.status}</span></td>
+    document.getElementById('fd-appt-list').innerHTML = appts.map(a => {
+        const isCorrected = (a.notes && a.notes.includes('Service corrected'));
+        const pkgSafe = (a.package_name || '').replace(/'/g, "\\'");
+        return `<tr>
+        <td>${escapeHtml(a.full_name||a.username)}</td>
+        <td>
+            ${escapeHtml(a.package_name)}
+            ${isCorrected ? '<br><span class="badge badge-warning" style="font-size:0.7rem; padding:2px 6px;">Corrected</span>' : ''}
+        </td>
+        <td>${a.appointment_date}</td>
+        <td>${a.appointment_time}</td>
+        <td><span class="badge ${a.status==='scheduled'?'badge-warning':a.status==='completed'?'badge-success':'badge-secondary'}">${a.status}</span></td>
         <td><strong>${formatCurrency(a.amount_due ?? a.price)}</strong>${Number(a.surcharge_pct) > 0 ? `<br><small class="text-muted">incl. ${a.surcharge_pct}% priority</small>` : ''}</td>
         <td><span class="badge ${a.payment_status==='paid'?'badge-success':'badge-warning'}">${a.payment_status}</span></td>
-        <td><button class="btn btn-sm btn-secondary" onclick="generateAppointmentQr(${a.id})"><i class="fa-solid fa-qrcode"></i> QR</button></td>
-    </tr>`).join('');
+        <td>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                <button class="btn btn-sm btn-secondary" onclick="generateAppointmentQr(${a.id})"><i class="fa-solid fa-qrcode"></i> QR</button>
+                <button class="btn btn-sm btn-outline" onclick="openCorrectServiceModal(${a.id}, '${pkgSafe}', ${Number(a.price) || 0})"><i class="fa-solid fa-pen-to-square"></i> Correct</button>
+            </div>
+        </td>
+    </tr>`;
+    }).join('');
+}
+
+let correctionOldPrice = 0;
+let cachedPackagesForCorrection = [];
+
+async function openCorrectServiceModal(apptId, currentPkgName, currentPrice) {
+    document.getElementById('corr-appt-id').value = apptId;
+    correctionOldPrice = Number(currentPrice) || 0;
+    document.getElementById('corr-current-service').textContent = `${currentPkgName} (${formatCurrency(correctionOldPrice)})`;
+    document.getElementById('corr-reason').value = '';
+    document.getElementById('corr-notes').value = '';
+
+    // Load available packages
+    const res = await fetch('/api/packages', { headers: authHeaders() });
+    cachedPackagesForCorrection = await res.json().catch(() => []);
+    const select = document.getElementById('corr-new-service');
+    select.innerHTML = '<option value="">-- Select new service --</option>' +
+        cachedPackagesForCorrection.map(p => `<option value="${p.id}" data-price="${p.price}" data-duration="${p.est_time_minutes || 15}">${escapeHtml(p.name)} - ${formatCurrency(p.price)} (${p.est_time_minutes || 15}m)</option>`).join('');
+
+    updateCorrectionDiff();
+
+    // Load correction history for this appointment
+    const histRes = await fetch(`/api/service-corrections/${apptId}`, { headers: authHeaders() });
+    const history = await histRes.json().catch(() => []);
+    const histBox = document.getElementById('corr-history-box');
+    if (history.length > 0) {
+        histBox.innerHTML = '<strong>Correction History:</strong><ul style="margin:4px 0 0;padding-left:18px;">' +
+            history.map(h => `<li>${escapeHtml(h.old_service_name)} &rarr; ${escapeHtml(h.new_service_name)} (${h.price_diff >= 0 ? '+' : ''}${formatCurrency(h.price_diff)}) by ${escapeHtml(h.corrected_by_name || h.corrected_by_username)}: <em>${escapeHtml(h.reason)}</em></li>`).join('') +
+            '</ul>';
+        histBox.style.display = 'block';
+    } else {
+        histBox.innerHTML = '<span class="text-muted">No prior corrections for this appointment.</span>';
+        histBox.style.display = 'block';
+    }
+
+    openModal('correct-service-modal');
+}
+
+function updateCorrectionDiff() {
+    const select = document.getElementById('corr-new-service');
+    const diffBox = document.getElementById('corr-diff-box');
+    const selectedOption = select.options[select.selectedIndex];
+    if (!selectedOption || !selectedOption.value) {
+        diffBox.style.display = 'none';
+        return;
+    }
+    const newPrice = Number(selectedOption.getAttribute('data-price')) || 0;
+    const diff = newPrice - correctionOldPrice;
+    diffBox.style.display = 'block';
+    if (diff > 0) {
+        diffBox.style.background = 'rgba(234, 134, 0, 0.15)';
+        diffBox.style.color = '#b36200';
+        diffBox.innerHTML = `<i class="fa-solid fa-arrow-up"></i> Additional charge required: <strong>${formatCurrency(diff)}</strong>`;
+    } else if (diff < 0) {
+        diffBox.style.background = 'rgba(0, 150, 60, 0.15)';
+        diffBox.style.color = '#00702c';
+        diffBox.innerHTML = `<i class="fa-solid fa-arrow-down"></i> Refund/Credit required: <strong>${formatCurrency(Math.abs(diff))}</strong>`;
+    } else {
+        diffBox.style.background = 'rgba(100, 100, 100, 0.1)';
+        diffBox.style.color = 'inherit';
+        diffBox.innerHTML = `<i class="fa-solid fa-equals"></i> Same price (${formatCurrency(newPrice)}). No price adjustment needed.`;
+    }
+}
+
+async function submitServiceCorrection() {
+    const apptId = document.getElementById('corr-appt-id').value;
+    const newServiceId = document.getElementById('corr-new-service').value;
+    const reason = document.getElementById('corr-reason').value;
+    const notes = document.getElementById('corr-notes').value;
+
+    if (!newServiceId) return showToast('Please select a new service package', 'error');
+    if (!reason) return showToast('Reason for correction is required', 'error');
+
+    try {
+        const res = await fetch('/api/service-correction', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({
+                appointment_id: Number(apptId),
+                new_service_id: Number(newServiceId),
+                reason,
+                notes
+            })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            return showToast(data.error || 'Failed to correct service', 'error');
+        }
+        closeModal('correct-service-modal');
+        showToast(`Service corrected to ${data.new_service}! Price diff: ${data.price_diff >= 0 ? '+' : ''}${formatCurrency(data.price_diff)}`, 'success');
+        loadFdAppointments();
+    } catch (err) {
+        showToast('Failed to apply service correction', 'error');
+    }
 }
 
 async function generateAppointmentQr(id) {
@@ -990,3 +1099,275 @@ setInterval(() => {
     if (sectionVisible('queue')) loadFdQueue();
     if (sectionVisible('walkin')) loadWalkIns();
 }, 5000);
+
+
+// ── APPOINTMENT CALENDAR VIEW (FEATURE 2) ────────────────────────
+let apptViewMode = 'list';
+let calMode = 'week';
+let calAnchorDate = new Date();
+
+function switchApptView(mode) {
+    apptViewMode = mode;
+    const listContainer = document.getElementById('fd-appt-list-container');
+    const calContainer = document.getElementById('fd-appt-calendar-container');
+    const btnList = document.getElementById('btn-appt-view-list');
+    const btnCal = document.getElementById('btn-appt-view-calendar');
+
+    if (mode === 'list') {
+        if (listContainer) listContainer.style.display = 'block';
+        if (calContainer) calContainer.style.display = 'none';
+        if (btnList) btnList.className = 'btn btn-sm btn-primary';
+        if (btnCal) btnCal.className = 'btn btn-sm btn-outline';
+        loadFdAppointments();
+    } else {
+        if (listContainer) listContainer.style.display = 'none';
+        if (calContainer) calContainer.style.display = 'block';
+        if (btnList) btnList.className = 'btn btn-sm btn-outline';
+        if (btnCal) btnCal.className = 'btn btn-sm btn-primary';
+        initCalendarFilters();
+        loadCalendarView();
+    }
+}
+
+function setCalMode(mode) {
+    calMode = mode;
+    ['day', 'week', 'month'].forEach(m => {
+        const btn = document.getElementById(`btn-cal-${m}`);
+        if (btn) btn.className = m === mode ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline';
+    });
+    loadCalendarView();
+}
+
+function calNavigate(delta) {
+    if (calMode === 'day') {
+        calAnchorDate.setDate(calAnchorDate.getDate() + delta);
+    } else if (calMode === 'week') {
+        calAnchorDate.setDate(calAnchorDate.getDate() + (delta * 7));
+    } else {
+        calAnchorDate.setMonth(calAnchorDate.getMonth() + delta);
+    }
+    loadCalendarView();
+}
+
+function calToday() {
+    calAnchorDate = new Date();
+    loadCalendarView();
+}
+
+function getCalDateRange() {
+    const d = new Date(calAnchorDate);
+    const fmt = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+    if (calMode === 'day') {
+        const s = fmt(d);
+        return { start: s, end: s, label: d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) };
+    }
+    if (calMode === 'week') {
+        const day = d.getDay();
+        const mondayOffset = day === 0 ? -6 : 1 - day;
+        const monday = new Date(d);
+        monday.setDate(d.getDate() + mondayOffset);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        return {
+            start: fmt(monday),
+            end: fmt(sunday),
+            label: `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+        };
+    }
+    const firstDay = new Date(d.getFullYear(), d.getMonth(), 1);
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    return {
+        start: fmt(firstDay),
+        end: fmt(lastDay),
+        label: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    };
+}
+
+async function initCalendarFilters() {
+    const filter = document.getElementById('cal-service-filter');
+    if (filter && filter.options.length <= 1) {
+        const res = await fetch('/api/packages', { headers: authHeaders() }).catch(() => null);
+        if (res && res.ok) {
+            const pkgs = await res.json().catch(() => []);
+            filter.innerHTML = '<option value="">All Services</option>' +
+                pkgs.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+        }
+    }
+}
+
+async function loadCalendarView() {
+    const { start, end, label } = getCalDateRange();
+    const periodLabel = document.getElementById('cal-period-label');
+    if (periodLabel) periodLabel.textContent = label;
+    const wrapper = document.getElementById('cal-grid-wrapper');
+    if (!wrapper) return;
+    wrapper.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading schedule...</div>';
+
+    const serviceFilter = document.getElementById('cal-service-filter')?.value || '';
+    let query = `/api/appointments/calendar?start=${start}&end=${end}`;
+    if (serviceFilter) query += `&service_id=${encodeURIComponent(serviceFilter)}`;
+
+    try {
+        const res = await fetch(query, { headers: authHeaders() });
+        const data = await res.json();
+        if (!res.ok) {
+            wrapper.innerHTML = `<div class="text-danger p-md">${escapeHtml(data.error || 'Failed to load calendar')}</div>`;
+            return;
+        }
+
+        if (calMode === 'month') {
+            renderMonthCalendar(data, wrapper);
+        } else {
+            renderDayOrWeekCalendar(data, wrapper);
+        }
+    } catch (err) {
+        wrapper.innerHTML = '<div class="text-danger p-md">Network error loading calendar.</div>';
+    }
+}
+
+function renderDayOrWeekCalendar(data, wrapper) {
+    const slots = data.slots || [];
+    const dates = [...new Set(slots.map(s => s.date))];
+    const times = [...new Set(slots.map(s => s.time))];
+
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const nowH = now.getHours();
+    const nowM = now.getMinutes();
+    const nowTimeStr = `${String(nowH).padStart(2, '0')}:${String(nowM).padStart(2, '0')}`;
+
+    let html = `<table style="width:100%;border-collapse:collapse;font-size:0.85rem;min-width:${dates.length * 130 + 70}px;">
+        <thead>
+            <tr style="background:var(--bg-card);border-bottom:2px solid var(--border);">
+                <th style="padding:10px;text-align:center;width:70px;border-right:1px solid var(--border);">Time</th>`;
+
+    dates.forEach(dStr => {
+        const dObj = new Date(dStr + 'T00:00:00');
+        const isToday = dStr === todayStr;
+        const dayHeader = dObj.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+        html += `<th style="padding:10px;text-align:center;border-right:1px solid var(--border);${isToday ? 'background:rgba(26,115,232,0.08);color:#1a73e8;font-weight:700;' : ''}">${escapeHtml(dayHeader)}</th>`;
+    });
+    html += `</tr></thead><tbody>`;
+
+    times.forEach(t => {
+        html += `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:8px 6px;text-align:center;font-weight:600;color:var(--text-muted);border-right:1px solid var(--border);background:var(--bg-card);font-size:0.8rem;">${t}</td>`;
+
+        dates.forEach(dStr => {
+            const slot = slots.find(s => s.date === dStr && s.time === t);
+            if (!slot) {
+                html += `<td style="border-right:1px solid var(--border);background:#fafafa;"></td>`;
+                return;
+            }
+
+            const isPast = (dStr < todayStr) || (dStr === todayStr && t < nowTimeStr);
+
+            if (slot.status === 'taken' && slot.appointment) {
+                const appt = slot.appointment;
+                const statusBadge = appt.status === 'scheduled' ? 'badge-warning' : 'badge-success';
+                html += `<td style="padding:4px;border-right:1px solid var(--border);background:rgba(26,115,232,0.12);cursor:pointer;vertical-align:top;" onclick="openSlotApptDetail(${appt.id})">
+                    <div style="background:#1a73e8;color:#fff;padding:5px 6px;border-radius:4px;font-size:0.75rem;line-height:1.2;">
+                        <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(appt.customer_name)}</div>
+                        <div style="opacity:0.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(appt.service_name)}</div>
+                        <div style="margin-top:3px;"><span class="badge ${statusBadge}" style="font-size:0.65rem;padding:1px 4px;">${appt.status}</span></div>
+                    </div>
+                </td>`;
+            } else if (isPast) {
+                html += `<td style="padding:6px;border-right:1px solid var(--border);background:#f1f3f4;color:#9aa0a6;text-align:center;font-size:0.75rem;cursor:not-allowed;" title="Past slot">
+                    <span style="opacity:0.6;">Closed</span>
+                </td>`;
+            } else {
+                // Open slots are shown for context only. Patients book their own
+                // appointments, so the desk does not create one here - this is a
+                // schedule view, not a booking surface.
+                html += `<td style="padding:6px;border-right:1px solid var(--border);background:#e6f4ea;text-align:center;" title="Available slot">
+                    <span style="color:#2e7d32;font-size:0.8rem;font-weight:600;"><i class="fa-solid fa-circle-check"></i> Open</span>
+                </td>`;
+            }
+        });
+        html += `</tr>`;
+    });
+
+    html += `</tbody></table>`;
+    wrapper.innerHTML = html;
+}
+
+function renderMonthCalendar(data, wrapper) {
+    const slots = data.slots || [];
+    const daysMap = {};
+    slots.forEach(s => {
+        if (!daysMap[s.date]) daysMap[s.date] = { available: 0, taken: 0, appointments: [] };
+        if (s.status === 'taken') {
+            daysMap[s.date].taken++;
+            if (s.appointment && !daysMap[s.date].appointments.some(a => a.id === s.appointment.id)) {
+                daysMap[s.date].appointments.push(s.appointment);
+            }
+        } else {
+            daysMap[s.date].available++;
+        }
+    });
+
+    const dates = Object.keys(daysMap).sort();
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    let html = `<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(130px, 1fr));gap:10px;">`;
+    dates.forEach(dStr => {
+        const dayInfo = daysMap[dStr];
+        const dObj = new Date(dStr + 'T00:00:00');
+        const isToday = dStr === todayStr;
+        const isPast = dStr < todayStr;
+        const dayName = dObj.toLocaleDateString('en-US', { weekday: 'short' });
+        const dayNum = dObj.getDate();
+
+        html += `<div style="border:1px solid var(--border);border-radius:8px;padding:10px;background:${isToday ? 'rgba(26,115,232,0.06)' : isPast ? '#f9f9f9' : 'var(--bg-card)'};cursor:pointer;transition:all 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.05);" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'" onclick="calAnchorDate=new Date('${dStr}T00:00:00');setCalMode('day')">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span style="font-weight:700;font-size:0.95rem;${isToday ? 'color:#1a73e8;' : ''}">${dayNum} <small style="font-weight:400;color:var(--text-muted);">${dayName}</small></span>
+                ${isToday ? '<span class="badge badge-primary" style="font-size:0.65rem;">Today</span>' : ''}
+            </div>
+            <div style="font-size:0.8rem;line-height:1.4;">
+                <div style="color:#1a73e8;font-weight:600;"><i class="fa-solid fa-circle" style="font-size:0.5rem;vertical-align:middle;"></i> ${dayInfo.taken} booked</div>
+                <div style="color:#2e7d32;font-weight:500;"><i class="fa-solid fa-circle" style="font-size:0.5rem;vertical-align:middle;"></i> ${dayInfo.available} open</div>
+            </div>
+        </div>`;
+    });
+    html += `</div>`;
+    wrapper.innerHTML = html;
+}
+
+async function openSlotApptDetail(apptId) {
+    try {
+        const res = await fetch('/api/appointments', { headers: authHeaders() });
+        const appts = await res.json().catch(() => []);
+        const appt = appts.find(a => a.id === apptId);
+        if (!appt) return showToast('Appointment not found', 'error');
+
+        const body = document.getElementById('appt-slot-modal-body');
+        body.innerHTML = `
+            <div style="line-height:1.6;font-size:0.9rem;">
+                <div style="margin-bottom:8px;"><strong>Customer:</strong> ${escapeHtml(appt.full_name || appt.username)}</div>
+                <div style="margin-bottom:8px;"><strong>Service:</strong> ${escapeHtml(appt.package_name)}</div>
+                <div style="margin-bottom:8px;"><strong>Date &amp; Time:</strong> ${appt.appointment_date} at ${appt.appointment_time}</div>
+                <div style="margin-bottom:8px;"><strong>Status:</strong> <span class="badge ${appt.status === 'scheduled' ? 'badge-warning' : 'badge-success'}">${appt.status}</span></div>
+                <div style="margin-bottom:8px;"><strong>Payment:</strong> <span class="badge ${appt.payment_status === 'paid' ? 'badge-success' : 'badge-warning'}">${appt.payment_status}</span> (${formatCurrency(appt.amount_due ?? appt.price)})</div>
+                ${appt.notes ? `<div style="margin-bottom:8px;padding:8px;background:var(--bg-card);border-radius:4px;"><strong>Notes:</strong> ${escapeHtml(appt.notes)}</div>` : ''}
+            </div>
+        `;
+
+        const footer = document.getElementById('appt-slot-modal-footer');
+        const pkgSafe = (appt.package_name || '').replace(/'/g, "\\'");
+        footer.innerHTML = `
+            <button class="btn btn-secondary" onclick="closeModal('appt-slot-modal')">Close</button>
+            <button class="btn btn-outline" onclick="closeModal('appt-slot-modal');openCorrectServiceModal(${appt.id}, '${pkgSafe}', ${Number(appt.price) || 0})"><i class="fa-solid fa-pen-to-square"></i> Correct Service</button>
+            <button class="btn btn-secondary" onclick="generateAppointmentQr(${appt.id})"><i class="fa-solid fa-qrcode"></i> QR</button>
+        `;
+        openModal('appt-slot-modal');
+    } catch (err) {
+        showToast('Failed to load appointment details', 'error');
+    }
+}
+
+// Open cells in the staff calendar are informational: patients book their own
+// appointments, so there is no desk-side booking action here. The customer's
+// own availability calendar lives on the customer dashboard.
