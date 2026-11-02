@@ -1911,8 +1911,6 @@ tbody tr:last-child td { border-bottom: none; }
 .export-menu { position: relative; display: inline-block; }
 .export-menu > summary { list-style: none; cursor: pointer; }
 .export-menu > summary::-webkit-details-marker { display: none; }
-.export-menu .export-caret { font-size: 0.75em; transition: transform 0.2s ease; }
-.export-menu[open] .export-caret { transform: rotate(180deg); }
 
 .export-menu-list {
     position: absolute;

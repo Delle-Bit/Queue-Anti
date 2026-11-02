@@ -272,14 +272,6 @@ async function loadSalesReport() {
     }
 }
 
-// The browser's own printing. Only one section is on screen at a time and the
-// print rules in shared.css drop the sidebar and the buttons, so what prints is
-// this report - a second HTML document written into a popup would be a second
-// copy of the same tables to keep in step.
-function printSalesReport() {
-    window.print();
-}
-
 async function exportSalesExcel() {
     const period = salesPeriod();
     if (!period) return showToast('Choose the period to report on', 'error');
