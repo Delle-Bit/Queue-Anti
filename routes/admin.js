@@ -1619,11 +1619,12 @@ router.get('/sales/export-xlsx', requireSalesReport, async (req, res) => {
         return res.status(400).json({ error: 'Start date cannot be after end date' });
     }
 
+    // Match the on-screen report's row set (see routes/reports.js); status is not
+    // a filter there, so it must not be one here either.
     const conditions = [
         'qs.paid_at >= ?',
         'qs.paid_at < DATE_ADD(?, INTERVAL 1 DAY)',
-        'qs.archived = false',
-        "qs.status != 'cancelled'"
+        'qs.archived = false'
     ];
     const params = [startDate, endDate];
 

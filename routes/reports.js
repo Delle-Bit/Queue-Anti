@@ -29,11 +29,15 @@ router.get('/sales/export-xlsx', async (req, res) => {
         return res.status(400).json({ error: 'Start date cannot be after end date' });
     }
 
+    // The same rows the on-screen report (GET /sales) counts: a visit belongs to
+    // a date by its paid_at, and status is not a filter there. Keeping the two in
+    // step is what makes the file's totals match the report the operator sees. A
+    // cancelled or unfinished sale still appears, marked in the Status column,
+    // rather than silently dropping out of the export.
     const conditions = [
         'qs.paid_at >= ?',
         'qs.paid_at < DATE_ADD(?, INTERVAL 1 DAY)',
-        'qs.archived = false',
-        "qs.status != 'cancelled'"
+        'qs.archived = false'
     ];
     const params = [startDate, endDate];
 
