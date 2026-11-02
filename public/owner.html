@@ -87,9 +87,8 @@
                             <input type="date" id="sales-to" class="form-input" style="width:160px;">
                         </div>
                         <button class="btn btn-primary" onclick="loadSalesReport()"><i class="fa-solid fa-magnifying-glass-dollar"></i> Show</button>
-                        <button class="btn btn-outline" onclick="printSalesReport()"><i class="fa-solid fa-print"></i> Print</button>
                         <details class="export-menu" id="sales-export-menu">
-                            <summary class="btn btn-outline"><i class="fa-solid fa-file-export"></i> Export <i class="fa-solid fa-chevron-down export-caret"></i></summary>
+                            <summary class="btn btn-outline" title="Export this report"><i class="fa-solid fa-file-export"></i> Export</summary>
                             <div class="export-menu-list" role="menu" aria-label="Export sales report">
                                 <button type="button" role="menuitem" id="btn-export-excel" onclick="exportSalesExcel()"><i class="fa-solid fa-file-excel"></i> Excel (.xlsx)</button>
                                 <button type="button" role="menuitem" id="btn-export-pdf" onclick="exportSalesPdf()"><i class="fa-solid fa-file-pdf"></i> PDF</button>
