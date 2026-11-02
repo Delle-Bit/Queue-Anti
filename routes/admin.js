@@ -1981,5 +1981,23 @@ router.post('/export-pin/admin-reset', requireAdmin, async (req, res) => {
     }
 });
 
+// --- COOKIE CONSENT AUDIT LOG (FEATURE 5) ---
+router.post('/consent-log', async (req, res) => {
+    const { anonymous_id, choice, policy_version } = req.body;
+    if (!anonymous_id || !choice) {
+        return res.status(400).json({ error: 'anonymous_id and choice are required' });
+    }
+
+    try {
+        await pool.query(
+            `INSERT INTO consent_log (anonymous_id, choice, policy_version) VALUES (?, ?, ?)`,
+            [String(anonymous_id).slice(0, 64), JSON.stringify(choice), String(policy_version || '1.0').slice(0, 20)]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.json({ success: true });
+    }
+});
+
 module.exports = router;
 module.exports.checkElevatedOtp = checkElevatedOtp;
