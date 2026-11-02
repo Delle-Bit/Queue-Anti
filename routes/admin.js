@@ -1785,26 +1785,8 @@ router.get('/sales/export-xlsx', requireSalesReport, async (req, res) => {
 });
 
 // --- EXPORT PIN SYSTEM (FEATURE 1) ---
-const WEAK_PINS = new Set([
-    '000000', '111111', '222222', '333333', '444444',
-    '555555', '666666', '777777', '888888', '999999',
-    '123456', '654321', '112233', '121212', '696969',
-    '102030', '010101'
-]);
-
-function isWeakPin(pin) {
-    if (!/^\d{6}$/.test(String(pin || ''))) return true;
-    if (WEAK_PINS.has(pin)) return true;
-    const digits = pin.split('').map(Number);
-    const allSame = digits.every(d => d === digits[0]);
-    if (allSame) return true;
-    let asc = true, desc = true;
-    for (let i = 1; i < digits.length; i++) {
-        if (digits[i] !== digits[i - 1] + 1) asc = false;
-        if (digits[i] !== digits[i - 1] - 1) desc = false;
-    }
-    return asc || desc;
-}
+// Any 6-digit PIN is accepted. The owner decided against a weak-PIN policy, so
+// there is no complexity/repeat/sequence rule here - only the 6-digit format.
 
 // In-memory short-lived single-use export authorization tokens (2 min TTL)
 const exportAuthTokens = new Map();
@@ -1849,9 +1831,6 @@ router.post('/export-pin/set', async (req, res) => {
     if (!pin || !/^\d{6}$/.test(String(pin))) {
         return res.status(400).json({ error: 'PIN must be exactly 6 digits.' });
     }
-    if (isWeakPin(pin)) {
-        return res.status(400).json({ error: 'PIN is too weak. Avoid repeating or sequential numbers.' });
-    }
 
     try {
         const [users] = await pool.query('SELECT export_pin_hash FROM users WHERE id = ?', [req.user.id]);
@@ -1875,9 +1854,6 @@ router.post('/export-pin/change', async (req, res) => {
     const { current_credential, new_pin, use_password } = req.body;
     if (!new_pin || !/^\d{6}$/.test(String(new_pin))) {
         return res.status(400).json({ error: 'New PIN must be exactly 6 digits.' });
-    }
-    if (isWeakPin(new_pin)) {
-        return res.status(400).json({ error: 'New PIN is too weak. Avoid repeating or sequential numbers.' });
     }
 
     try {

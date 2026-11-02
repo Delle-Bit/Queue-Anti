@@ -23,45 +23,26 @@ function ok(name, cond) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 1. FEATURE 1: 6-DIGIT EXPORT PIN & SECURITY RULES
+// 1. FEATURE 1: 6-DIGIT EXPORT PIN
 // ─────────────────────────────────────────────────────────────
-console.log('\n1. 6-Digit PIN validation & weak PIN detection');
+console.log('\n1. 6-Digit PIN format (any 6 digits accepted)');
 
-const WEAK_PINS = new Set([
-    '000000', '111111', '222222', '333333', '444444',
-    '555555', '666666', '777777', '888888', '999999',
-    '123456', '654321', '112233', '121212', '696969',
-    '102030', '010101'
-]);
-
-function isWeakPin(pin) {
-    const s = String(pin || '');
-    if (!/^\d{6}$/.test(s)) return true;
-    if (WEAK_PINS.has(s)) return true;
-    const digits = s.split('').map(Number);
-    const allSame = digits.every(d => d === digits[0]);
-    if (allSame) return true;
-    let asc = true, desc = true;
-    for (let i = 1; i < digits.length; i++) {
-        if (digits[i] !== digits[i - 1] + 1) asc = false;
-        if (digits[i] !== digits[i - 1] - 1) desc = false;
-    }
-    return asc || desc;
+// The owner's policy: no weak-PIN rule. Only the 6-digit numeric format is
+// enforced, so 000000 and 123456 are as valid as 847291.
+function isValidPin(pin) {
+    return /^\d{6}$/.test(String(pin || ''));
 }
 
-ok('000000 is rejected as weak', isWeakPin('000000'));
-ok('111111 is rejected as weak', isWeakPin('111111'));
-ok('123456 is rejected as sequential ascending', isWeakPin('123456'));
-ok('654321 is rejected as sequential descending', isWeakPin('654321'));
-ok('234567 is rejected as sequential', isWeakPin('234567'));
-ok('765432 is rejected as sequential', isWeakPin('765432'));
-ok('102030 is rejected from weak set', isWeakPin('102030'));
-ok('847291 is accepted as strong numeric PIN', !isWeakPin('847291'));
-ok('395817 is accepted as strong numeric PIN', !isWeakPin('395817'));
-ok('5-digit PIN is rejected', !/^\d{6}$/.test('12345'));
-ok('7-digit PIN is rejected', !/^\d{6}$/.test('1234567'));
-ok('Alphanumeric PIN is rejected', !/^\d{6}$/.test('12345a'));
-ok('Empty PIN is rejected', !/^\d{6}$/.test(''));
+ok('000000 is accepted (weak PINs allowed)', isValidPin('000000'));
+ok('111111 is accepted (weak PINs allowed)', isValidPin('111111'));
+ok('123456 is accepted (weak PINs allowed)', isValidPin('123456'));
+ok('654321 is accepted', isValidPin('654321'));
+ok('102030 is accepted', isValidPin('102030'));
+ok('847291 is accepted', isValidPin('847291'));
+ok('5-digit PIN is rejected', !isValidPin('12345'));
+ok('7-digit PIN is rejected', !isValidPin('1234567'));
+ok('Alphanumeric PIN is rejected', !isValidPin('12345a'));
+ok('Empty PIN is rejected', !isValidPin(''));
 
 console.log('\n2. Export authorization single-use token lifecycle');
 const exportAuthTokens = new Map();
