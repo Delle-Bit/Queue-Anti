@@ -424,6 +424,110 @@ router.get('/appointments', requireStaff, async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+// --- APPOINTMENT CALENDAR VIEW (FEATURE 2) ---
+router.get('/appointments/calendar', requireStaff, async (req, res) => {
+    const { start, end, service_id } = req.query;
+    if (!start || !end) {
+        return res.status(400).json({ error: 'start and end dates are required (YYYY-MM-DD)' });
+    }
+
+    try {
+        const [settingsRows] = await pool.query('SELECT * FROM settings LIMIT 1');
+        const settings = settingsRows[0] || {};
+        const bizStart = settings.business_hours_start || '08:00';
+        const bizEnd = settings.business_hours_end || '17:00';
+        const slotMin = Number(settings.slot_duration_minutes) || 30;
+
+        const conditions = [
+            'a.appointment_date >= ?',
+            'a.appointment_date <= ?',
+            'a.archived = false',
+            "a.status NOT IN ('cancelled', 'no-show')"
+        ];
+        const params = [start, end];
+
+        if (service_id) {
+            conditions.push('a.package_id = ?');
+            params.push(service_id);
+        }
+
+        const [appts] = await pool.query(
+            `SELECT a.id,
+                    DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+                    TIME_FORMAT(a.appointment_time, '%H:%i') AS appointment_time,
+                    a.status, a.payment_status, a.notes,
+                    sp.id AS package_id, sp.name AS service_name,
+                    COALESCE(sp.est_time_minutes, ?) AS duration_minutes,
+                    u.id AS customer_id, COALESCE(u.full_name, u.username) AS customer_name,
+                    u.customer_category
+             FROM appointments a
+             JOIN service_packages sp ON a.package_id = sp.id
+             JOIN users u ON a.customer_id = u.id
+             WHERE ${conditions.join(' AND ')}
+             ORDER BY a.appointment_date, a.appointment_time`,
+            [slotMin, ...params]
+        );
+
+        const [startH, startM] = bizStart.split(':').map(Number);
+        const [endH, endM] = bizEnd.split(':').map(Number);
+        const dayStartMin = startH * 60 + startM;
+        const dayEndMin = endH * 60 + endM;
+
+        const slots = [];
+        const cursor = new Date(start + 'T00:00:00');
+        const endDateObj = new Date(end + 'T00:00:00');
+
+        while (cursor <= endDateObj) {
+            const dateStr = cursor.toISOString().slice(0, 10);
+            for (let min = dayStartMin; min < dayEndMin; min += slotMin) {
+                const h = String(Math.floor(min / 60)).padStart(2, '0');
+                const m = String(min % 60).padStart(2, '0');
+                const timeStr = `${h}:${m}`;
+                const slotEndMin = min + slotMin;
+
+                const matchingAppt = appts.find(a => {
+                    if (a.appointment_date !== dateStr) return false;
+                    const [ah, am] = a.appointment_time.split(':').map(Number);
+                    const apptStart = ah * 60 + am;
+                    const apptEnd = apptStart + (Number(a.duration_minutes) || slotMin);
+                    return apptStart < slotEndMin && apptEnd > min;
+                });
+
+                slots.push({
+                    date: dateStr,
+                    time: timeStr,
+                    status: matchingAppt ? 'taken' : 'available',
+                    appointment: matchingAppt ? {
+                        id: matchingAppt.id,
+                        customer_name: matchingAppt.customer_name,
+                        customer_category: matchingAppt.customer_category,
+                        service_name: matchingAppt.service_name,
+                        package_id: matchingAppt.package_id,
+                        status: matchingAppt.status,
+                        payment_status: matchingAppt.payment_status,
+                        appointment_time: matchingAppt.appointment_time
+                    } : null
+                });
+            }
+            cursor.setDate(cursor.getDate() + 1);
+        }
+
+        res.json({
+            start, end,
+            settings: {
+                business_hours_start: bizStart,
+                business_hours_end: bizEnd,
+                slot_duration_minutes: slotMin
+            },
+            appointments: appts,
+            slots
+        });
+    } catch (err) {
+        console.error('Calendar appointments error:', err);
+        res.status(500).json({ error: 'Failed to generate calendar view' });
+    }
+});
+
 router.get('/appointments/my', async (req, res) => {
     try {
         await appointmentAutomation.sweepQuietly();

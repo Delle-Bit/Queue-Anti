@@ -123,10 +123,78 @@
 
         <!-- APPOINTMENTS -->
         <div id="section-appointments" class="content-section" style="display:none;">
-            <div class="page-header"><div><div class="page-title"><i class="fa-solid fa-calendar"></i> Appointments</div></div></div>
-            <div class="card"><div class="table-wrapper"><table><thead><tr><th>Customer</th><th>Service</th><th>Date</th><th>Time</th><th>Status</th><th>To Collect</th><th>Payment</th><th>Actions</th></tr></thead><tbody id="fd-appt-list"></tbody></table></div></div>
+            <div class="page-header">
+                <div>
+                    <div class="page-title"><i class="fa-solid fa-calendar"></i> Appointments</div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <div class="btn-group" style="display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+                        <button class="btn btn-sm btn-primary" id="btn-appt-view-list" onclick="switchApptView('list')"><i class="fa-solid fa-list"></i> List View</button>
+                        <button class="btn btn-sm btn-outline" id="btn-appt-view-calendar" onclick="switchApptView('calendar')"><i class="fa-solid fa-calendar-days"></i> Calendar View</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- List View -->
+            <div id="fd-appt-list-container" class="card">
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Customer</th><th>Service</th><th>Date</th><th>Time</th><th>Status</th><th>To Collect</th><th>Payment</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fd-appt-list"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Calendar View (Feature 2) -->
+            <div id="fd-appt-calendar-container" class="card" style="display:none; padding:16px;">
+                <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <button class="btn btn-sm btn-secondary" onclick="calNavigate(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+                        <button class="btn btn-sm btn-secondary" onclick="calToday()">Today</button>
+                        <button class="btn btn-sm btn-secondary" onclick="calNavigate(1)"><i class="fa-solid fa-chevron-right"></i></button>
+                        <span id="cal-period-label" style="font-size:1.05rem;font-weight:600;margin-left:8px;"></span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                        <select id="cal-service-filter" class="form-select" style="width:200px;" onchange="loadCalendarView()">
+                            <option value="">All Services</option>
+                        </select>
+                        <div class="btn-group" style="display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+                            <button class="btn btn-sm btn-outline" id="btn-cal-day" onclick="setCalMode('day')">Day</button>
+                            <button class="btn btn-sm btn-primary" id="btn-cal-week" onclick="setCalMode('week')">Week</button>
+                            <button class="btn btn-sm btn-outline" id="btn-cal-month" onclick="setCalMode('month')">Month</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Legend -->
+                <div style="display:flex;gap:16px;align-items:center;margin-bottom:14px;font-size:0.85rem;flex-wrap:wrap;">
+                    <span style="display:flex;align-items:center;gap:6px;"><span style="width:14px;height:14px;background:#e6f4ea;border:1px solid #34a853;border-radius:3px;display:inline-block;"></span> Open / Available</span>
+                    <span style="display:flex;align-items:center;gap:6px;"><span style="width:14px;height:14px;background:#1a73e8;border-radius:3px;display:inline-block;"></span> Booked / Taken</span>
+                    <span style="display:flex;align-items:center;gap:6px;"><span style="width:14px;height:14px;background:#f1f3f4;border:1px solid #dadce0;border-radius:3px;display:inline-block;"></span> Past / Elapsed</span>
+                </div>
+
+                <div id="cal-grid-wrapper" style="overflow-x:auto;"></div>
+            </div>
         </div>
     </main>
+
+    <!-- Appointment Slot Detail Modal -->
+    <div id="appt-slot-modal" class="modal-overlay">
+        <div class="modal-box" style="max-width:440px;">
+            <div class="modal-header">
+                <div class="modal-title"><i class="fa-solid fa-calendar-check"></i> Appointment Details</div>
+                <button class="modal-close" onclick="closeModal('appt-slot-modal')">&times;</button>
+            </div>
+            <div class="modal-body" id="appt-slot-modal-body"></div>
+            <div class="modal-footer" id="appt-slot-modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('appt-slot-modal')">Close</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Correct Service Modal (Feature 4) -->
     <div id="correct-service-modal" class="modal-overlay">
