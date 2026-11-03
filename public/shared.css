@@ -1354,14 +1354,31 @@ tbody tr:last-child td { border-bottom: none; }
 /* ================================================================
    ANNOUNCEMENTS
    ================================================================ */
+/* A floating pop-up, fixed to the viewport - not a full-width band. It used to
+   be a top strip that padded the page (and every other fixed element) down by
+   its own height; this overlays the page instead, so nothing moves. */
 .announcement-banner {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 250;
+    position: fixed; top: 16px; left: 0; right: 0;
+    margin: 0 auto;
+    width: fit-content; max-width: min(560px, calc(100vw - 32px));
+    z-index: 250;
     display: flex; align-items: center; gap: 12px;
-    padding: 12px 20px;
+    padding: 12px 16px; border-radius: 12px;
     background: var(--primary); color: #fff;
     font-size: 0.9em; font-weight: 500;
-    box-shadow: var(--shadow);
-    animation: modalIn 0.25s ease;
+    box-shadow: var(--shadow-lg);
+    animation: announcementIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes announcementIn {
+    from { opacity: 0; transform: translateY(-12px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@media (max-width: 640px) {
+    /* Clear the hamburger and theme toggle, which sit at the top corners. */
+    .announcement-banner { top: 64px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .announcement-banner { animation: none; }
 }
 .announcement-banner i { font-size: 1.1em; flex-shrink: 0; }
 .announcement-banner-text { flex: 1; }

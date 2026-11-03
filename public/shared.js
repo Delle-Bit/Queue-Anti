@@ -817,27 +817,14 @@ async function refreshAnnouncementBanner() {
     } catch (e) { /* non-critical, fail silently */ }
 }
 
-// The banner is position:fixed, so everything else that is fixed to the top of
-// the viewport (the sidebar, the mobile hamburger) has to be told how tall it
-// is. Its height changes with viewport width as the message rewraps, so it is
-// measured continuously rather than once at render.
-let announcementSizeObserver = null;
-
-function publishAnnouncementHeight(bar) {
-    const height = bar ? bar.offsetHeight : 0;
-    document.body.style.paddingTop = height ? height + 'px' : '';
-    document.documentElement.style.setProperty('--announcement-h', height + 'px');
-}
-
+// A floating pop-up, fixed to the viewport, so it never pushes the page down.
+// It used to be a full-width band that padded the top of the body (and every
+// other fixed element, via --announcement-h) by its own height - which shifted
+// the whole page whenever an announcement appeared.
 function renderAnnouncementBanner(announcement) {
     let bar = document.getElementById('announcement-banner');
     if (!announcement) {
         if (bar) bar.remove();
-        if (announcementSizeObserver) {
-            announcementSizeObserver.disconnect();
-            announcementSizeObserver = null;
-        }
-        publishAnnouncementHeight(null);
         return;
     }
     if (!bar) {
@@ -846,14 +833,10 @@ function renderAnnouncementBanner(announcement) {
         bar.className = 'announcement-banner';
         bar.setAttribute('role', 'status');
         bar.setAttribute('aria-live', 'polite');
-        document.body.prepend(bar);
-        if (typeof ResizeObserver === 'function') {
-            announcementSizeObserver = new ResizeObserver(() => publishAnnouncementHeight(bar));
-            announcementSizeObserver.observe(bar);
-        }
+        document.body.appendChild(bar);
     }
     bar.innerHTML = `
-        <i class="fa-solid fa-bullhorn"></i>
+        <i class="fa-solid fa-bullhorn" aria-hidden="true"></i>
         <span class="announcement-banner-text">${escapeHtml(announcement.message)}</span>
         <button type="button" class="announcement-banner-close" aria-label="Dismiss announcement">&times;</button>
     `;
@@ -862,7 +845,6 @@ function renderAnnouncementBanner(announcement) {
         try { sessionStorage.setItem('dismissedAnnouncements', JSON.stringify([...dismissedAnnouncementIds])); } catch (e) {}
         refreshAnnouncementBanner();
     });
-    publishAnnouncementHeight(bar);
 }
 
 function setupAnnouncementComposer() {
