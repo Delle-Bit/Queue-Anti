@@ -72,7 +72,7 @@ function idPayload(name) {
 stub('axios', {
     post: async (url, body, opts) => {
         const key = opts.headers['x-goog-api-key'];
-        calls.push({ url, key });
+        calls.push({ url, key, model: body && body.model });
         return responder(key, url);
     }
 });
@@ -98,7 +98,7 @@ for (const name of [
     'GEMINI_BASE', 'GEMINI_OCR_MODEL', 'GEMINI_CHAT_MODEL',
     'GEMINI_OCR_MODEL_FALLBACK', 'GEMINI_OVERLOAD_RETRIES',
     'DEEPSEEK_API_KEY', 'DEEPSEEK_BASE', 'DEEPSEEK_VISION_MODEL',
-    'NVIDIA_API_KEY', 'API_ALLAROUND'
+    'NVIDIA_API_KEY', 'NVIDIA_CHAT_MODEL', 'API_ALLAROUND'
 ]) {
     process.env[name] = '';
 }
@@ -109,6 +109,8 @@ const source = fs.readFileSync(SRC, 'utf8').replace(
     'module.exports = aiServices;\n'
     + 'module.exports.__test = { localArithmetic, geminiApiKeys, geminiKeySpent, withGeminiKey,'
     + ' geminiIdScan, geminiChat, ageFromBirthdate, GEMINI_OCR_MODEL, GEMINI_CHAT_MODEL,'
+    + ' assistantCommandReply, withAssistantDeadline, assistantProviderPaused,'
+    + ' NVIDIA_CHAT_MODEL, resetAssistantProviders: () => { assistantProviderPausedUntil.clear(); },'
     + ' deepseekIdScan, normaliseIdScan, readImageBase64, DEEPSEEK_VISION_MODEL,'
     + ' deepseekState: () => deepseekOffReason,'
     + ' resetDeepseek: () => { deepseekOffReason = null; } };'
@@ -521,6 +523,78 @@ const IMAGE = 'data:image/jpeg;base64,' + Buffer.alloc(64, 7).toString('base64')
     const answer = await ai.assistantDialogue({ text: '1+1', history: [], context: { packages: [{ name: 'Ultrasound', price: 2800 }] } });
     check('dialogue answers 2', answer.reply, '1 plus 1 equals 2.');
     check('without asking any model', calls.length, 0);
+
+    console.log('\n30. commands and the latency guard answer without the model');
+    calls.length = 0;
+    const idle = { packages: [], queue: { active: false } };
+    const status = await ai.assistantDialogue({
+        text: 'what is my status?',
+        history: [],
+        context: { ...idle, queue: { active: true, ticket: 'A-12', current_station: 'Laboratory', people_ahead: 2, estimated_time: 14 } }
+    });
+    check('status names the live ticket', /A-12/.test(status.reply), true);
+    check('status sends the dashboard action', status.action.type, 'show_status');
+    check('status makes no model call', calls.length, 0);
+
+    const appointment = T.assistantCommandReply({ text: 'how do I book an appointment?', context: idle });
+    check('appointment is deterministic', !!appointment && /New Appointment/.test(appointment.reply), true);
+
+    const noTicket = T.assistantCommandReply({ text: 'how long is the wait?', context: idle });
+    check('wait without a ticket is answered', !!noTicket && /no active ticket/i.test(noTicket.reply), true);
+
+    const late = await T.withAssistantDeadline(new Promise(r => setTimeout(() => r('late'), 200)), 20);
+    check('deadline returns null instead of waiting', late, null);
+
+    console.log('\n31. a slow model is cut off and the fast fallback takes over');
+    process.env.GEMINI_API_KEY = 'k1';
+    process.env.NVIDIA_API_KEY = 'nv1';
+    process.env.ASSISTANT_DEADLINE_MS = '40';
+    process.env.ASSISTANT_BREAKER_MS = '10000';
+    T.resetAssistantProviders();
+    const fallbackBody = JSON.stringify({
+        reply: 'The fallback says CBC costs 350 pesos.',
+        intent: 'faq',
+        action: { type: 'none', package_name: '' }
+    });
+    responder = (key, url) => url.includes('generativelanguage')
+        ? new Promise(() => {}) // Gemini that never answers
+        : { data: { choices: [{ message: { content: fallbackBody } }] } };
+    calls.length = 0;
+    const slow = await ai.assistantDialogue({
+        text: 'how much is the CBC?',
+        history: [],
+        context: { packages: [{ name: 'CBC', price: 350, est_time_minutes: 15 }], queue: { active: false } }
+    });
+    check('slow Gemini still answers from live data', /350 pesos/.test(slow.reply), true);
+    check('deadline stopped after one provider', calls.length, 1);
+    check('Gemini is paused after the deadline', T.assistantProviderPaused('gemini'), true);
+
+    const fallback = await ai.assistantDialogue({
+        text: 'how much is the CBC?',
+        history: [],
+        context: { packages: [{ name: 'CBC', price: 350, est_time_minutes: 15 }], queue: { active: false } }
+    });
+    check('paused Gemini is skipped', calls.length, 2);
+    check('fallback answers the next turn', /fallback says/.test(fallback.reply), true);
+    check('fallback is the small NVIDIA model', calls[1].model, T.NVIDIA_CHAT_MODEL);
+    check('fallback default is not the 550B model', T.NVIDIA_CHAT_MODEL, 'nvidia/nemotron-3.5-bolt-e4b');
+
+    console.log('\n32. a fast Gemini failure falls through in the same turn');
+    T.resetAssistantProviders();
+    responder = (key, url) => {
+        if (url.includes('generativelanguage')) throw httpError(503, { error: { message: 'busy' } });
+        return { data: { choices: [{ message: { content: fallbackBody } }] } };
+    };
+    calls.length = 0;
+    const sameTurn = await ai.assistantDialogue({
+        text: 'how much is the CBC?',
+        history: [],
+        context: { packages: [{ name: 'CBC', price: 350, est_time_minutes: 15 }], queue: { active: false } }
+    });
+    check('Gemini tried first', calls[0].url.includes('generativelanguage'), true);
+    const nvCall = calls.find(c => c.model);
+    check('NVIDIA tried immediately after', nvCall && nvCall.model, T.NVIDIA_CHAT_MODEL);
+    check('same turn uses the fallback reply', /fallback says/.test(sameTurn.reply), true);
 
     console.log(`\n${passed} passed, ${failed} failed\n`);
     process.exit(failed ? 1 : 0);

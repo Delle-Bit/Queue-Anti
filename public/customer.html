@@ -589,8 +589,27 @@
     </div>
 
 
+    <!-- iOS in-app browser notice. Instagram, Facebook, LinkedIn and the
+         other wrappers are WebKit without Safari's speech recogniser, so the
+         microphone cannot work there. Dismissible for the session. -->
+    <div class="va-inapp-banner" id="va-inapp-banner" role="status" aria-live="polite" hidden>
+        <span class="va-inapp-icon" aria-hidden="true"><i class="fa-brands fa-safari"></i></span>
+        <p class="va-inapp-text">Voice is blocked inside <strong id="va-inapp-name">this app</strong>.
+            Open this page in Safari to talk to the nurse.</p>
+        <button type="button" class="va-inapp-action" onclick="vaCopyPageLink()">Copy link</button>
+        <button type="button" class="va-inapp-close" onclick="dismissVaInAppBanner()"
+            aria-label="Dismiss Safari suggestion">&times;</button>
+    </div>
+
     <!-- Virtual Nurse Assistant — animated avatar + floating speech bubbles -->
     <div class="va-stage" id="va-stage" data-va-state="idle">
+        <!-- Spoken replies that arrive as a file play through this sink.
+             playsinline keeps iOS from taking over the screen with its
+             full-screen media player; preload="none" avoids fetching an
+             empty source before there is anything to say. -->
+        <audio id="va-audio" class="va-audio-sink" playsinline webkit-playsinline
+            autoplay preload="none" aria-hidden="true"></audio>
+
         <!-- Floating speech bubbles anchored to the avatar -->
         <div class="va-bubbles" id="va-bubbles" aria-live="polite"></div>
 
@@ -691,6 +710,62 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="clearVaHistory()"><i class="fa-solid fa-trash"></i> Clear</button>
                 <button class="btn btn-primary" onclick="closeModal('va-history-modal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Microphone permission help (iOS). Opened only when WebKit refuses the
+         microphone, or when the page is embedded without a microphone policy.
+         Steps are filled in by showVaMicPermissionModal() because the right
+         advice differs between Safari, an in-app browser and an iframe. -->
+    <div id="va-mic-permission-modal" class="modal-overlay" role="dialog" aria-modal="true"
+        aria-labelledby="va-perm-title" aria-describedby="va-perm-lead">
+        <div class="modal-box va-perm-box">
+            <div class="modal-header">
+                <div class="modal-title" id="va-perm-title">
+                    <i class="fa-solid fa-microphone-slash" aria-hidden="true"></i> Microphone is blocked
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('va-mic-permission-modal')"
+                    aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="va-perm-hero">
+                    <span class="va-perm-icon" aria-hidden="true"><i class="fa-solid fa-microphone-slash"></i></span>
+                    <p class="va-perm-lead" id="va-perm-lead">
+                        Safari is not allowed to use the microphone yet. iOS will not show the
+                        permission prompt again until you change it in Settings.
+                    </p>
+                </div>
+
+                <ol class="va-perm-steps">
+                    <li>Open the <strong>Settings</strong> app on your iPhone or iPad.</li>
+                    <li>Tap <strong>Privacy &amp; Security</strong>.</li>
+                    <li>Tap <strong>Microphone</strong>.</li>
+                    <li>Turn on the switch next to <strong>Safari</strong>.</li>
+                    <li>Return to this page and tap <strong>Try again</strong>.</li>
+                </ol>
+
+                <div class="va-perm-note">
+                    <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                    <span id="va-perm-note-text">After changing the setting, come back to this tab and tap
+                        Try again. If the prompt still does not appear, close and reopen the tab.</span>
+                </div>
+
+                <p class="va-perm-alt">You can also type your question below at any time &mdash; no microphone
+                    needed.</p>
+            </div>
+            <div class="modal-footer va-perm-actions">
+                <button type="button" class="btn btn-secondary" onclick="vaFocusTypedFromPermission()">
+                    Type instead
+                </button>
+                <button type="button" class="btn btn-secondary" id="va-perm-copy-btn"
+                    onclick="vaCopyPageLink()" hidden>
+                    <i class="fa-solid fa-copy" aria-hidden="true"></i> Copy link
+                </button>
+                <button type="button" class="btn btn-primary" id="va-perm-retry-btn"
+                    onclick="vaRetryMicFromPermission()">
+                    <i class="fa-solid fa-microphone" aria-hidden="true"></i> Try again
+                </button>
             </div>
         </div>
     </div>

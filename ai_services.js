@@ -10,6 +10,12 @@ dotenv.config();
 // NVIDIA fallback configuration (store token in .env as NVIDIA_API_KEY)
 const NV_INVOKE_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 const NV_API_KEY = process.env.NVIDIA_API_KEY;
+// The assistant's fallback. Not the 550B model: measured with the real prompt
+// shape, nemotron-3.5-bolt-e4b answered a turn in about 1s and returned the
+// expected JSON, while the 550B model took long enough that a spoken turn was
+// already over. Configurable so a better fast model can be pinned without a
+// code change.
+const NVIDIA_CHAT_MODEL = process.env.NVIDIA_CHAT_MODEL || 'nvidia/nemotron-3.5-bolt-e4b';
 
 // -- Gemini configuration ---------------------------------------------------
 // The key travels in the x-goog-api-key header rather than ?key= in the URL,
@@ -139,6 +145,48 @@ function geminiEnvNumber(name, fallback) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// -- Virtual Assistant latency guard ----------------------------------------
+// A spoken turn has to answer in seconds, not tens of seconds. The model call
+// runs under a deadline; past it the deterministic local reply is used and the
+// model's late answer is discarded. A provider that fails or times out is also
+// paused for a cooldown, so one bad minute does not cost every following
+// customer the same wait. Both values are read per call, like the Gemini retry
+// settings, so they can be changed from the hosting dashboard.
+function assistantDeadlineMs() {
+  return geminiEnvNumber('ASSISTANT_DEADLINE_MS', 3500);
+}
+
+function assistantBreakerMs() {
+  return geminiEnvNumber('ASSISTANT_BREAKER_MS', 5 * 60 * 1000);
+}
+
+const assistantProviderPausedUntil = new Map();
+
+function assistantProviderPaused(name) {
+  return (assistantProviderPausedUntil.get(name) || 0) > Date.now();
+}
+
+function pauseAssistantProvider(name) {
+  const ms = assistantBreakerMs();
+  assistantProviderPausedUntil.set(name, Date.now() + ms);
+  console.warn(`[Virtual Assistant] ${name} paused for ${Math.round(ms / 1000)}s after a failed turn`);
+}
+
+// Resolves null at the deadline rather than rejecting: callers already treat a
+// null model answer as "use the local reply". The underlying request is left to
+// settle on its own; axios abandons it at its own timeout.
+async function withAssistantDeadline(promise, ms) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((resolve) => { timer = setTimeout(() => resolve(null), ms); })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Runs `attempt(key)` against each configured key in turn, starting from the
 // one that worked last. Returns { ok: true, value } or
 // { ok: false, reason: 'no-key' | 'error' | 'exhausted', error }; callers turn
@@ -231,23 +279,25 @@ async function nvidiaFallback(data) {
 }
 
 /**
- * Calls NVIDIA's chat completion endpoint with a proper system/user message split.
- * Unlike `nvidiaFallback`, this preserves the system prompt and conversation turns,
- * which the Virtual Assistant dialogue controller depends on.
- * Returns the assistant message content string, or null when unavailable.
+ * Calls the small NVIDIA model used when Gemini is unavailable or paused.
+ * It gets the same system prompt and turns as the primary, so it can resolve a
+ * package for a queue join. Returns the assistant message text, or null.
  */
 async function nvidiaChat(systemPrompt, messages) {
-  if (!NV_API_KEY) {
-    console.warn('[NVIDIA Chat] NVIDIA_API_KEY not configured, skipping LLM dialogue');
+  // Read per call, so a hosting dashboard change does not need a redeploy of
+  // this module and the offline harness can supply a key.
+  const apiKey = process.env.NVIDIA_API_KEY;
+  if (!apiKey) {
+    console.warn('[NVIDIA Chat] NVIDIA_API_KEY not configured, skipping fallback provider');
     return null;
   }
 
   const payload = {
-    model: 'nvidia/nemotron-3-ultra-550b-a55b',
+    model: NVIDIA_CHAT_MODEL,
     messages: [{ role: 'system', content: systemPrompt }, ...messages],
     temperature: 0.3,
     top_p: 0.95,
-    max_tokens: 1024,
+    max_tokens: 300,
     chat_template_kwargs: { enable_thinking: false },
     stream: false
   };
@@ -255,13 +305,17 @@ async function nvidiaChat(systemPrompt, messages) {
   try {
     const res = await axios.post(NV_INVOKE_URL, payload, {
       headers: {
-        Authorization: `Bearer ${NV_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
         Accept: 'application/json',
         'Content-Type': 'application/json'
       },
-      timeout: 15000
+      timeout: 10000
     });
-    return res.data?.choices?.[0]?.message?.content || null;
+    const message = res.data?.choices?.[0]?.message;
+    // A reasoning-only answer is not usable here: the parser needs the JSON
+    // object, and reading chain-of-thought aloud would be worse than the local
+    // reply.
+    return message?.content || null;
   } catch (e) {
     console.error('[NVIDIA Chat] Request failed:', e.message);
     return null;
@@ -269,10 +323,10 @@ async function nvidiaChat(systemPrompt, messages) {
 }
 
 /**
- * Calls Google Gemini 2.5 Flash for the Virtual Assistant dialogue.
- * Primary provider for `assistantDialogue`; falls back to `nvidiaChat` when this
- * returns null (missing key, quota, network issue) so a demo never goes silent.
- * Returns the assistant reply text, or null when unavailable.
+ * Calls Google Gemini for the Virtual Assistant dialogue.
+ * Primary remote provider; a slow or failed turn falls through to the small
+ * NVIDIA model, then to the deterministic local reply. Returns the assistant
+ * reply text, or null when unavailable.
  */
 async function geminiChat(systemPrompt, messages) {
   const contents = messages.map(m => ({
@@ -411,12 +465,87 @@ function arithmeticReply(math) {
   };
 }
 
+/**
+ * Commands the assistant can answer from live context without a model.
+ * Returns null when the message is not one of them, so the caller can still
+ * ask the model. Runs before the model (instant) and is also the reply used
+ * when the deadline expires.
+ */
+function assistantCommandReply(data) {
+  const text = String(data.text || '').toLowerCase().trim();
+  const queue = data.context?.queue;
+
+  // Plain greeting — brief intro only, no capability laundry list.
+  if (/^(hi|hello|hey|good (morning|afternoon|evening))\b/.test(text)) {
+    return {
+      reply: "Hello! I'm your virtual nurse assistant.",
+      intent: 'smalltalk',
+      action: { type: 'none', package_name: '' }
+    };
+  }
+
+  // Explicit capability question — state what it can do, only when asked.
+  if (/who are you|what (can|do) you do|what are you|how can you help/.test(text)) {
+    return {
+      reply: 'I can answer questions about our services and prices, do quick calculations, and help you join a queue.',
+      intent: 'smalltalk',
+      action: { type: 'none', package_name: '' }
+    };
+  }
+
+  if (/\b(status|my ticket|my number|my position|where am i)\b|what (?:is|'s) my queue/.test(text)) {
+    if (queue && queue.active) {
+      const station = queue.current_station || 'the front desk';
+      return {
+        reply: `Your ticket is ${queue.ticket || 'pending'}. You are at ${station} with ${queue.people_ahead || 0} ahead of you, and about ${queue.estimated_time || 0} minutes to go.`,
+        intent: 'faq',
+        action: { type: 'show_status', package_name: '' }
+      };
+    }
+    return {
+      reply: 'You do not have an active ticket right now. Tell me which service you need and I can queue you for it.',
+      intent: 'queue_action',
+      action: { type: 'none', package_name: '' }
+    };
+  }
+
+  if (/\b(wait|how long|eta|estimate)\b/.test(text) && !/\b(cost|price|much)\b/.test(text)) {
+    if (queue && queue.active) {
+      return {
+        reply: `Your estimated remaining wait is ${queue.estimated_time || 0} minutes.`,
+        intent: 'faq',
+        action: { type: 'show_status', package_name: '' }
+      };
+    }
+    return {
+      reply: 'You have no active ticket. Check in at the front desk usually takes about ten minutes per station.',
+      intent: 'faq',
+      action: { type: 'none', package_name: '' }
+    };
+  }
+
+  // Booking is an appointment, not a queue join, and is answered here before
+  // the join rule can read "book" as a request to queue.
+  if (/\bappointments?\b/.test(text) && /\b(how|make|book|schedule|set|create|get|want|need)\b/.test(text)) {
+    return {
+      reply: 'To book an appointment, tap New Appointment on the Appointments page. Choose a service, pick a date and a time, then review and confirm. You pay at the front desk on the day.',
+      intent: 'faq',
+      action: { type: 'none', package_name: '' }
+    };
+  }
+
+  return null;
+}
+
 function assistantLocalFallback(data) {
   const text = String(data.text || '').toLowerCase().trim();
   const packages = data.context?.packages || [];
 
   const math = localArithmetic(text);
   if (math) return arithmeticReply(math);
+
+  const command = assistantCommandReply(data);
+  if (command) return command;
 
   // Queue dispatch: match a package name mentioned in the request.
   if (/\b(join|enqueue|queue me|line up|book|register|sign me up|route)\b/.test(text)) {
@@ -443,15 +572,6 @@ function assistantLocalFallback(data) {
       reply: 'Do you want me to remove you from the queue?',
       intent: 'queue_action',
       action: { type: 'cancel_queue', package_name: '' }
-    };
-  }
-
-  // Explicit capability question — only state capabilities when asked directly.
-  if (/who are you|what (can|do) you do|what are you|how can you help/.test(text)) {
-    return {
-      reply: 'I can answer questions about our services and prices, do quick calculations, and help you join a queue.',
-      intent: 'smalltalk',
-      action: { type: 'none', package_name: '' }
     };
   }
 
@@ -840,7 +960,7 @@ function normaliseIdScan(parsed, source) {
 // that.
 //
 // OpenAI wire format against api.deepseek.com, which is what DeepSeek's own
-// docs show, so this is the request shape nvidiaChat already uses rather than a
+// docs show, so this is the request shape nvidiaFallback already uses rather than a
 // third one.
 const DEEPSEEK_BASE = process.env.DEEPSEEK_BASE || 'https://api.deepseek.com';
 // The only model on the account that accepts an image; deepseek-v4-pro and
@@ -1270,39 +1390,74 @@ const aiServices = {
     /**
      * Virtual Assistant dialogue controller.
      * `payload` = { text, history: [{role,text}], context: { packages, queue, customer_name, customer_category } }
-     * Resolution order: Gemini 2.5 Flash → NVIDIA Nemotron-3 (demo-safety fallback) → deterministic local intent parser.
+     * Resolution order: local command → local arithmetic → Gemini → small
+     * NVIDIA fallback → deterministic local reply. Both remote providers share
+     * one deadline, and one that fails is paused for a cooldown. The 550B model
+     * is deliberately not in this chain: a spoken turn cannot wait for it.
      */
     assistantDialogue: async (payload) => {
-        const isEnabled = await checkAIToggle('assistant');
         let output = null;
         let provider = 'local';
 
         // A bare sum is answered exactly, never by the model.
         const math = localArithmetic(payload.text, { strict: true });
+        // Queue status, wait time, appointments, greetings and capability
+        // questions are answered from live context before any request is made.
+        const command = assistantCommandReply(payload);
+
         if (math) {
             output = arithmeticReply(math);
             provider = 'calculator';
-        } else if (isEnabled) {
-            const history = (payload.history || []).slice(-6).map(h => ({
-                role: h.role === 'user' ? 'user' : 'assistant',
-                content: String(h.text || '')
-            }));
-            const systemPrompt = buildAssistantSystemPrompt(payload.context);
-            const turns = [...history, { role: 'user', content: String(payload.text || '') }];
-
-            let raw = await geminiChat(systemPrompt, turns);
-            if (raw) provider = 'gemini';
-            if (!raw) {
-                raw = await nvidiaChat(systemPrompt, turns);
-                if (raw) provider = 'nvidia';
-            }
-            output = parseAssistantReply(raw);
-            if (!output) {
-                provider = 'local';
-                console.warn('[Virtual Assistant] LLM unavailable or unparseable, using local intent parser');
-            }
+        } else if (command) {
+            output = command;
+            provider = 'local-command';
         } else {
-            console.log('[AI Disabled] Virtual Assistant Dialogue');
+            const isEnabled = await checkAIToggle('assistant');
+            if (!isEnabled) {
+                console.log('[AI Disabled] Virtual Assistant Dialogue');
+            } else {
+                const history = (payload.history || []).slice(-6).map(h => ({
+                    role: h.role === 'user' ? 'user' : 'assistant',
+                    content: String(h.text || '')
+                }));
+                const systemPrompt = buildAssistantSystemPrompt(payload.context);
+                const turns = [...history, { role: 'user', content: String(payload.text || '') }];
+
+                // One shared budget for the turn. Gemini goes first; whatever
+                // time it leaves is what the fallback gets. When Gemini has
+                // just failed it is paused, so the next turn skips straight to
+                // the fallback with the whole budget.
+                const deadlineAt = Date.now() + assistantDeadlineMs();
+                const providers = [
+                    { name: 'gemini', call: () => geminiChat(systemPrompt, turns) },
+                    { name: 'nvidia', call: () => nvidiaChat(systemPrompt, turns) }
+                ];
+
+                for (const candidate of providers) {
+                    if (assistantProviderPaused(candidate.name)) continue;
+                    const remaining = deadlineAt - Date.now();
+                    if (remaining <= 0) break;
+
+                    const raw = await withAssistantDeadline(candidate.call(), remaining);
+                    output = parseAssistantReply(raw);
+                    if (output) {
+                        provider = candidate.name;
+                        break;
+                    }
+                    if (!raw) {
+                        // A null here is a timeout, a refusal or a network
+                        // error. Pause that provider so the next customer does
+                        // not wait out the same deadline.
+                        pauseAssistantProvider(candidate.name);
+                    } else {
+                        console.warn(`[Virtual Assistant] ${candidate.name} reply could not be parsed, trying the next provider`);
+                    }
+                }
+
+                if (!output) {
+                    console.warn('[Virtual Assistant] no model answered in time, using local intent parser');
+                }
+            }
         }
 
         if (!output) output = assistantLocalFallback(payload);
