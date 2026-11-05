@@ -1060,6 +1060,176 @@ tbody tr:last-child td { border-bottom: none; }
     border-radius: 999px;
 }
 
+/* ── iOS in-app browser banner ──────────────────────────────────── */
+/* Fixed to the top so it never covers the avatar or the typed input.
+   [hidden] is re-asserted because .va-inapp-banner sets display:flex, and a
+   class selector beats the user agent's [hidden] rule. */
+.va-inapp-banner {
+    position: fixed;
+    top: calc(12px + env(safe-area-inset-top, 0px));
+    left: 50%;
+    transform: translate(-50%, -12px);
+    z-index: 300;
+    width: min(560px, calc(100vw - 24px));
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    box-shadow: var(--shadow-lg);
+    opacity: 0;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.va-inapp-banner[hidden] { display: none !important; }
+.va-inapp-banner.show { opacity: 1; transform: translate(-50%, 0); }
+.va-inapp-icon {
+    flex: 0 0 auto;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--danger-light);
+    color: var(--primary);
+    font-size: 0.95em;
+}
+.va-inapp-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    font-size: 0.8em;
+    line-height: 1.4;
+    color: var(--text-primary);
+}
+.va-inapp-action {
+    flex: 0 0 auto;
+    border: none;
+    border-radius: 999px;
+    padding: 7px 12px;
+    background: var(--primary);
+    color: #fff;
+    font: inherit;
+    font-size: 0.76em;
+    font-weight: 700;
+    cursor: pointer;
+}
+.va-inapp-action:hover { filter: brightness(1.06); }
+.va-inapp-close {
+    flex: 0 0 auto;
+    width: 30px; height: 30px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 1.15em;
+    line-height: 1;
+    cursor: pointer;
+}
+.va-inapp-close:hover { background: var(--bg-input); color: var(--text-primary); }
+
+/* ── Inline audio sink ──────────────────────────────────────────── */
+/* Present in the layout, invisible to the eye and to assistive tech. Audio
+   elements still play while visually hidden, and playsinline keeps iOS from
+   replacing the page with its full-screen player. */
+.va-audio-sink {
+    position: absolute;
+    width: 1px; height: 1px;
+    opacity: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+/* ── Microphone permission modal ────────────────────────────────── */
+.va-perm-box { max-width: 460px; }
+.va-perm-hero {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 18px;
+}
+.va-perm-icon {
+    flex: 0 0 auto;
+    width: 46px; height: 46px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--danger-light);
+    color: var(--danger);
+    font-size: 1.15em;
+}
+.va-perm-lead {
+    margin: 0;
+    font-size: 0.88em;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+.va-perm-steps {
+    list-style: none;
+    counter-reset: va-perm-step;
+    margin: 0 0 16px;
+    padding: 0;
+    display: grid;
+    gap: 10px;
+}
+.va-perm-steps li {
+    counter-increment: va-perm-step;
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    gap: 10px;
+    align-items: start;
+    font-size: 0.86em;
+    line-height: 1.45;
+    color: var(--text-primary);
+}
+.va-perm-steps li::before {
+    content: counter(va-perm-step);
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--danger-light);
+    color: var(--primary);
+    font-size: 0.78em;
+    font-weight: 800;
+}
+.va-perm-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    font-size: 0.8em;
+    line-height: 1.45;
+}
+.va-perm-note i { margin-top: 2px; color: var(--primary); }
+.va-perm-alt {
+    margin: 12px 0 0;
+    font-size: 0.8em;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+.va-perm-actions { flex-wrap: wrap; }
+.va-perm-actions .btn { flex: 1 1 auto; justify-content: center; }
+/* .btn sets display, which would otherwise beat the user agent's [hidden]. */
+.va-perm-actions [hidden] { display: none !important; }
+
+@media (max-width: 480px) {
+    .va-inapp-banner {
+        gap: 8px;
+        padding: 9px 10px;
+        border-radius: 12px;
+    }
+    .va-inapp-text { font-size: 0.76em; }
+    .va-inapp-action { padding: 6px 10px; font-size: 0.72em; }
+    .va-perm-box { width: calc(100vw - 24px); max-height: 88dvh; }
+    .va-perm-hero { gap: 10px; }
+    .va-perm-icon { width: 40px; height: 40px; font-size: 1em; }
+}
+
+
 /* ── History list (inside the double-click modal) ───────────────── */
 .va-history {
     width: 100%;

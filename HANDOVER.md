@@ -54,10 +54,11 @@ This is the whole safety net, and it needs no database, no network and no API
 key. It:
 
 - parses every backend and frontend file (`node --check`);
-- runs `verify_ai_chain.js` — 112 assertions over the OCR and assistant
+- runs `verify_ai_chain.js` — 128 assertions over the OCR and assistant
   provider chains: key rotation on a spent key, model fallback, overload
-  retries, the DeepSeek circuit breaker, and the assistant answering a bare sum
-  with its own calculator instead of asking a language model;
+  retries, the DeepSeek circuit breaker, the assistant answering a bare sum
+  with its own calculator instead of asking a language model, and its
+  deadline/command path answering without one;
 - runs `verify_payment_math.js` — 23 assertions over the cashier's arithmetic:
   the two statutory discount rates, the discount preselected from the patient's
   category, centavo rounding, and the refusal of a request that claims its own
@@ -119,6 +120,8 @@ in the repository and must not be put there. As of this writing the service has:
 | Elevated accounts | `ADMIN_APPROVAL_EMAIL` — the mailbox that approves a new owner/admin account. Unset means no elevated account can be created at all |
 | ID scanning | `GEMINI_API_KEY`, `GEMINI_API_KEY_2`, `GEMINI_API_KEY_3`, `DEEPSEEK_API_KEY`, `NVIDIA_API_KEY` |
 | Assistant voice | `GROQ_API_KEY` (`OPENAI_API_KEY` is supported and currently unset) |
+| Assistant latency | `ASSISTANT_DEADLINE_MS` (default `3500`), `ASSISTANT_BREAKER_MS` (default `300000`) |
+| Iframe embedding | `PERMISSIONS_POLICY` (optional; only for cross-origin iframes, e.g. `microphone=(self "https://clinic.example"), autoplay=(self "https://clinic.example")`) |
 | Reports | `API_ALLAROUND` (Hugging Face) |
 | Set by Railway itself | everything prefixed `RAILWAY_` |
 
@@ -197,6 +200,11 @@ Honest list, so the next person does not rediscover them:
   is mid-afternoon in Manila. When it runs out, ID scanning falls back and reads
   Philippine IDs considerably worse.
 - Groq's free tier rate-limits the assistant's voice transcription.
+- iPhone voice input is Safari-only. Chrome, Firefox, Edge and the in-app
+  browsers inside Instagram, Facebook and LinkedIn run WebKit without Apple's
+  speech recogniser, so they get a banner and, if they still try, a Settings
+  modal. The typed box is the fallback everywhere; it reaches the same dialogue
+  endpoint.
 
 ---
 

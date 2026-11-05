@@ -27,7 +27,7 @@ This guide will help you run the application on your local machine using a local
    DB_NAME=clinic_v2
    GEMINI_API_KEY=          # optional - enables Gemini for AI features
    API_ALLAROUND=           # optional - Hugging Face fallback
-   NVIDIA_API_KEY=          # optional - enables the NVIDIA Nemotron VA/AI fallback
+   NVIDIA_API_KEY=          # optional - enables the NVIDIA VA fallback and OCR fallback
    # Password-reset emails (template needs `to_email`, `reset_link`)
    EMAILJS_SERVICE_ID=       # optional - defaults to a shared service ID if unset
    EMAILJS_TEMPLATE_ID=      # optional

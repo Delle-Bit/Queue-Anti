@@ -39,6 +39,20 @@ const port = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
+
+// Permissions-Policy is what lets a browser hand the microphone or autoplay to
+// this page when it is inside an iframe. Same-origin use needs no header, so
+// this stays off unless an embedder is configured. Example for a cross-origin
+// embed (the embedder's origin must be named in BOTH directives):
+//   PERMISSIONS_POLICY=microphone=(self "https://clinic.example"), autoplay=(self "https://clinic.example")
+const permissionsPolicy = process.env.PERMISSIONS_POLICY;
+if (permissionsPolicy) {
+    app.use((req, res, next) => {
+        res.set('Permissions-Policy', permissionsPolicy);
+        next();
+    });
+}
+
 // Nothing a signed-in page shows may be kept by the browser. A cached dashboard
 // or a cached /api answer is what Back replays after Sign Out without asking the
 // server. no-store on the HTML also keeps pages out of the back/forward cache,

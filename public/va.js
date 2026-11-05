@@ -50,6 +50,7 @@ const VA_SPEECH_ERRORS = {
     // and points at the box the customer can actually use.
     'opera': 'Opera cannot listen \u2014 it has no speech recogniser built in. Type your question in the box below and I will answer it.',
     'unsupported': 'This browser cannot listen. Type your question in the box below, or use Google Chrome for voice.',
+    'insecure': 'The microphone needs a secure connection. Open this page over HTTPS and try again.',
     'default': "I couldn't hear that clearly. Click the nurse and try again."
 };
 
@@ -64,6 +65,82 @@ let sessionSerial = 0;
 // Set when the customer stops a session themselves, so onend knows not to
 // explain a silence they caused on purpose.
 let speechCancelledByUser = false;
+
+// ── PLATFORM + EMBEDDING DETECTION ────────────────────────────────
+// iOS is the one platform where the microphone needs more than a feature
+// check. WebKit only opens the microphone for Safari, only inside a direct
+// user gesture, and only when the page is allowed to use it by both its own
+// origin and any parent frame. The in-app browsers shipped by Instagram,
+// Facebook, LinkedIn and friends are WebKit too, but they strip Safari's
+// speech recogniser and often drop the permission prompt entirely.
+//
+// One function, asked once per page load, so every other decision in this
+// file reads from the same answer.
+let vaPlatformCache = null;
+function vaPlatformInfo() {
+    if (vaPlatformCache) return vaPlatformCache;
+
+    const ua = navigator.userAgent || '';
+    const vendor = navigator.vendor || '';
+    // iPadOS 13+ reports a desktop Mac user agent. maxTouchPoints is the only
+    // reliable way to tell it apart from a real Mac.
+    const isIOS = /iPad|iPhone|iPod/.test(ua)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isIOSOtherBrowser = /\b(CriOS|FxiOS|EdgiOS|OPiOS)\//.test(ua);
+
+    // Order matters: Messenger's user agent also carries FBAN/FBAV, so it has
+    // to be tested before the plain Facebook entry.
+    const inAppBrowsers = [
+        { name: 'Messenger', re: /Messenger|FBAN\/MessengerForiOS/i },
+        { name: 'Instagram', re: /Instagram/i },
+        { name: 'Facebook', re: /FBAN|FBAV|FB_IAB|FBIOS/i },
+        { name: 'LinkedIn', re: /LinkedInApp/i },
+        { name: 'TikTok', re: /musical_ly|BytedanceWebview|TikTok/i },
+        { name: 'X', re: /Twitter/i },
+        { name: 'Snapchat', re: /Snapchat/i },
+        { name: 'Pinterest', re: /Pinterest/i },
+        { name: 'LINE', re: /\bLine\//i },
+        { name: 'WeChat', re: /MicroMessenger/i },
+        { name: 'Google', re: /\bGSA\//i }
+    ];
+    const inApp = inAppBrowsers.find(entry => entry.re.test(ua));
+
+    // Chrome/Firefox/Edge on iOS still expose a Safari token, so Safari is
+    // "WebKit, not a known wrapper, not one of the named iOS browsers".
+    const isSafari = isIOS && /Safari\//.test(ua) && !isIOSOtherBrowser
+        && !inApp && !/OPiOS\//.test(ua);
+
+    // A page inside a cross-origin iframe cannot use the microphone unless the
+    // embedding document sends allow="microphone" and a matching
+    // Permissions-Policy. Reading window.top throws for a cross-origin parent,
+    // which is itself proof that we are embedded.
+    let isEmbedded = false;
+    try { isEmbedded = window.self !== window.top; } catch (e) { isEmbedded = true; }
+
+    // permissionsPolicy is the modern name; featurePolicy is the older one.
+    // Both are absent on Safari, so "unknown" must mean "do not blame the
+    // embedder" rather than "blocked".
+    let micPolicyAllows = true;
+    try {
+        const policy = document.permissionsPolicy || document.featurePolicy;
+        if (policy && typeof policy.allowsFeature === 'function') {
+            micPolicyAllows = policy.allowsFeature('microphone');
+        }
+    } catch (e) { /* unsupported: assume allowed */ }
+
+    vaPlatformCache = {
+        ua,
+        vendor,
+        isIOS,
+        isSafari,
+        isIOSOtherBrowser,
+        isInApp: !!inApp,
+        inAppName: inApp ? inApp.name : '',
+        isEmbedded,
+        micPolicyAllows
+    };
+    return vaPlatformCache;
+}
 
 // ── ENGINE CAPABILITIES ───────────────────────────────────────────
 // This is deliberately user-agent based, which is normally the wrong tool.
@@ -85,7 +162,8 @@ let speechCancelledByUser = false;
 //     Opera desktop and Opera Mobile alike. Nothing in this file can fix
 //     that; the typed input below is the answer for Opera.
 function vaSpeechProfile() {
-    const ua = navigator.userAgent;
+    const platform = vaPlatformInfo();
+    const ua = platform.ua;
     // Opera puts OPR/ in its Chromium user agent, and OPiOS/ on iOS.
     const isOpera = /\bOPR\//.test(ua) || /\bOPiOS\//.test(ua) || /\bOpera\b/.test(ua);
     // navigator.vendor is 'Apple Computer, Inc.' on Safari and on every iOS
@@ -93,17 +171,19 @@ function vaSpeechProfile() {
     // inherit its quirks - and 'Google Inc.' on desktop Chrome. It needs no
     // version table and has been stable for years, which is more than can be
     // said for parsing the user agent string itself.
-    const isWebKit = /apple/i.test(navigator.vendor || '');
+    const isWebKit = /apple/i.test(platform.vendor);
     const isFirefox = /\bFirefox\//.test(ua) && !isWebKit;
     // Chrome (CriOS), Firefox (FxiOS) and Edge (EdgiOS) on iOS. WebKit like
     // Safari, but without Safari's speech recogniser - see 'ios-browser'.
-    const isIOSOtherBrowser = /\b(CriOS|FxiOS|EdgiOS)\//.test(ua);
+    const isIOSOtherBrowser = platform.isIOSOtherBrowser;
 
     return {
         engine: isOpera ? 'opera' : isWebKit ? 'webkit' : isFirefox ? 'firefox' : 'chromium',
         isOpera,
         isIOSOtherBrowser,
         isWebKit,
+        isIOS: platform.isIOS,
+        isInApp: platform.isInApp,
         // WebKit cannot hold a continuous session open correctly.
         continuous: !isWebKit,
         // WebKit's interim results throttle the recogniser; take finals only.
@@ -126,6 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
     bindVaListeners();
     renderVaHistory();
     setVaState('idle');
+    vaMaybeShowInAppBrowserBanner();
     fetch('/api/assistant/voice', { headers: authHeaders() })
         .then(res => (res.ok ? res.json() : null))
         .then(data => {
@@ -295,6 +376,11 @@ function bindVaListeners() {
             // user gesture, so every avatar click on Safari was refused
             // before it began. A double-click is handled by undoing this
             // instead - see below.
+            //
+            // The AudioContext is created/resumed first, still synchronously
+            // inside this handler, before the recogniser or recorder touches
+            // the stream. iOS ties both permissions to the same gesture.
+            vaUnlockAudio();
             toggleListening();
         });
 
@@ -312,6 +398,7 @@ function bindVaListeners() {
         avatar.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
+                vaUnlockAudio();
                 toggleListening();
             }
             if (event.key.toLowerCase() === 'h') openVaHistory();
@@ -568,6 +655,272 @@ function stopLipSync() {
     setMouthOpen(0);
 }
 
+// ── iOS AUDIO + MICROPHONE PRIMING ────────────────────────────────
+// WebKit grants two things only inside a direct user gesture:
+//
+//   1. An AudioContext may be created or resumed, and
+//   2. getUserMedia may be called.
+//
+// Both are done in the same click handler, synchronously, before the first
+// await. A context created outside a gesture stays suspended forever on iOS,
+// and a suspended AnalyserNode reads digital silence - which is how a working
+// microphone ends up being reported as "heard nothing".
+let vaAudioCtx = null;
+
+function vaUnlockAudio() {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    try {
+        if (!vaAudioCtx || vaAudioCtx.state === 'closed') vaAudioCtx = new Ctx();
+        if (vaAudioCtx.state === 'suspended') {
+            vaAudioCtx.resume().catch(() => { /* still suspended; retried on the next tap */ });
+        }
+        // A one-frame silent buffer is the cheapest reliable "unlock" on iOS:
+        // it proves to WebKit that the context is running before the recorder
+        // connects its analyser. Some Safari builds do not move state to
+        // 'running' until a source has actually been started.
+        const buffer = vaAudioCtx.createBuffer(1, 1, 22050);
+        const source = vaAudioCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(vaAudioCtx.destination);
+        source.start(0);
+        return vaAudioCtx;
+    } catch (err) {
+        console.warn('[VA audio] could not unlock AudioContext:', err && err.message);
+        return null;
+    }
+}
+
+// MUST be called directly from a click/keydown handler, with no await before
+// it. Returns the promise rather than awaiting here, so the caller can start
+// a native SpeechRecognition synchronously and only await the recorded path.
+function vaOpenMicrophone() {
+    vaUnlockAudio();
+    if (!window.isSecureContext) {
+        return Promise.reject(Object.assign(
+            new Error('Microphone requires HTTPS or localhost.'),
+            { name: 'SecurityError' }
+        ));
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        return Promise.reject(Object.assign(
+            new Error('getUserMedia is not available in this browser.'),
+            { name: 'NotSupportedError' }
+        ));
+    }
+    // Constraints are deliberately plain. Safari ignores most of the advanced
+    // ones, and a rejected constraint is reported as OverconstrainedError -
+    // which looks like a permission problem but is not.
+    return navigator.mediaDevices.getUserMedia({ audio: true });
+}
+
+function vaMicErrorCode(err) {
+    return String((err && (err.name || err.error)) || 'unknown');
+}
+
+function vaIsMicPermissionError(code) {
+    return code === 'NotAllowedError'
+        || code === 'PermissionDeniedError'   // legacy Chrome/Safari name
+        || code === 'SecurityError'
+        || code === 'not-allowed'             // SpeechRecognition error code
+        || code === 'service-not-allowed';
+}
+
+// Central failure path for both the native recogniser and the recorded path.
+// On iOS a denied microphone is never just a bubble: the prompt will not come
+// back until the customer changes Settings, so they get the modal with the
+// exact path. Everywhere else a bubble is enough.
+function vaHandleMicFailure(err, context) {
+    const code = vaMicErrorCode(err);
+    console.warn(`[VA mic] ${context || 'microphone'} failed: ${code}`, err && err.message ? err.message : '');
+
+    // A page served over plain HTTP cannot use the microphone on any browser,
+    // and no iOS Settings switch fixes that. Say the real cause instead of
+    // sending the customer to Privacy > Microphone for nothing.
+    if (!window.isSecureContext) {
+        pushVaBubble('assistant', VA_SPEECH_ERRORS.insecure);
+        focusVaTypedInput();
+        return false;
+    }
+
+    const platform = vaPlatformInfo();
+    if (platform.isIOS && (vaIsMicPermissionError(code) || platform.micPolicyAllows === false)) {
+        setVaState('idle');
+        showVaMicPermissionModal(code);
+        return true;
+    }
+
+    let key = 'audio-capture';
+    if (vaIsMicPermissionError(code)) key = 'not-allowed';
+    else if (code === 'NotSupportedError') key = 'unsupported';
+    pushVaBubble('assistant', VA_SPEECH_ERRORS[key]);
+    focusVaTypedInput();
+    return false;
+}
+
+// The modal is in customer.html so it inherits the dashboard's own variables,
+// spacing and dark-mode palette. Everything that varies by situation is
+// written here rather than duplicated into three different modals.
+function showVaMicPermissionModal(reason) {
+    const modal = document.getElementById('va-mic-permission-modal');
+    if (!modal) {
+        // The markup should always be there. If a page forgets it, a bubble is
+        // still better than a silent failure.
+        pushVaBubble('assistant', VA_SPEECH_ERRORS['not-allowed']);
+        focusVaTypedInput();
+        return;
+    }
+
+    const platform = vaPlatformInfo();
+    const lead = document.getElementById('va-perm-lead');
+    const note = document.getElementById('va-perm-note-text');
+    const copyBtn = document.getElementById('va-perm-copy-btn');
+    const retryBtn = document.getElementById('va-perm-retry-btn');
+
+    let leadText = 'Safari is not allowed to use the microphone yet. iOS will not show the permission prompt again until you change it in Settings.';
+    let noteText = 'After changing the setting, come back to this tab and tap Try again. If the prompt still does not appear, close and reopen the tab.';
+
+    if (platform.isInApp) {
+        leadText = `Voice is blocked inside ${platform.inAppName}'s browser. iPhone only gives the microphone to Safari.`;
+        noteText = `Tap the \u2022\u2022\u2022 or share icon in ${platform.inAppName}, choose "Open in Safari", then allow the microphone there. If there is no such option, copy the link and paste it into Safari.`;
+    } else if (platform.isEmbedded && platform.micPolicyAllows === false) {
+        leadText = 'The page that embeds this assistant does not allow microphone access.';
+        noteText = 'The embedding page must add allow="microphone" to its iframe and send a Permissions-Policy header that names this site.';
+    } else if (platform.isIOS && !platform.isSafari && !platform.isIOSOtherBrowser) {
+        leadText = 'This app is using an in-app browser that iPhone does not allow to record audio.';
+        noteText = 'Open this page in Safari, then allow the microphone there. The typed box below works everywhere.';
+    } else if (platform.isIOSOtherBrowser) {
+        leadText = 'On iPhone and iPad, only Safari can use the microphone. Chrome, Firefox and Edge all run Apple\'s engine without it.';
+        noteText = 'Copy this page\'s link, open it in Safari, and allow the microphone there. The typed box below works everywhere.';
+    } else if (reason === 'mic-never-opened') {
+        leadText = 'The microphone did not open, even though permission is allowed.';
+        noteText = 'Check that Siri & Dictation are on in Settings, then try again. The typed box below always works.';
+    }
+
+    if (lead) lead.textContent = leadText;
+    if (note) note.textContent = noteText;
+    if (copyBtn) copyBtn.hidden = !(platform.isInApp || platform.isIOSOtherBrowser || !platform.isSafari);
+    // A retry is only useful where a gesture can plausibly succeed. In an
+    // in-app browser or a non-Safari iOS browser it will fail the same way,
+    // so it is hidden rather than offered as a dead end.
+    if (retryBtn) retryBtn.hidden = platform.isInApp || platform.isIOSOtherBrowser;
+
+    openModal('va-mic-permission-modal');
+    // Focus is moved after the open animation so iOS does not scroll the page
+    // while the dialog is still off-screen.
+    setTimeout(() => {
+        const focusTarget = (retryBtn && !retryBtn.hidden) ? retryBtn : copyBtn;
+        if (focusTarget && typeof focusTarget.focus === 'function') focusTarget.focus({ preventScroll: true });
+    }, 60);
+}
+
+// Runs inside a real click, so it is allowed to ask for the microphone again.
+function vaRetryMicFromPermission() {
+    closeModal('va-mic-permission-modal');
+    vaUnlockAudio();
+    if (!vaSpeechSupported() && vaTranscribeAvailable && vaRecordingSupported()) {
+        startRecordedSpeech();
+    } else {
+        startSpeechRecognition();
+    }
+}
+
+function vaFocusTypedFromPermission() {
+    closeModal('va-mic-permission-modal');
+    focusVaTypedInput();
+}
+
+// "Open in Safari" cannot be done from JavaScript: iOS has no public URL
+// scheme for handing a link to Safari. Copying the link and explaining the
+// menu path is the honest version of that button.
+function vaCopyPageLink() {
+    const url = window.location.href;
+    const done = () => showToast('Link copied. Open it in Safari to use voice.', 'success');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(done).catch(() => vaLegacyCopy(url, done));
+        return;
+    }
+    vaLegacyCopy(url, done);
+}
+
+function vaLegacyCopy(text, done) {
+    const field = document.createElement('textarea');
+    field.value = text;
+    field.setAttribute('readonly', '');
+    field.style.position = 'fixed';
+    field.style.opacity = '0';
+    document.body.appendChild(field);
+    field.select();
+    try {
+        const copied = document.execCommand('copy');
+        if (copied) done();
+        else showToast('Could not copy the link. Long-press the address bar to copy it.', 'error');
+    } catch (err) {
+        showToast('Could not copy the link. Long-press the address bar to copy it.', 'error');
+    }
+    field.remove();
+}
+
+// ── IN-APP BROWSER BANNER ─────────────────────────────────────────
+// Instagram, Facebook, LinkedIn and the rest are WebKit wrappers without
+// Safari's speech recogniser. Showing this before the customer taps avoids a
+// failure they cannot diagnose. It is dismissible for the session, never
+// permanent, and only appears on iOS.
+function vaMaybeShowInAppBrowserBanner() {
+    const platform = vaPlatformInfo();
+    if (!platform.isIOS || !platform.isInApp) return;
+
+    let dismissed = false;
+    try { dismissed = sessionStorage.getItem('vaInAppBannerDismissed') === '1'; } catch (e) { /* private mode */ }
+    if (dismissed) return;
+
+    const banner = document.getElementById('va-inapp-banner');
+    if (!banner) return;
+    const name = document.getElementById('va-inapp-name');
+    if (name) name.textContent = platform.inAppName;
+    banner.hidden = false;
+    requestAnimationFrame(() => banner.classList.add('show'));
+}
+
+function dismissVaInAppBanner() {
+    const banner = document.getElementById('va-inapp-banner');
+    if (banner) {
+        banner.classList.remove('show');
+        setTimeout(() => { banner.hidden = true; }, 220);
+    }
+    try { sessionStorage.setItem('vaInAppBannerDismissed', '1'); } catch (e) { /* private mode */ }
+}
+
+// Plays a server-rendered voice clip through the inline <audio> sink. The
+// element carries playsinline so iOS keeps the response inside the page
+// instead of taking over the screen with the full-screen media player.
+// Kept separate from speechSynthesis: this is the path for recorded audio.
+async function vaPlayAudioUrl(url) {
+    const audio = document.getElementById('va-audio');
+    if (!audio || !url) return false;
+    try {
+        audio.src = url;
+        audio.currentTime = 0;
+        await audio.play();
+        return true;
+    } catch (err) {
+        console.warn('[VA audio] playback blocked:', vaMicErrorCode(err));
+        showToast('Tap the nurse once to enable sound.', 'info');
+        return false;
+    }
+}
+
+// WebKit suspends the context when the tab goes to the background. Resuming on
+// return keeps the analyser live for the next recording without asking the
+// customer to tap twice.
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !vaAudioCtx) return;
+    if (vaAudioCtx.state === 'suspended') vaAudioCtx.resume().catch(() => { /* next gesture retries */ });
+});
+window.addEventListener('pageshow', () => {
+    if (vaAudioCtx && vaAudioCtx.state === 'suspended') vaAudioCtx.resume().catch(() => { /* next gesture retries */ });
+});
+
 // ── VOICE INPUT ───────────────────────────────────────────────────
 // Continuous + interim recognition so we can see speech arriving in real time.
 // A single debounced timer (VA_SILENCE_TIMEOUT_MS) is reset on every result —
@@ -694,6 +1047,12 @@ function startSpeechRecognition() {
         if (event.error === 'aborted' || event.error === 'no-speech') return;
         if (errorShown) return;
         errorShown = true;
+        // Permission failures go through the shared handler: a modal on iOS,
+        // a bubble everywhere else. Other codes keep the plain mapping.
+        if (vaIsMicPermissionError(event.error)) {
+            vaHandleMicFailure(event.error, 'speech recognition');
+            return;
+        }
         pushVaBubble('assistant', VA_SPEECH_ERRORS[event.error] || VA_SPEECH_ERRORS.default);
     };
 
@@ -730,8 +1089,11 @@ function startSpeechRecognition() {
             // start() resolved but the browser never opened the microphone.
             // Safari and older mobile browsers expose webkitSpeechRecognition
             // and then do this, which is why the support check at the top of
-            // this function is not enough on its own.
-            pushVaBubble('assistant', VA_SPEECH_ERRORS['mic-never-opened']);
+            // this function is not enough on its own. On iOS this is almost
+            // always the permission being refused silently, so it gets the
+            // Settings modal rather than a bubble that scrolls away.
+            if (vaPlatformInfo().isIOS) showVaMicPermissionModal('mic-never-opened');
+            else pushVaBubble('assistant', VA_SPEECH_ERRORS['mic-never-opened']);
         } else if (!sawSpeech) {
             pushVaBubble('assistant', VA_SPEECH_ERRORS['heard-nothing']);
         } else {
@@ -749,7 +1111,7 @@ function startSpeechRecognition() {
         console.error('Speech recognition failed to start:', e);
         isListening = false;
         setVaState('idle');
-        pushVaBubble('assistant', VA_SPEECH_ERRORS.default);
+        vaHandleMicFailure(e, 'speech recognition start');
     }
 }
 
@@ -782,21 +1144,46 @@ function stopSpeechRecognition() {
 // silence, and every recording would then end as "heard nothing".
 async function startRecordedSpeech() {
     if (isListening) return;
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    const ctx = AudioCtx ? new AudioCtx() : null;
-    if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+
+    // Both of these run synchronously, before the first await, inside the
+    // click that called this function. That is the whole contract on iOS:
+    // unlock the context, then ask for the stream, then yield.
+    const ctx = vaUnlockAudio();
+    const streamPromise = vaOpenMicrophone();
 
     let stream;
     try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream = await streamPromise;
     } catch (err) {
-        if (ctx) ctx.close().catch(() => {});
-        pushVaBubble('assistant', VA_SPEECH_ERRORS[err && err.name === 'NotAllowedError' ? 'not-allowed' : 'audio-capture']);
-        focusVaTypedInput();
+        vaHandleMicFailure(err, 'recorded speech');
         return;
     }
 
-    const recorder = new MediaRecorder(stream);
+    // The gesture already called resume(); awaiting it here (after the stream
+    // resolves, so no longer inside the gesture) guarantees the analyser below
+    // is connected to a running context rather than a suspended one that
+    // would report silence forever.
+    if (ctx && ctx.state === 'suspended') {
+        try {
+            // Do not let a resume() that WebKit never settles hold the
+            // recording open. If it stays suspended, the analyser fallback
+            // below records a fixed window instead.
+            await Promise.race([
+                ctx.resume().catch(() => {}),
+                new Promise(resolve => setTimeout(resolve, 300))
+            ]);
+        } catch (e) { /* analyser falls back below */ }
+    }
+
+    let recorder;
+    try {
+        recorder = new MediaRecorder(stream);
+    } catch (err) {
+        stream.getTracks().forEach(track => track.stop());
+        vaHandleMicFailure(err, 'MediaRecorder');
+        return;
+    }
+
     const chunks = [];
     vaRecorder = recorder;
     isListening = true;
@@ -810,10 +1197,18 @@ async function startRecordedSpeech() {
     let heard = false;
     let lastLoud = started;
     let tick;
-    if (ctx) {
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 1024;
-        ctx.createMediaStreamSource(stream).connect(analyser);
+    let analyser = null;
+    if (ctx && ctx.state === 'running') {
+        try {
+            analyser = ctx.createAnalyser();
+            analyser.fftSize = 1024;
+            ctx.createMediaStreamSource(stream).connect(analyser);
+        } catch (err) {
+            console.warn('[VA audio] analyser unavailable:', err && err.message);
+            analyser = null;
+        }
+    }
+    if (analyser) {
         const samples = new Uint8Array(analyser.fftSize);
         tick = setInterval(() => {
             analyser.getByteTimeDomainData(samples);
@@ -836,7 +1231,6 @@ async function startRecordedSpeech() {
     recorder.onstop = async () => {
         clearInterval(tick);
         stream.getTracks().forEach(track => track.stop());
-        if (ctx) ctx.close().catch(() => {});
         vaRecorder = null;
         isListening = false;
         retireVaBubble(bubble);
