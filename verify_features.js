@@ -221,6 +221,28 @@ const outdatedConsent = encodeURIComponent(JSON.stringify({
 ok('Outdated policy version triggers re-prompt (returns null)', parseCookieConsent(outdatedConsent) === null);
 ok('Malformed cookie string returns null', parseCookieConsent('invalid-json-cookie') === null);
 
+// ─────────────────────────────────────────────────────────────
+// 6. FEATURE 6: SAME-DAY QUEUE AND ANNOUNCEMENTS
+// ─────────────────────────────────────────────────────────────
+// The clinic runs one day at a time. Ticket numbers already reset through
+// ticket_counters.counter_date; these checks pin the two missing pieces: the
+// live queue closing at end of day, and the customer banner showing only
+// today's announcement. Read from source so this needs no database.
+console.log('\n8. Daily queue reset and same-day announcements');
+const fs = require('fs');
+const path = require('path');
+const readSource = (rel) => fs.readFileSync(path.join(__dirname, rel), 'utf8');
+const queueResetSrc = readSource('queue_reset.js');
+const serverSrc = readSource('server.js');
+const adminSrc = readSource('routes/admin.js');
+
+ok('Queue reset closes rows left from a previous day', /DATE\(timestamp\)\s*<\s*CURDATE\(\)/.test(queueResetSrc));
+ok('Queue reset also fires at the 23:59 boundary', /TIME\(NOW\(\)\)\s*>=\s*\?/.test(queueResetSrc));
+ok('Queue reset closes stale in-progress visits as unfinished', /status\s*=\s*'unfinished'/.test(queueResetSrc));
+ok('Queue reset records a reason on the closed visit', /DAILY_RESET_REASON/.test(queueResetSrc));
+ok('Queue reset is wired into server startup', /startDailyQueueReset\(io\)/.test(serverSrc));
+ok('Active announcements are limited to today', /DATE\(timestamp\)\s*=\s*CURDATE\(\)/.test(adminSrc));
+
 console.log(`\n========================================`);
 console.log(`Feature Verification: ${passed} passed, ${failed} failed.`);
 console.log(`========================================\n`);

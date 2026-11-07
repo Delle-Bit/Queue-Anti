@@ -17,6 +17,14 @@ their own phone or book an appointment; staff call tickets across stations
 (front desk → laboratory / imaging → doctor → front desk); a lobby screen shows
 and announces the numbers.
 
+The clinic runs one day at a time. Ticket numbers restart each day, and at
+**23:59 Asia/Manila** the live queue is closed: any waiting, serving or on-hold
+row left over is cancelled, and any in-progress visit is closed as unfinished
+with the reason "Queue reset at end of day". The reset runs on boot as well, so
+a deploy or a sleeping host at the boundary still converges. Staff announcements
+are likewise same-day: the customer banner only shows announcements written
+today, while older ones remain in the staff history.
+
 Node.js + Express + Socket.IO, MySQL, and plain HTML/CSS/JS in `public/` with
 **no build step and no frontend framework**. That is a deliberate choice and the
 main reason the project is easy to pick up: edit a file in `public/`, reload the
