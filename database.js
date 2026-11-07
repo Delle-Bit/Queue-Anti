@@ -652,6 +652,29 @@ async function initDB() {
             )
         `);
 
+        // Patient feedback. `comment` is free text and deliberately has no
+        // DEFAULT - MySQL rejects that under STRICT_TRANS_TABLES. Sentiment is
+        // computed once at submit time and stored alongside, so the staff view
+        // never has to re-score (and the label can't drift if the lexicon
+        // changes later).
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS feedback (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                customer_id INT NOT NULL,
+                sequence_id INT DEFAULT NULL,
+                rating TINYINT DEFAULT NULL,
+                comment TEXT,
+                sentiment_label ENUM('Positive','Neutral','Negative') DEFAULT 'Neutral',
+                sentiment_score DECIMAL(6,4) DEFAULT 0,
+                issues JSON,
+                source ENUM('dashboard','assistant') DEFAULT 'dashboard',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                archived BOOLEAN DEFAULT false
+            )
+        `);
+        await addIndexIfMissing('feedback', 'idx_feedback_customer', '(customer_id)');
+        await addIndexIfMissing('feedback', 'idx_feedback_sequence', '(sequence_id)');
+
         // Settings
         await pool.query(`
             CREATE TABLE IF NOT EXISTS settings (
