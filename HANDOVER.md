@@ -25,6 +25,11 @@ a deploy or a sleeping host at the boundary still converges. Staff announcements
 are likewise same-day: the customer banner only shows announcements written
 today, while older ones remain in the staff history.
 
+Patient feedback is captured from the dashboard when a visit closes, or from the
+virtual assistant, scored locally with a VADER port (`sentiment.js`), stored in
+`feedback`, and shown with sentiment counts and recurring issues on the owner
+dashboard.
+
 Node.js + Express + Socket.IO, MySQL, and plain HTML/CSS/JS in `public/` with
 **no build step and no frontend framework**. That is a deliberate choice and the
 main reason the project is easy to pick up: edit a file in `public/`, reload the

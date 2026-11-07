@@ -23,6 +23,32 @@
                 <div class="table-wrapper" style="max-height:300px;overflow-y:auto;"><table><thead><tr><th>Staff</th><th>Role</th><th>Login</th><th>Logout</th></tr></thead><tbody id="ow-sessions"></tbody></table></div></div>
             </div>
         </div>
+            <div id="section-feedback" class="content-section" style="display:none;">
+                <div class="page-header">
+                    <div>
+                        <div class="page-title"><i class="fa-solid fa-comment-dots"></i> Patient Feedback</div>
+                        <div class="page-subtitle">Sentiment and recurring issues from closed visits</div>
+                    </div>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-card"><div class="stat-icon green"><i class="fa-solid fa-face-smile"></i></div><div class="stat-info"><div class="stat-label">Positive</div><div class="stat-value" id="fb-positive">0</div></div></div>
+                    <div class="stat-card"><div class="stat-icon blue"><i class="fa-solid fa-face-meh"></i></div><div class="stat-info"><div class="stat-label">Neutral</div><div class="stat-value" id="fb-neutral">0</div></div></div>
+                    <div class="stat-card"><div class="stat-icon red"><i class="fa-solid fa-face-frown"></i></div><div class="stat-info"><div class="stat-label">Negative</div><div class="stat-value" id="fb-negative">0</div></div></div>
+                </div>
+                <div class="card mt-md">
+                    <div class="card-header"><div class="card-title"><i class="fa-solid fa-triangle-exclamation"></i> Recurring Issues</div></div>
+                    <div id="fb-issues" style="padding:8px 0;"></div>
+                </div>
+                <div class="card mt-md">
+                    <div class="card-header"><div class="card-title"><i class="fa-solid fa-list"></i> Newest Feedback</div></div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Rating</th><th>Comment</th><th>Sentiment</th><th>When</th></tr></thead>
+                            <tbody id="fb-rows"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
             <div id="section-audits" class="content-section" style="display:none;">
                 <div class="page-header">
                     <div>
