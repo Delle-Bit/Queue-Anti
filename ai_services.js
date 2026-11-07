@@ -1394,16 +1394,18 @@ const aiServices = {
     },
 
     feedbackAnalysis: async (feedbackArray) => {
-        return await callMockAI('feedback', null, process.env.API_ALLAROUND, feedbackArray, (data) => {
-            // VADER runs locally (no endpoint needed): ./sentiment.js. Model the
-            // batch as one document so a mixed batch lands where its words do,
-            // and keep per-entry scoring for the staff view.
-            const text = Array.isArray(data)
-                ? data.map(f => (typeof f === 'string' ? f : f?.comment || '')).join('. ')
-                : String(data || '');
-            const result = analyzeSentiment(text);
-            return { sentiment: result.label, compound: result.compound, issues: result.issues };
-        }, null, 'Feedback NLP');
+        // VADER runs locally (no endpoint needed): ./sentiment.js. Model the
+        // batch as one document so a mixed batch lands where its words do,
+        // and keep per-entry scoring for the staff view.
+        //
+        // Deliberately not through callMockAI: that helper writes its input to
+        // ai_logs, and the input here is patient free text. Store the comment
+        // once in `feedback`; log nothing.
+        const text = Array.isArray(feedbackArray)
+            ? feedbackArray.map(f => (typeof f === 'string' ? f : f?.comment || '')).join('. ')
+            : String(feedbackArray || '');
+        const result = analyzeSentiment(text);
+        return { sentiment: result.label, compound: result.compound, issues: result.issues };
     },
 
     /**
