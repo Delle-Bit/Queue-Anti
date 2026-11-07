@@ -224,6 +224,7 @@ const adminRoutes = require('./routes/admin');
 const reportRoutes = require('./routes/reports');
 const packageRoutes = require('./routes/packages');
 const assistantRoutes = require('./routes/assistant');
+const feedbackRoutes = require('./routes/feedback');
 const walkinRoutes = require('./routes/walkin');
 const displayRoutes = require('./routes/display');
 
@@ -243,6 +244,9 @@ app.use('/api/queue', authenticateToken, idleTimeout, queueRoutes);
 // them), writes are administrator-only - both guarded inside the router.
 app.use('/api/test-structures', authenticateToken, idleTimeout, testStructureRoutes);
 app.use('/api/assistant', authenticateToken, idleTimeout, assistantRoutes);
+// Patient feedback. Customers submit; the staff list and summary carry
+// requireStaff inside the router. Mounted once, so every route is guarded there.
+app.use('/api/feedback', authenticateToken, idleTimeout, feedbackRoutes);
 app.use('/api/reports', authenticateToken, idleTimeout, requireSalesReport, reportRoutes);
 app.use('/api/admin', authenticateToken, idleTimeout, requireAdmin, adminRoutes);
 // routes/admin.js a second time, at the bare /api prefix and WITHOUT
