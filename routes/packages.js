@@ -7,6 +7,7 @@ const { composeServiceSteps } = require('../queue_automation');
 const { APPOINTMENT_SURCHARGE_PCT, appointmentPrice } = require('../appointment_automation');
 const { recordAudit, requireReason, snapshotRow } = require('../audit');
 const { archiveRecord } = require('../archive');
+const etaEstimate = require('../eta');
 
 const DEFAULT_CATEGORY = 'General';
 
@@ -137,18 +138,18 @@ router.get('/:id/details', async (req, res) => {
         // Calculate real-time ETA
         // Frontdesk wait
         const [fdQueue] = await pool.query(`SELECT COUNT(*) as cnt FROM queue WHERE station_type='frontdesk' AND status='waiting'`);
-        const [fdAvg] = await pool.query(`SELECT AVG(TIMESTAMPDIFF(MINUTE, serve_time, complete_time)) as avg_mins FROM queue_logs WHERE station_type='frontdesk' AND complete_time IS NOT NULL AND DATE(join_time) = CURDATE()`);
-        let totalEta = (fdQueue[0].cnt + 1) * (parseFloat(fdAvg[0].avg_mins) || 5);
+        const fdAvg = await etaEstimate.stationAverageMinutes('frontdesk', null, 5);
+        let totalEta = (Number(fdQueue[0]?.cnt || 0) + 1) * fdAvg;
 
         for (let lab of labs) {
             const [labQueue] = await pool.query(`SELECT COUNT(*) as cnt FROM queue WHERE station_type='laboratory' AND station_id=? AND status='waiting'`, [lab.laboratory_id]);
-            const [labAvg] = await pool.query(`SELECT AVG(TIMESTAMPDIFF(MINUTE, serve_time, complete_time)) as avg_mins FROM queue_logs WHERE station_type='laboratory' AND station_id=? AND complete_time IS NOT NULL AND DATE(join_time) = CURDATE()`, [lab.laboratory_id]);
-            totalEta += (labQueue[0].cnt + 1) * (parseFloat(labAvg[0].avg_mins) || lab.est_time_minutes || 10);
+            const labAvg = await etaEstimate.stationAverageMinutes('laboratory', lab.laboratory_id, lab.est_time_minutes);
+            totalEta += (Number(labQueue[0]?.cnt || 0) + 1) * labAvg;
         }
         if (pkg.doctor_id) {
             const [docQueue] = await pool.query(`SELECT COUNT(*) as cnt FROM queue WHERE station_type='doctor' AND station_id=? AND status='waiting'`, [pkg.doctor_id]);
-            const [docAvg] = await pool.query(`SELECT AVG(TIMESTAMPDIFF(MINUTE, serve_time, complete_time)) as avg_mins FROM queue_logs WHERE station_type='doctor' AND station_id=? AND complete_time IS NOT NULL AND DATE(join_time) = CURDATE()`, [pkg.doctor_id]);
-            totalEta += (docQueue[0].cnt + 1) * (parseFloat(docAvg[0].avg_mins) || 15);
+            const docAvg = await etaEstimate.stationAverageMinutes('doctor', pkg.doctor_id, 15);
+            totalEta += (Number(docQueue[0]?.cnt || 0) + 1) * docAvg;
         }
 
         pkg.estimated_total_time = Math.ceil(totalEta);
@@ -290,17 +291,19 @@ router.delete('/:id', authRequired, requireStaff, requireReason, async (req, res
     }
 });
 
-const aiServices = require('../ai_services');
-
 router.post('/estimate-time', authRequired, requireStaff, async (req, res) => {
     const { laboratories } = req.body;
     try {
         let totalEst = 0;
-        let labsWithEst = [];
+        const labsWithEst = [];
         for (const lab of (laboratories || [])) {
-            const aiRes = await aiServices.serviceTimeEstimation({ historicalAvg: 10 });
-            totalEst += aiRes.estimatedMins;
-            labsWithEst.push({ ...lab, est_time_minutes: Math.round(aiRes.estimatedMins) });
+            const mins = await etaEstimate.stationAverageMinutes(
+                'laboratory',
+                lab.laboratory_id || lab.id || null,
+                lab.est_time_minutes
+            );
+            totalEst += mins;
+            labsWithEst.push({ ...lab, est_time_minutes: mins });
         }
         res.json({ total: Math.round(totalEst) || 15, laboratories: labsWithEst });
     } catch (err) { res.status(500).json({ error: 'Failed' }); }

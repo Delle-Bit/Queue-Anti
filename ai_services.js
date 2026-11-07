@@ -3,6 +3,7 @@ const { pool } = require('./database.js');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { analyzeSentiment } = require('./sentiment');
 
 const dotenv = require('dotenv');
 dotenv.config();
@@ -401,7 +402,7 @@ ${queue}
 DEPARTMENTS / STATIONS: Front Desk (verification and payment), Laboratory (the lab steps in the chosen package), Doctor (consultation).
 
 Reply with ONLY a JSON object, no code fence, in this exact shape:
-{"reply":"<what to say aloud>","intent":"faq|calculation|queue_action|smalltalk|out_of_scope","action":{"type":"none|join_queue|cancel_queue|show_status|open_services","package_name":"<exact package name or empty>"}}
+{"reply":"<what to say aloud>","intent":"faq|calculation|queue_action|smalltalk|feedback|out_of_scope","action":{"type":"none|join_queue|cancel_queue|show_status|open_services|open_feedback","package_name":"<exact package name or empty>"}}
 Use action.type "none" unless the customer clearly asked for that action.`;
 }
 
@@ -534,6 +535,17 @@ function assistantCommandReply(data) {
     };
   }
 
+  // Feedback is an installed flow, not a queue action. Detected here so the
+  // model never has to guess, and so a complaint typed into the chat opens the
+  // same card the dashboard uses rather than being filed silently.
+  if (/\b(feedback|complaint|complain|suggestion|suggest|review|rate (?:my|the) (?:visit|service))\b/.test(text)) {
+    return {
+      reply: 'I can pass that on. Opening the feedback form for you now.',
+      intent: 'feedback',
+      action: { type: 'open_feedback', package_name: '' }
+    };
+  }
+
   return null;
 }
 
@@ -633,7 +645,7 @@ function parseAssistantReply(raw) {
       reply: String(parsed.reply).replace(/[*#`]/g, '').trim(),
       intent: ['faq', 'calculation', 'queue_action', 'smalltalk', 'out_of_scope'].includes(parsed.intent) ? parsed.intent : 'faq',
       action: {
-        type: ['none', 'join_queue', 'cancel_queue', 'show_status', 'open_services'].includes(parsed.action?.type) ? parsed.action.type : 'none',
+        type: ['none', 'join_queue', 'cancel_queue', 'show_status', 'open_services', 'open_feedback'].includes(parsed.action?.type) ? parsed.action.type : 'none',
         package_name: String(parsed.action?.package_name || '')
       }
     };
@@ -1382,9 +1394,18 @@ const aiServices = {
     },
 
     feedbackAnalysis: async (feedbackArray) => {
-        return await callMockAI('feedback', null, process.env.API_ALLAROUND, feedbackArray, (data) => {
-            return { sentiment: "Mixed", issues: ["Long wait times"] };
-        }, null, 'Feedback NLP');
+        // VADER runs locally (no endpoint needed): ./sentiment.js. Model the
+        // batch as one document so a mixed batch lands where its words do,
+        // and keep per-entry scoring for the staff view.
+        //
+        // Deliberately not through callMockAI: that helper writes its input to
+        // ai_logs, and the input here is patient free text. Store the comment
+        // once in `feedback`; log nothing.
+        const text = Array.isArray(feedbackArray)
+            ? feedbackArray.map(f => (typeof f === 'string' ? f : f?.comment || '')).join('. ')
+            : String(feedbackArray || '');
+        const result = analyzeSentiment(text);
+        return { sentiment: result.label, compound: result.compound, issues: result.issues };
     },
 
     /**

@@ -259,6 +259,28 @@
         </div>
     </main>
 
+    <!-- Visit Feedback Modal -->
+    <div id="feedback-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="feedback-modal-title">
+        <div class="modal-box" style="max-width:480px;">
+            <div class="modal-header">
+                <div class="modal-title" id="feedback-modal-title"><i class="fa-solid fa-comment-dots"></i> How was your visit?</div>
+                <button type="button" class="modal-close" aria-label="Close feedback form" onclick="closeModal('feedback-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="feedback-stars" style="font-size:2em;text-align:center;margin-bottom:12px;line-height:1;">
+                    <button type="button" class="feedback-star" data-star="1" aria-label="1 star" style="background:none;border:0;cursor:pointer;color:var(--text-muted);padding:0 2px;">&#9733;</button><button type="button" class="feedback-star" data-star="2" aria-label="2 stars" style="background:none;border:0;cursor:pointer;color:var(--text-muted);padding:0 2px;">&#9733;</button><button type="button" class="feedback-star" data-star="3" aria-label="3 stars" style="background:none;border:0;cursor:pointer;color:var(--text-muted);padding:0 2px;">&#9733;</button><button type="button" class="feedback-star" data-star="4" aria-label="4 stars" style="background:none;border:0;cursor:pointer;color:var(--text-muted);padding:0 2px;">&#9733;</button><button type="button" class="feedback-star" data-star="5" aria-label="5 stars" style="background:none;border:0;cursor:pointer;color:var(--text-muted);padding:0 2px;">&#9733;</button>
+                </div>
+                <label class="form-label" for="feedback-comment">Tell us about your visit (optional)</label>
+                <textarea id="feedback-comment" class="form-input" rows="4" maxlength="2000"
+                    placeholder="What went well, or what could we improve?"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('feedback-modal')">Not now</button>
+                <button type="button" class="btn btn-primary" id="feedback-submit-btn" onclick="submitFeedback()">Send</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Package Detail Modal -->
     <div id="pkg-modal" class="modal-overlay">
         <div class="modal-box" style="max-width:500px;">

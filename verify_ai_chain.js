@@ -112,6 +112,7 @@ const source = fs.readFileSync(SRC, 'utf8').replace(
     + ' assistantCommandReply, withAssistantDeadline, assistantProviderPaused,'
     + ' NVIDIA_CHAT_MODEL, resetAssistantProviders: () => { assistantProviderPausedUntil.clear(); },'
     + ' deepseekIdScan, normaliseIdScan, readImageBase64, DEEPSEEK_VISION_MODEL,'
+    + ' feedbackAnalysis: aiServices.feedbackAnalysis,'
     + ' deepseekState: () => deepseekOffReason,'
     + ' resetDeepseek: () => { deepseekOffReason = null; } };'
 );
@@ -596,6 +597,15 @@ const IMAGE = 'data:image/jpeg;base64,' + Buffer.alloc(64, 7).toString('base64')
     check('NVIDIA tried immediately after', nvCall && nvCall.model, T.NVIDIA_CHAT_MODEL);
     check('same turn uses the fallback reply', /fallback says/.test(sameTurn.reply), true);
 
-    console.log(`\n${passed} passed, ${failed} failed\n`);
+    console.log('\n33. feedback analysis is real VADER, not a fixed string');
+const fb = await T.feedbackAnalysis([
+    { comment: 'Waited two hours, very slow and rude.' }
+]);
+check('negative text can produce a negative result', fb.sentiment, 'Negative');
+check('issues are mined from the text', fb.issues.includes('Long wait times'), true);
+const fbIntent = T.assistantCommandReply({ text: 'I want to leave feedback', context: {} });
+check('the assistant opens the feedback form', fbIntent && fbIntent.action.type, 'open_feedback');
+
+console.log(`\n${passed} passed, ${failed} failed\n`);
     process.exit(failed ? 1 : 0);
 })().catch(e => { console.error('HARNESS ERROR', e); process.exit(1); });

@@ -8,6 +8,7 @@ if (!requireAuth(['owner'])) throw new Error('Unauthorized');
 renderSidebar([
     { section: 'OWNER' },
     { id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-building-columns' },
+    { id: 'feedback', label: 'Patient Feedback', icon: 'fa-solid fa-comment-dots' },
     { id: 'accounts', label: 'Manage Accounts', icon: 'fa-solid fa-users-gear' },
     { id: 'labs', label: 'Manage Laboratories', icon: 'fa-solid fa-flask-vial' },
     { id: 'sales', label: 'Sales Report', icon: 'fa-solid fa-receipt' },
@@ -23,6 +24,7 @@ initDefaultSection();
 window.onSectionLoad = {
     structures: loadTestStructureAdmin,
     dashboard: loadOwnerDash,
+    feedback: loadFeedback,
     accounts: loadAccounts,
     labs: loadLabs,
     sales: initSalesReport,
@@ -76,6 +78,10 @@ async function loadOwnerDash() {
     } catch (err) { console.error(err); }
     clearSkeleton('ow-revenue', 'ow-services', 'ow-dist', 'ow-sessions');
 }
+
+// ── PATIENT FEEDBACK ──────────────────────────────────────────
+// The triage view is shared with the admin dashboard and lives in
+// admin-shared.js, so both pages render the same section from one copy.
 
 fetchAllLabs();
 loadOwnerDash();

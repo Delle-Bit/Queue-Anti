@@ -59,6 +59,9 @@ function settleQueueSkeleton() {
 
 async function loadDashboard() {
     await checkMandatoryMedicalForm(false);
+    // Capture the edge before the refresh overwrites it: a visit that was active
+    // on the previous tick and is gone now is the moment to offer feedback.
+    const wasActive = lastQueueStatus === 'active';
     // No loader on refresh. This runs every five seconds, and the old overlay
     // put a blurred scrim over the patient's own ticket number twelve times a
     // minute; the first load is covered by the placeholder in the markup.
@@ -70,10 +73,12 @@ async function loadDashboard() {
             document.getElementById('no-active-queue').style.display = 'block';
             document.getElementById('active-queue-panel').style.display = 'none';
             document.getElementById('hold-queue-panel').style.display = 'none';
+            checkPendingFeedback(wasActive);
             lastQueueStatus = null;
             return;
         }
         document.getElementById('no-active-queue').style.display = 'none';
+        initFeedbackStars();
 
         handleHoldTransition(data);
 
@@ -119,6 +124,82 @@ async function loadDashboard() {
         document.getElementById('no-active-queue').style.display = 'block';
     }
 }
+
+// ── VISIT FEEDBACK ────────────────────────────────────────────
+// A closed visit offers one feedback prompt. `pendingFeedback` is set from the
+// server, so a customer who has not had a visit sees nothing. The prompt only
+// fires on the active -> closed edge; a page reload is not a new visit.
+let pendingFeedback = null;
+let feedbackRating = 0;
+
+async function checkPendingFeedback(wasActive) {
+    if (!wasActive || pendingFeedback) return;
+    try {
+        const res = await fetch('/api/feedback/pending', { headers: authHeaders() });
+        const data = await res.json();
+        if (data.eligible) {
+            pendingFeedback = data;
+            feedbackRating = 0;
+            paintFeedbackStars();
+            // Let the visit-closed chime finish before covering the dashboard.
+            setTimeout(() => openModal('feedback-modal'), 800);
+        }
+    } catch (e) { /* silent: the prompt is optional */ }
+}
+
+function paintFeedbackStars() {
+    document.querySelectorAll('#feedback-stars [data-star]').forEach(star => {
+        star.style.color = Number(star.dataset.star) <= feedbackRating
+            ? 'var(--warning,#f59e0b)'
+            : 'var(--text-muted)';
+    });
+}
+
+function initFeedbackStars() {
+    const box = document.getElementById('feedback-stars');
+    if (!box || box.dataset.bound) return;
+    box.dataset.bound = '1';
+    box.querySelectorAll('[data-star]').forEach(star => {
+        star.addEventListener('click', () => {
+            feedbackRating = Number(star.dataset.star);
+            paintFeedbackStars();
+        });
+    });
+}
+
+async function submitFeedback() {
+    const comment = document.getElementById('feedback-comment').value;
+    if (!feedbackRating && !comment.trim()) {
+        showToast('Add a rating or a comment first.', 'warning');
+        return;
+    }
+    const btn = document.getElementById('feedback-submit-btn');
+    btn.disabled = true;
+    try {
+        const res = await fetch('/api/feedback', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({
+                sequence_id: pendingFeedback?.sequence_id,
+                rating: feedbackRating || null,
+                comment,
+                source: 'dashboard'
+            })
+        });
+        if (!res.ok) throw new Error('failed');
+        showToast('Thank you for your feedback!', 'success');
+        pendingFeedback = null;
+        feedbackRating = 0;
+        document.getElementById('feedback-comment').value = '';
+        paintFeedbackStars();
+        closeModal('feedback-modal');
+    } catch (e) {
+        showToast('Could not send feedback right now', 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+window.submitFeedback = submitFeedback;
 
 // Detects the ON-HOLD -> active transition and fires the chime + browser notification.
 // Runs on every dashboard refresh (socket-driven via onQueueUpdate), so it only needs

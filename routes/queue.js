@@ -5,6 +5,7 @@ const queueAutomation = require('../queue_automation');
 const { startPackageQueue, getPackageSteps, queueTypeForCategory } = require('../queue_start');
 const { requireStaff } = require('../config');
 const { recordAudit } = require('../audit');
+const etaEstimate = require('../eta');
 
 const { REINSERT_SLOT } = queueAutomation;
 
@@ -90,19 +91,6 @@ function stationDeniedMessage(stationType) {
         : `Your account cannot act on the ${stationType} queue.`;
 }
 
-async function getStationAverageMinutes(stationType, stationId, fallback) {
-    let query = `SELECT AVG(TIMESTAMPDIFF(MINUTE, serve_time, complete_time)) as avg_mins
-                 FROM queue_logs
-                 WHERE station_type=? AND complete_time IS NOT NULL AND archived=false`;
-    const params = [stationType];
-    if (stationId) {
-        query += ' AND station_id=?';
-        params.push(stationId);
-    }
-    const [rows] = await pool.query(query, params);
-    return Math.max(1, Math.ceil(parseFloat(rows[0]?.avg_mins) || fallback || 5));
-}
-
 async function getCurrentProcessing(stationType, stationId) {
     let query = `SELECT number FROM queue WHERE station_type=? AND status='serving' AND archived=false`;
     const params = [stationType];
@@ -173,20 +161,33 @@ async function buildPackagePreview(packageId, category) {
         `SELECT COUNT(*) as cnt FROM queue WHERE station_type='frontdesk' AND status='waiting' AND archived=false`
     );
     const currentProcessing = await getCurrentProcessing('frontdesk', null);
-    let estimatedTotalTime = 0;
+    const previewSteps = [];
     for (let i = 0; i < steps.length; i++) {
-        const avg = await getStationAverageMinutes(steps[i].type, steps[i].station_id, steps[i].est_time_minutes);
-        // Cumulative ETA per department, so the linear track can label each node before joining.
-        steps[i].est_minutes = avg;
-        steps[i].eta_minutes = Math.ceil(estimatedTotalTime);
-        steps[i].people_waiting = i === 0 ? frontDeskWaiting[0].cnt : 0;
-        estimatedTotalTime += i === 0 ? (frontDeskWaiting[0].cnt + 1) * avg : avg;
+        const avg = await etaEstimate.stationAverageMinutes(steps[i].type, steps[i].station_id, steps[i].est_time_minutes);
+        let peopleAhead = i === 0 ? Number(frontDeskWaiting[0]?.cnt || 0) : 0;
+        if (i > 0) {
+            const [wRows] = await pool.query(
+                `SELECT COUNT(*) AS cnt FROM queue
+                  WHERE station_type=? AND status='waiting' AND archived=false
+                  ${steps[i].station_id ? 'AND station_id=?' : ''}`,
+                steps[i].station_id ? [steps[i].type, steps[i].station_id] : [steps[i].type]
+            );
+            peopleAhead = Number(wRows[0]?.cnt || 0);
+        }
+        previewSteps.push({ avgMinutes: avg, peopleAhead, servers: 1 });
     }
+    const visit = etaEstimate.estimateVisit(previewSteps);
+    steps.forEach((s, i) => {
+        s.est_minutes = previewSteps[i].avgMinutes;
+        s.people_waiting = previewSteps[i].peopleAhead;
+        // Cumulative ETA to *reach* each node, for the linear track labels.
+        s.eta_minutes = Math.ceil(previewSteps.slice(0, i).reduce((sum, p) => sum + p.contribution, 0));
+    });
     return {
         package: pkgs[0],
         ticket,
         current_processing: currentProcessing,
-        estimated_total_time: Math.ceil(estimatedTotalTime),
+        estimated_total_time: visit.total,
         steps
     };
 }
@@ -1134,8 +1135,10 @@ async function buildCustomerStatus(customerId) {
     // Position comes from the same ordering the station will actually call in,
     // so a re-inserted or priority patient is told the truth. Counting rows with
     // an earlier timestamp (the previous approach) ignored both.
-    let position = 0, eta = 0, currentProcessing = '--';
+    let position = 0, currentProcessing = '--';
     let stepIndex = currentQ.length > 0 && currentQ[0].step_index != null ? currentQ[0].step_index : seq.current_step;
+    const stepAverages = new Map();
+    let visit = etaEstimate.estimateVisit([]);
     if (currentQ.length > 0 && !onHold) {
         const cq = currentQ[0];
         currentProcessing = await getCurrentProcessing(cq.station_type, cq.station_id);
@@ -1150,11 +1153,28 @@ async function buildCustomerStatus(customerId) {
             if (currentProcessing !== '--') position += 1;
         }
 
+        // Estimate the whole remaining visit, not just this counter. Each
+        // downstream station contributes its own backlog (people already
+        // waiting there) times its recent average, so a queue at the lab
+        // lengthens the total even while the patient is still at the front desk.
+        const remainingSteps = [];
         for (let i = stepIndex; i < serviceSteps.length; i++) {
             const step = serviceSteps[i];
-            const avg = await getStationAverageMinutes(step.type, step.station_id, step.est_time_minutes);
-            eta += i === stepIndex ? position * avg : avg;
+            const avg = await etaEstimate.stationAverageMinutes(step.type, step.station_id, step.est_time_minutes);
+            stepAverages.set(i, avg);
+            let peopleAhead = Math.max(0, position - 1); // current station: everyone still ahead
+            if (i > stepIndex) {
+                const [wRows] = await pool.query(
+                    `SELECT COUNT(*) AS cnt FROM queue
+                      WHERE station_type=? AND status='waiting' AND archived=false
+                      ${step.station_id ? 'AND station_id=?' : ''}`,
+                    step.station_id ? [step.type, step.station_id] : [step.type]
+                );
+                peopleAhead = Number(wRows[0]?.cnt || 0);
+            }
+            remainingSteps.push({ avgMinutes: avg, peopleAhead, servers: 1 });
         }
+        visit = etaEstimate.estimateVisit(remainingSteps);
     }
 
     // Build steps array with per-department timing for the linear queue track.
@@ -1167,7 +1187,9 @@ async function buildCustomerStatus(customerId) {
         if (stepIndex > i) status = 'completed';
         else if (stepIndex === i) status = 'active';
 
-        const avg = await getStationAverageMinutes(step.type, step.station_id, step.est_time_minutes);
+        const avg = stepAverages.has(i)
+            ? stepAverages.get(i)
+            : await etaEstimate.stationAverageMinutes(step.type, step.station_id, step.est_time_minutes);
         let waiting = 0;
         let etaMinutes = null;
         if (status !== 'completed') {
@@ -1219,8 +1241,9 @@ async function buildCustomerStatus(customerId) {
         current_queue: currentQ[0] || null,
         current_processing: currentProcessing,
         position,
-        estimated_time: Math.ceil(eta),
-        estimated_total_time: Math.ceil(eta),
+        estimated_time: visit.total,
+        estimated_total_time: visit.total,
+        estimated_current_station: visit.currentStation,
         people_ahead: Math.max(0, position - 1),
         // The closing front desk step, so the customer knows the visit is not
         // over until they have been back to the desk.
