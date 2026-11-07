@@ -1221,3 +1221,113 @@ async function populateStructureSelect(selected) {
             `<option value="${st.id}">${escapeHtml(st.name)}${st.input_mode === 'freeform' ? ' (notepad)' : ''}</option>`).join('');
     select.value = selected ? String(selected) : '';
 }
+
+// ── PATIENT FEEDBACK ──────────────────────────────────────────
+// Shared by owner.html and admintechnical.html. Reads are staff-wide; the
+// Address action is admin-only and the server enforces that with requireAdmin.
+let feedbackStaff = [];
+let feedbackCache = {};
+
+function feedbackStatusBadge(status) {
+    const map = { new: 'badge-warning', in_review: 'badge-neutral', resolved: 'badge-success' };
+    const label = { new: 'New', in_review: 'In Review', resolved: 'Resolved' };
+    return `<span class="badge ${map[status] || 'badge-neutral'}">${label[status] || escapeHtml(status || '')}</span>`;
+}
+
+async function loadFeedback() {
+    const status = document.getElementById('fb-filter-status')?.value || '';
+    const sentiment = document.getElementById('fb-filter-sentiment')?.value || '';
+    const qs = new URLSearchParams();
+    if (status) qs.set('status', status);
+    if (sentiment) qs.set('sentiment', sentiment);
+
+    skeletonValue(['fb-positive', 'fb-neutral', 'fb-negative', 'fb-open']);
+    skeletonTable('fb-rows', { rows: 4, cols: [
+        'skel-line skel-w-40', 'skel-line skel-w-80', 'skel-pill skel-w-60',
+        'skel-pill skel-w-40', 'skel-line skel-w-40', 'skel-line skel-w-70', 'skel-pill skel-w-40'
+    ] });
+
+    try {
+        const [listRes, summaryRes, staffRes] = await Promise.all([
+            fetch(`/api/feedback?${qs}`, { headers: authHeaders() }),
+            fetch('/api/feedback/summary', { headers: authHeaders() }),
+            fetch('/api/feedback/staff', { headers: authHeaders() })
+        ]);
+        if (!listRes.ok || !summaryRes.ok || !staffRes.ok) throw new Error('Could not load feedback');
+        const list = await listRes.json();
+        const summary = await summaryRes.json();
+        const staff = await staffRes.json();
+        feedbackStaff = Array.isArray(staff) ? staff : [];
+        feedbackCache = Object.fromEntries((Array.isArray(list) ? list : []).map(f => [f.id, f]));
+
+        document.getElementById('fb-positive').textContent = summary.counts?.Positive ?? 0;
+        document.getElementById('fb-neutral').textContent = summary.counts?.Neutral ?? 0;
+        document.getElementById('fb-negative').textContent = summary.counts?.Negative ?? 0;
+        document.getElementById('fb-open').textContent = summary.statuses?.new ?? 0;
+        document.getElementById('fb-issues').innerHTML = (summary.top_issues || []).length
+            ? summary.top_issues.map(i =>
+                `<span class="badge badge-neutral" style="margin:2px 4px 2px 0;">${escapeHtml(i.issue)} (${i.count})</span>`
+            ).join('')
+            : '<span class="text-muted">No issues reported yet</span>';
+
+        document.getElementById('fb-rows').innerHTML = (Array.isArray(list) ? list : []).map(f => {
+            const rating = Math.max(0, Math.min(5, Number(f.rating) || 0));
+            const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+            const badge = f.sentiment_label === 'Negative' ? 'badge-danger'
+                : f.sentiment_label === 'Positive' ? 'badge-success' : 'badge-neutral';
+            return `<tr>
+                <td style="white-space:nowrap;color:var(--warning,#f59e0b);">${stars}</td>
+                <td>${escapeHtml(f.comment || '—')}${f.admin_note ? `<div class="text-muted" style="font-size:.85em;">Note: ${escapeHtml(f.admin_note)}</div>` : ''}</td>
+                <td><span class="badge ${badge}">${escapeHtml(f.sentiment_label || 'Neutral')}</span></td>
+                <td>${feedbackStatusBadge(f.status)}</td>
+                <td>${escapeHtml(f.assigned_name || '—')}</td>
+                <td>${formatDateTime(f.created_at)}</td>
+                <td><button type="button" class="btn btn-outline btn-sm" onclick="openFeedbackAddress(${Number(f.id)})">Address</button></td>
+            </tr>`;
+        }).join('') || '<tr><td colspan="7" class="text-muted text-center">No feedback yet</td></tr>';
+    } catch (err) {
+        console.error(err);
+        showToast('Could not load feedback', 'error');
+    }
+    clearSkeleton('fb-positive', 'fb-neutral', 'fb-negative', 'fb-open', 'fb-issues', 'fb-rows');
+}
+
+function openFeedbackAddress(id) {
+    const data = feedbackCache[id];
+    if (!data) return;
+    document.getElementById('fb-addr-comment').textContent = data.comment || '(no comment)';
+    document.getElementById('fb-addr-status').value = data.status || 'new';
+    document.getElementById('fb-addr-note').value = data.admin_note || '';
+    const sel = document.getElementById('fb-addr-assignee');
+    sel.innerHTML = '<option value="">Unassigned</option>' +
+        feedbackStaff.map(s =>
+            `<option value="${Number(s.id)}"${Number(s.id) === Number(data.assigned_to) ? ' selected' : ''}>${escapeHtml(s.username)} (${escapeHtml(s.role)})</option>`
+        ).join('');
+    document.getElementById('feedback-address-modal').dataset.id = id;
+    openModal('feedback-address-modal');
+}
+
+async function saveFeedbackAddress() {
+    const modal = document.getElementById('feedback-address-modal');
+    const id = modal?.dataset.id;
+    if (!id) return;
+    const body = {
+        status: document.getElementById('fb-addr-status').value,
+        admin_note: document.getElementById('fb-addr-note').value,
+        assigned_to: document.getElementById('fb-addr-assignee').value || null
+    };
+    try {
+        const res = await fetch(`/api/feedback/${id}`, {
+            method: 'PATCH',
+            headers: authHeaders(),
+            body: JSON.stringify(body)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'failed');
+        showToast('Feedback updated', 'success');
+        closeModal('feedback-address-modal');
+        loadFeedback();
+    } catch (err) {
+        showToast(err.message || 'Could not update feedback', 'error');
+    }
+}

@@ -80,45 +80,8 @@ async function loadOwnerDash() {
 }
 
 // ── PATIENT FEEDBACK ──────────────────────────────────────────
-// Sentiment is computed once at submit time by sentiment.js; this page only
-// reads the stored label, score and issue list.
-async function loadFeedback() {
-    skeletonValue(['fb-positive', 'fb-neutral', 'fb-negative']);
-    skeletonTable('fb-rows', { rows: 4, cols: [
-        'skel-line skel-w-40', 'skel-line skel-w-80', 'skel-pill skel-w-60', 'skel-line skel-w-70'
-    ] });
-    try {
-        const [listRes, summaryRes] = await Promise.all([
-            fetch('/api/feedback', { headers: authHeaders() }),
-            fetch('/api/feedback/summary', { headers: authHeaders() })
-        ]);
-        const list = await listRes.json();
-        const summary = await summaryRes.json();
-
-        document.getElementById('fb-positive').textContent = summary.counts?.Positive ?? 0;
-        document.getElementById('fb-neutral').textContent = summary.counts?.Neutral ?? 0;
-        document.getElementById('fb-negative').textContent = summary.counts?.Negative ?? 0;
-        document.getElementById('fb-issues').innerHTML = (summary.top_issues || []).length
-            ? summary.top_issues.map(i =>
-                `<span class="badge badge-neutral" style="margin:2px 4px 2px 0;">${escapeHtml(i.issue)} (${i.count})</span>`
-            ).join('')
-            : '<span class="text-muted">No issues reported yet</span>';
-
-        document.getElementById('fb-rows').innerHTML = (list || []).map(f => {
-            const rating = Math.max(0, Math.min(5, Number(f.rating) || 0));
-            const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-            const badge = f.sentiment_label === 'Negative' ? 'badge-danger'
-                : f.sentiment_label === 'Positive' ? 'badge-success' : 'badge-neutral';
-            return `<tr>
-                <td style="white-space:nowrap;color:var(--warning,#f59e0b);">${stars}</td>
-                <td>${escapeHtml(f.comment || '—')}</td>
-                <td><span class="badge ${badge}">${escapeHtml(f.sentiment_label || 'Neutral')}</span></td>
-                <td>${formatDateTime(f.created_at)}</td>
-            </tr>`;
-        }).join('') || '<tr><td colspan="4" class="text-muted text-center">No feedback yet</td></tr>';
-    } catch (err) { console.error(err); }
-    clearSkeleton('fb-positive', 'fb-neutral', 'fb-negative', 'fb-issues', 'fb-rows');
-}
+// The triage view is shared with the admin dashboard and lives in
+// admin-shared.js, so both pages render the same section from one copy.
 
 fetchAllLabs();
 loadOwnerDash();

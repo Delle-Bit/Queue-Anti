@@ -9,6 +9,7 @@ const myRole = getRole();
 renderSidebar([
     { section: 'ADMIN' },
     { id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-chart-line' },
+    { id: 'feedback', label: 'Patient Feedback', icon: 'fa-solid fa-comment-dots' },
     { id: 'accounts', label: 'Manage Accounts', icon: 'fa-solid fa-users-gear' },
     { id: 'labs', label: 'Manage Laboratories', icon: 'fa-solid fa-flask-vial' },
     { id: 'services', label: 'Service Management', icon: 'fa-solid fa-box-open' },
@@ -23,6 +24,7 @@ initDefaultSection();
 window.onSectionLoad = {
     structures: loadTestStructureAdmin,
     dashboard: loadAdminDash,
+    feedback: loadFeedback,
     accounts: loadAccounts,
     labs: loadLabs,
     services: loadServiceMgmt,
