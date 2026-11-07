@@ -91,19 +91,6 @@ function stationDeniedMessage(stationType) {
         : `Your account cannot act on the ${stationType} queue.`;
 }
 
-async function getStationAverageMinutes(stationType, stationId, fallback) {
-    let query = `SELECT AVG(TIMESTAMPDIFF(MINUTE, serve_time, complete_time)) as avg_mins
-                 FROM queue_logs
-                 WHERE station_type=? AND complete_time IS NOT NULL AND archived=false`;
-    const params = [stationType];
-    if (stationId) {
-        query += ' AND station_id=?';
-        params.push(stationId);
-    }
-    const [rows] = await pool.query(query, params);
-    return Math.max(1, Math.ceil(parseFloat(rows[0]?.avg_mins) || fallback || 5));
-}
-
 async function getCurrentProcessing(stationType, stationId) {
     let query = `SELECT number FROM queue WHERE station_type=? AND status='serving' AND archived=false`;
     const params = [stationType];
