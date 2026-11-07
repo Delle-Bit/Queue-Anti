@@ -153,7 +153,7 @@ git commit -m "feat(sentiment): VADER port with issue mining, no Python"
 - Modify: `database.js` (inside `initDB()`, near the `announcements` table ~line 646)
 
 **Interfaces:**
-- Produces: table `feedback(id, customer_id, sequence_id, rating, comment, sentiment_label, sentiment_score, issues, source, created_at, archived)`
+- Produces: table `feedback(id, customer_id, sequence_id, rating, comment, sentiment_label, sentiment_score, issues, source, status, assigned_to, admin_note, addressed_by, addressed_at, created_at, updated_at, archived)`
 
 - [ ] **Step 1: Add the table creation** (after the `announcements` block)
 
@@ -163,6 +163,11 @@ git commit -m "feat(sentiment): VADER port with issue mining, no Python"
         // computed once at submit time and stored alongside, so the staff view
         // never has to re-score (and the label can't drift if the lexicon
         // changes later).
+        //
+        // The status/assigned_to/admin_note/addressed_* columns are the
+        // addressing workflow: an administrator triages a review, can assign it
+        // to a colleague, and closes it with a note. `updated_at` is bumped by
+        // MySQL so the list can show "last touched".
         await pool.query(`
             CREATE TABLE IF NOT EXISTS feedback (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -174,19 +179,26 @@ git commit -m "feat(sentiment): VADER port with issue mining, no Python"
                 sentiment_score DECIMAL(6,4) DEFAULT 0,
                 issues JSON,
                 source ENUM('dashboard','assistant') DEFAULT 'dashboard',
+                status ENUM('new','in_review','resolved') DEFAULT 'new',
+                assigned_to INT DEFAULT NULL,
+                admin_note TEXT,
+                addressed_by INT DEFAULT NULL,
+                addressed_at DATETIME DEFAULT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 archived BOOLEAN DEFAULT false
             )
         `);
         await addIndexIfMissing('feedback', 'idx_feedback_customer', '(customer_id)');
         await addIndexIfMissing('feedback', 'idx_feedback_sequence', '(sequence_id)');
+        await addIndexIfMissing('feedback', 'idx_feedback_status', '(status)');
 ```
 
 - [ ] **Step 2: Verify the schema converges on an existing database**
 
 Run: `npm run dev`, wait for `Server running`, then confirm in MySQL:
 `SHOW COLUMNS FROM clinic_v2.feedback;`
-Expected: 11 columns, `comment` type `text` with `Default NULL`, `sentiment_label` an enum.
+Expected: 17 columns, `comment` type `text` with `Default NULL`, `sentiment_label` an enum, `status` an enum with `new`/`in_review`/`resolved`.
 
 - [ ] **Step 3: Commit**
 
@@ -257,32 +269,36 @@ git commit -m "feat(feedback): back feedbackAnalysis with VADER instead of a fix
 
 ---
 
-### Task 4: Customer routes — submit and pending
+### Task 4: Routes — customer capture and staff addressing
 
 **Files:**
 - Create: `routes/feedback.js`
 - Modify: `server.js` (mount after line ~245)
 
 **Interfaces:**
-- Consumes: `analyzeSentiment` (Task 1), `checkAIToggle` (via `ai_services`)
+- Consumes: `analyzeSentiment` (Task 1), `checkAIToggle` (via `ai_services`), `recordAudit` (`audit.js`)
 - Produces: `POST /api/feedback` body `{ sequence_id?, rating?, comment?, source? }` → `{ success, sentiment, issues }`
 - Produces: `GET /api/feedback/pending` → `{ eligible: boolean, sequence_id?, package_name?, completed_at? }`
-- Produces: `GET /api/feedback` (staff) → `[{ id, customer_name, rating, comment, sentiment_label, sentiment_score, issues, created_at }]`
-- Produces: `GET /api/feedback/summary` (staff) → `{ counts: {Positive,Neutral,Negative}, total, top_issues: [{issue, count}] }`
+- Produces: `GET /api/feedback?status=&sentiment=` (staff) → `[{ id, customer_name, rating, comment, sentiment_label, sentiment_score, issues, status, assigned_to, assigned_name, admin_note, addressed_at, created_at }]`
+- Produces: `GET /api/feedback/summary` (staff) → `{ counts: {Positive,Neutral,Negative}, statuses: {new,in_review,resolved}, total, top_issues: [{issue, count}] }`
+- Produces: `PATCH /api/feedback/:id` (admin) body `{ status?, admin_note?, assigned_to? }` → `{ success, status }`
+- Produces: `GET /api/feedback/staff` (admin) → `[{ id, username, role }]` for the assign-to picker
 
 - [ ] **Step 1: Write the router**
 
 ```javascript
-// routes/feedback.js — patient feedback capture and its sentiment.
+// routes/feedback.js — patient feedback capture, its sentiment, and the
+// administrator workflow that addresses it.
 //
 // Mounted ONCE (see server.js), unlike routes/admin.js, so a route without a
 // guard is a route every signed-in account can reach. Every handler below
-// carries its own check.
+// carries its own check: reads are requireStaff, addressing is requireAdmin.
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../database');
-const { requireStaff } = require('../config');
+const { requireStaff, requireAdmin, STAFF_ROLES } = require('../config');
 const { analyzeSentiment } = require('../sentiment');
+const { recordAudit } = require('../audit');
 
 // How long after a visit closes the dashboard still offers the feedback prompt.
 const PENDING_WINDOW_DAYS = 7;
@@ -355,22 +371,115 @@ router.post('/', async (req, res) => {
     }
 });
 
-// GET /api/feedback — staff-wide list, newest first.
+// GET /api/feedback — staff-wide list, newest first, optionally filtered.
+// status/sentiment are matched against a fixed allow-list rather than trusted,
+// so an arbitrary string cannot reach the WHERE clause as a value that matches
+// nothing meaningful.
 router.get('/', requireStaff, async (req, res) => {
     try {
+        const where = ['f.archived = false'];
+        const params = [];
+        if (['new', 'in_review', 'resolved'].includes(req.query.status)) {
+            where.push('f.status = ?'); params.push(req.query.status);
+        }
+        if (['Positive', 'Neutral', 'Negative'].includes(req.query.sentiment)) {
+            where.push('f.sentiment_label = ?'); params.push(req.query.sentiment);
+        }
         const [rows] = await pool.query(
             `SELECT f.id, f.rating, f.comment, f.sentiment_label, f.sentiment_score, f.issues,
-                    f.created_at, u.username AS customer_name
+                    f.status, f.assigned_to, f.admin_note, f.addressed_at, f.updated_at, f.created_at,
+                    u.username AS customer_name,
+                    a.username AS assigned_name
                FROM feedback f
                LEFT JOIN users u ON u.id = f.customer_id
-              WHERE f.archived = false
-              ORDER BY f.created_at DESC
-              LIMIT 200`
+               LEFT JOIN users a ON a.id = f.assigned_to
+              WHERE ${where.join(' AND ')}
+              ORDER BY FIELD(f.status, 'new', 'in_review', 'resolved'), f.created_at DESC
+              LIMIT 200`, params
         );
         res.json(rows.map(r => ({ ...r, issues: r.issues ? JSON.parse(r.issues) : [] })));
     } catch (err) {
         console.error('Feedback list error:', err);
         res.status(500).json({ error: 'Could not load feedback' });
+    }
+});
+
+// GET /api/feedback/staff — the assign-to picker's source. Admin only.
+router.get('/staff', requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT id, username, role FROM users WHERE archived = false AND role IN (?) ORDER BY username`,
+            [STAFF_ROLES]
+        );
+        res.json(rows);
+    } catch (err) {
+        console.error('Feedback staff error:', err);
+        res.status(500).json({ error: 'Could not load staff' });
+    }
+});
+
+// PATCH /api/feedback/:id — address one entry. An administrator moves it
+// through new -> in_review -> resolved, optionally assigning it and leaving a
+// note. Resolving stamps addressed_by/addressed_at; moving a resolved entry
+// back to an open status clears them, so the fields always describe the current
+// state. Every change is audited.
+router.patch('/:id', requireAdmin, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Bad feedback id' });
+    const { status, admin_note, assigned_to } = req.body;
+    try {
+        const [rows] = await pool.query('SELECT * FROM feedback WHERE id = ? AND archived = false', [id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Feedback not found' });
+        const before = rows[0];
+
+        const sets = [];
+        const params = [];
+        let nextStatus = before.status;
+
+        if (status !== undefined) {
+            if (!['new', 'in_review', 'resolved'].includes(status)) {
+                return res.status(400).json({ error: 'Status must be new, in_review or resolved.' });
+            }
+            nextStatus = status;
+            sets.push('status = ?'); params.push(status);
+            if (status === 'resolved') {
+                sets.push('addressed_by = ?', 'addressed_at = NOW()');
+                params.push(req.user.id);
+            } else {
+                sets.push('addressed_by = NULL', 'addressed_at = NULL');
+            }
+        }
+        if (admin_note !== undefined) {
+            sets.push('admin_note = ?'); params.push(String(admin_note || '').trim().slice(0, 2000) || null);
+        }
+        if (assigned_to !== undefined) {
+            const who = assigned_to === null || assigned_to === '' ? null : Number(assigned_to);
+            if (who !== null) {
+                const [ok] = await pool.query(
+                    'SELECT id FROM users WHERE id = ? AND archived = false AND role IN (?)',
+                    [who, STAFF_ROLES]
+                );
+                if (ok.length === 0) return res.status(400).json({ error: 'That account cannot be assigned.' });
+            }
+            sets.push('assigned_to = ?'); params.push(who);
+        }
+        if (sets.length === 0) return res.status(400).json({ error: 'Nothing to update.' });
+
+        params.push(id);
+        await pool.query(`UPDATE feedback SET ${sets.join(', ')} WHERE id = ?`, params);
+
+        await recordAudit({
+            req,
+            action: 'feedback_address',
+            entityType: 'feedback',
+            entityId: id,
+            summary: `Feedback #${id} set to ${nextStatus}`,
+            details: { before: { status: before.status, assigned_to: before.assigned_to }, after: { status: nextStatus } }
+        });
+        res.json({ success: true, status: nextStatus });
+    } catch (err) {
+        console.error('Feedback update error:', err);
+        res.status(500).json({ error: 'Could not update feedback' });
     }
 });
 
@@ -382,6 +491,12 @@ router.get('/summary', requireStaff, async (req, res) => {
         );
         const counts = { Positive: 0, Neutral: 0, Negative: 0 };
         for (const row of labels) counts[row.sentiment_label] = Number(row.n);
+
+        const [statusRows] = await pool.query(
+            `SELECT status, COUNT(*) AS n FROM feedback WHERE archived = false GROUP BY status`
+        );
+        const statuses = { new: 0, in_review: 0, resolved: 0 };
+        for (const row of statusRows) statuses[row.status] = Number(row.n);
 
         const [issueRows] = await pool.query(
             `SELECT issues FROM feedback WHERE archived = false AND issues IS NOT NULL`
@@ -396,7 +511,7 @@ router.get('/summary', requireStaff, async (req, res) => {
             .map(([issue, count]) => ({ issue, count }))
             .sort((a, b) => b.count - a.count);
 
-        res.json({ counts, total: counts.Positive + counts.Neutral + counts.Negative, top_issues });
+        res.json({ counts, statuses, total: counts.Positive + counts.Neutral + counts.Negative, top_issues });
     } catch (err) {
         console.error('Feedback summary error:', err);
         res.status(500).json({ error: 'Could not summarise feedback' });
@@ -602,67 +717,219 @@ git commit -m "feat(feedback): virtual assistant can open the feedback form"
 
 ---
 
-### Task 7: Staff feedback view + docs + gate the test
+### Task 7: Admin feedback management and addressing
+
+An administrator opens a Feedback section, sees the queue of reviews, filters them, and **addresses** each one: move it to *In Review*, assign it to a colleague, leave a note, and resolve it. Reads are staff-wide; the addressing actions are admin-only (enforced by `requireAdmin` on `PATCH` and `/staff` from Task 4).
 
 **Files:**
-- Modify: `public/owner.js` or `public/admin-shared.js` (add a Feedback section)
-- Modify: `public/owner.html` / `public/admin.html` (section markup + nav entry)
-- Modify: `package.json` (add `node --check sentiment.js`, `node --check routes/feedback.js`, and `node verify_sentiment.js` to `scripts.test`)
-- Modify: `HANDOVER.md`, `CLAUDE.md` (record the feature)
+- Modify: `public/owner.html` (nav entry + section markup; mirror in `public/admin.html` if admins use the same layout)
+- Modify: `public/owner.js` (the section's `loadFeedback` / address-modal handlers)
 
 **Interfaces:**
-- Consumes: `GET /api/feedback`, `GET /api/feedback/summary` (Task 4)
+- Consumes: `GET /api/feedback?status=&sentiment=`, `GET /api/feedback/summary`, `GET /api/feedback/staff`, `PATCH /api/feedback/:id` (all Task 4)
+- Consumes: `openModal` / `closeModal` (`shared.js`), `authHeaders`, `escapeHtml`, `showToast`
 
-- [ ] **Step 1: Add the panel** (owner dashboard — the business-facing role)
+- [ ] **Step 1: Add the section markup** (owner/admin dashboard)
 
-A card with three sentiment counts and a table of the newest entries (rating stars, comment, sentiment badge, issue chips). Follow the existing `loadDashboard`/`owner.js` section pattern; render via `fetch('/api/feedback')` and `fetch('/api/feedback/summary')`.
+```html
+<!-- Nav entry -->
+<a class="nav-item" data-section="feedback"><i class="fa-solid fa-comment-dots"></i> Feedback</a>
+
+<!-- Section -->
+<div id="section-feedback" class="content-section" style="display:none;">
+    <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fa-solid fa-comment-dots"></i> Patient Feedback</div></div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap;padding:8px 0 16px;">
+            <div><div class="stat-label">Positive</div><div class="stat-value" id="fb-positive">0</div></div>
+            <div><div class="stat-label">Neutral</div><div class="stat-value" id="fb-neutral">0</div></div>
+            <div><div class="stat-label">Negative</div><div class="stat-value" id="fb-negative">0</div></div>
+            <div><div class="stat-label">Open (new)</div><div class="stat-value" id="fb-open">0</div></div>
+        </div>
+        <div id="fb-issues" style="margin-bottom:12px;"></div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <select id="fb-filter-status" class="form-input" style="max-width:200px;" onchange="loadFeedback()">
+                <option value="">All statuses</option>
+                <option value="new">New</option>
+                <option value="in_review">In Review</option>
+                <option value="resolved">Resolved</option>
+            </select>
+            <select id="fb-filter-sentiment" class="form-input" style="max-width:200px;" onchange="loadFeedback()">
+                <option value="">All sentiments</option>
+                <option value="Positive">Positive</option>
+                <option value="Neutral">Neutral</option>
+                <option value="Negative">Negative</option>
+            </select>
+        </div>
+        <table class="data-table">
+            <thead><tr><th>Rating</th><th>Comment</th><th>Sentiment</th><th>Status</th><th>Assigned</th><th>When</th><th></th></tr></thead>
+            <tbody id="fb-rows"></tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Address modal -->
+<div id="feedback-address-modal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-reply"></i> Address Feedback</div>
+            <button type="button" class="modal-close" onclick="closeModal('feedback-address-modal')">&times;</button>
+        </div>
+        <div style="padding:16px;">
+            <p id="fb-addr-comment" class="text-muted" style="margin-bottom:12px;"></p>
+            <label class="form-label">Status</label>
+            <select id="fb-addr-status" class="form-input">
+                <option value="new">New</option>
+                <option value="in_review">In Review</option>
+                <option value="resolved">Resolved</option>
+            </select>
+            <label class="form-label" style="margin-top:12px;">Assign to</label>
+            <select id="fb-addr-assignee" class="form-input"><option value="">Unassigned</option></select>
+            <label class="form-label" style="margin-top:12px;">Note</label>
+            <textarea id="fb-addr-note" class="form-input" rows="3" placeholder="What was done about this?"></textarea>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+                <button type="button" class="btn btn-outline" onclick="closeModal('feedback-address-modal')">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveFeedbackAddress()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+```
+
+- [ ] **Step 2: Add the logic** to `public/owner.js`
 
 ```javascript
+let feedbackStaff = [];
+
+function feedbackStatusBadge(status) {
+    const map = { new: 'badge-warning', in_review: 'badge-neutral', resolved: 'badge-success' };
+    const label = { new: 'New', in_review: 'In Review', resolved: 'Resolved' };
+    return `<span class="badge ${map[status] || 'badge-neutral'}">${label[status] || status}</span>`;
+}
+
 async function loadFeedback() {
-    const [list, summary] = await Promise.all([
-        fetch('/api/feedback', { headers: authHeaders() }).then(r => r.json()),
-        fetch('/api/feedback/summary', { headers: authHeaders() }).then(r => r.json())
+    const status = document.getElementById('fb-filter-status')?.value || '';
+    const sentiment = document.getElementById('fb-filter-sentiment')?.value || '';
+    const qs = new URLSearchParams();
+    if (status) qs.set('status', status);
+    if (sentiment) qs.set('sentiment', sentiment);
+
+    const [list, summary, staff] = await Promise.all([
+        fetch(`/api/feedback?${qs}`, { headers: authHeaders() }).then(r => r.json()),
+        fetch('/api/feedback/summary', { headers: authHeaders() }).then(r => r.json()),
+        fetch('/api/feedback/staff', { headers: authHeaders() }).then(r => r.json())
     ]);
+    feedbackStaff = staff;
+
     document.getElementById('fb-positive').textContent = summary.counts.Positive;
     document.getElementById('fb-neutral').textContent = summary.counts.Neutral;
     document.getElementById('fb-negative').textContent = summary.counts.Negative;
+    document.getElementById('fb-open').textContent = summary.statuses.new;
     document.getElementById('fb-issues').innerHTML = summary.top_issues
         .map(i => `<span class="badge badge-neutral">${escapeHtml(i.issue)} (${i.count})</span>`).join(' ');
+
     document.getElementById('fb-rows').innerHTML = list.map(f => `
         <tr>
             <td>${'★'.repeat(f.rating || 0)}${'☆'.repeat(5 - (f.rating || 0))}</td>
-            <td>${escapeHtml(f.comment || '—')}</td>
+            <td>${escapeHtml(f.comment || '—')}${f.admin_note ? `<div class="text-muted" style="font-size:.85em;">Note: ${escapeHtml(f.admin_note)}</div>` : ''}</td>
             <td><span class="badge ${f.sentiment_label === 'Negative' ? 'badge-danger' : f.sentiment_label === 'Positive' ? 'badge-success' : 'badge-neutral'}">${f.sentiment_label}</span></td>
+            <td>${feedbackStatusBadge(f.status)}</td>
+            <td>${escapeHtml(f.assigned_name || '—')}</td>
             <td>${new Date(f.created_at).toLocaleString()}</td>
+            <td><button class="btn btn-outline btn-sm" onclick="openFeedbackAddress(${f.id})">Address</button></td>
         </tr>`).join('');
 }
+window.loadFeedback = loadFeedback;
+
+function openFeedbackAddress(id) {
+    const row = document.getElementById('fb-rows');
+    // Look the record up from the last render rather than re-fetching: the list
+    // is already on screen and small.
+    const data = (window.__feedbackCache || {})[id];
+    if (!data) return;
+    document.getElementById('fb-addr-comment').textContent = data.comment || '(no comment)';
+    document.getElementById('fb-addr-status').value = data.status;
+    document.getElementById('fb-addr-note').value = data.admin_note || '';
+    const sel = document.getElementById('fb-addr-assignee');
+    sel.innerHTML = '<option value="">Unassigned</option>' +
+        feedbackStaff.map(s => `<option value="${s.id}"${s.id === data.assigned_to ? ' selected' : ''}>${escapeHtml(s.username)} (${s.role})</option>`).join('');
+    document.getElementById('feedback-address-modal').dataset.id = id;
+    openModal('feedback-address-modal');
+}
+window.openFeedbackAddress = openFeedbackAddress;
+
+async function saveFeedbackAddress() {
+    const modal = document.getElementById('feedback-address-modal');
+    const id = modal.dataset.id;
+    const body = {
+        status: document.getElementById('fb-addr-status').value,
+        admin_note: document.getElementById('fb-addr-note').value,
+        assigned_to: document.getElementById('fb-addr-assignee').value || null
+    };
+    try {
+        const res = await fetch(`/api/feedback/${id}`, { method: 'PATCH', headers: authHeaders(), body: JSON.stringify(body) });
+        if (!res.ok) throw new Error('failed');
+        showToast('Feedback updated', 'success');
+        closeModal('feedback-address-modal');
+        loadFeedback();
+    } catch (e) {
+        showToast('Could not update feedback', 'error');
+    }
+}
+window.saveFeedbackAddress = saveFeedbackAddress;
 ```
 
-- [ ] **Step 2: Gate the test** — edit `package.json` `scripts.test`
+> Step 2's `openFeedbackAddress` reads a `window.__feedbackCache` keyed by id. Populate it inside `loadFeedback` after fetching: `window.__feedbackCache = Object.fromEntries(list.map(f => [f.id, f]));`. This avoids a second request when the Address button is pressed.
 
-Add `node --check sentiment.js && node --check routes/feedback.js &&` into the chain, and append `&& node verify_sentiment.js` before the final better-auth check.
+- [ ] **Step 3: Register the section** in `window.onSectionLoad` (the same map `loadServices` and friends use)
 
-- [ ] **Step 3: Run the full gate**
+```javascript
+window.onSectionLoad = { /* ...existing... */ feedback: loadFeedback };
+```
 
-Run: `npm test`
-Expected: all `node --check` pass, `verify_sentiment.js` reports `0 failed`, the other verify scripts still pass.
+- [ ] **Step 4: Verify by hand**
 
-- [ ] **Step 4: Document**
-
-In `CLAUDE.md`, add a short subsection under the AI section: VADER runs locally via `sentiment.js` (JS port, no Python/network); feedback is stored in `feedback`; sentiment is computed once at submit. In `HANDOVER.md`, add the `feedback` table and the `/api/feedback` routes.
+Run: `npm run dev`. As an admin, open Feedback. Address a negative entry: set status *In Review*, assign a colleague, add a note, Save.
+Expected: the row's badge and "Assigned" update, the open count drops when it is resolved, a row appears in `audit_logs` with action `feedback_address`, and a non-admin account gets a 403 from `PATCH /api/feedback/:id` and from `GET /api/feedback/staff`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add public/owner.js public/owner.html package.json HANDOVER.md CLAUDE.md
-git commit -m "feat(feedback): staff sentiment view, docs and test gate"
+git add public/owner.html public/owner.js
+git commit -m "feat(feedback): admin triage — assign, note and resolve patient feedback"
+```
+
+---
+
+### Task 8: Docs and the test gate
+
+**Files:**
+- Modify: `package.json` (`scripts.test`)
+- Modify: `HANDOVER.md`, `CLAUDE.md`
+
+- [ ] **Step 1: Gate the test** — add `node --check sentiment.js && node --check routes/feedback.js &&` into the `node --check` chain, and append `&& node verify_sentiment.js` before the final better-auth check in `scripts.test`.
+
+- [ ] **Step 2: Run the full gate**
+
+Run: `npm test`
+Expected: all `node --check` pass, `verify_sentiment.js` reports `0 failed`, the other verify scripts still pass.
+
+- [ ] **Step 3: Document**
+
+In `CLAUDE.md`, add a subsection under the AI section: VADER runs locally via `sentiment.js` (JS port, no Python/network); feedback is stored in `feedback` with its sentiment computed once at submit; admins address entries via `PATCH /api/feedback/:id`, which is audited. In `HANDOVER.md`, add the `feedback` table and the `/api/feedback` routes (note that `PATCH` and `/staff` are admin-only).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add package.json HANDOVER.md CLAUDE.md
+git commit -m "docs(feedback): record capture, sentiment and the addressing workflow"
 ```
 
 ---
 
 ## Self-Review
 
-- **Coverage:** capture (Tasks 4–6), analysis (Tasks 1,3), storage (Task 2), display (Task 7), both entry points the request named — dashboard popup and the VA. The `feedback_enabled` toggle already exists in `ai_settings`; wire `checkAIToggle('feedback')` into the submit route if the toggle must gate capture, and into the pending route if it must gate the prompt.
+- **Coverage:** capture (Tasks 4–6), analysis (Tasks 1,3), storage (Task 2), staff read + admin addressing (Tasks 4, 7), both entry points the request named — dashboard popup and the VA. The `feedback_enabled` toggle already exists in `ai_settings`; wire `checkAIToggle('feedback')` into the submit route if the toggle must gate capture, and into the pending route if it must gate the prompt.
+- **Roles:** reads (`GET /api/feedback`, `/summary`) are `requireStaff`; addressing (`PATCH /:id`, `GET /staff`) is `requireAdmin`, verified by a 403 check in Task 7 Step 4. The router is mounted once, so no route is reachable by a signed-in patient by accident.
 - **Placeholder scan:** no TBDs; each step shows code or an exact command.
 - **Type consistency:** `analyzeSentiment` returns `{label, compound, scores, issues}` throughout; actions use `type: 'open_feedback'` in both `ai_services.js` and `public/va.js`.
 - **Known limitation (documented, not hidden):** VADER is tuned for English social-media text. Taglish or short clinic phrasing will be approximate. This is the trigger to revisit a transformer model later — behind the same `feedbackAnalysis` seam.

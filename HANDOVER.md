@@ -26,9 +26,12 @@ are likewise same-day: the customer banner only shows announcements written
 today, while older ones remain in the staff history.
 
 Patient feedback is captured from the dashboard when a visit closes, or from the
-virtual assistant, scored locally with a VADER port (`sentiment.js`), stored in
-`feedback`, and shown with sentiment counts and recurring issues on the owner
-dashboard.
+virtual assistant, scored locally with a VADER port (`sentiment.js`), and stored
+in `feedback`. The owner and admin dashboards triage it: `GET /api/feedback`
+(filters `status` and `sentiment`) and `/summary` are staff-wide, while
+`PATCH /api/feedback/:id` (status, assignee, note) and `GET /api/feedback/staff`
+are admin-only (`requireAdmin`). Resolving stamps `addressed_by`/`addressed_at`;
+every change is audited as `feedback_address`.
 
 Wait estimates come from `eta.js`: a 7-day half-life recency-weighted average
 over `queue_logs`, with the backlog at every remaining station included and a
