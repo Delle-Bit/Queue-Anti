@@ -1324,8 +1324,14 @@ router.get('/announcements', requireStaff, async (req, res) => {
 
 router.get('/announcements/active', async (req, res) => {
     try {
+        // An announcement is a message for the day it was written. Yesterday's
+        // notice used to greet every customer on every login; the CURDATE()
+        // filter keeps the banner to today's messages only. The row is not
+        // archived - staff can still read it in the announcement history.
         const [rows] = await pool.query(
-            `SELECT id, message, timestamp FROM announcements WHERE archived = false ORDER BY timestamp DESC LIMIT 10`
+            `SELECT id, message, timestamp FROM announcements
+              WHERE archived = false AND DATE(timestamp) = CURDATE()
+              ORDER BY timestamp DESC LIMIT 10`
         );
         res.json(rows);
     } catch (err) { res.status(500).json({ error: 'Failed' }); }

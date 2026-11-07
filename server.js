@@ -24,6 +24,7 @@ const { JWT_SECRET, requireAdmin, requireSalesReport } = require('./config');
 const { APPOINTMENT_PRIORITY_BOOST } = require('./queue_automation');
 const { startPackageQueue } = require('./queue_start');
 const { startMissedAppointmentSweep } = require('./appointment_automation');
+const { startDailyQueueReset } = require('./queue_reset');
 const sessionActivity = require('./session_activity');
 
 // Shown when someone tries to check in against a slot the sweep already closed.
@@ -610,6 +611,14 @@ async function startServer() {
     // once now to catch anything missed while the server was down, then on a
     // timer. The list endpoints sweep too, so this only covers idle periods.
     startMissedAppointmentSweep();
+
+    // The clinic runs one day at a time: the line starts empty every morning.
+    // Ticket numbers already reset through ticket_counters.counter_date; this
+    // closes yesterday's live queue rows and in-progress visits at 23:59
+    // Asia/Manila, and again on boot so a deploy or sleep at the boundary
+    // still converges. Both conditions read the database clock, matching
+    // ticket numbering and the analytics filters.
+    startDailyQueueReset(io);
 
     server.listen(port, () => console.log(`Server running at http://localhost:${port}`));
 }
