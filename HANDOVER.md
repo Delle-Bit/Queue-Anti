@@ -30,6 +30,12 @@ virtual assistant, scored locally with a VADER port (`sentiment.js`), stored in
 `feedback`, and shown with sentiment counts and recurring issues on the owner
 dashboard.
 
+Wait estimates come from `eta.js`: a 7-day half-life recency-weighted average
+over `queue_logs`, with the backlog at every remaining station included and a
+fallback chain of recent -> all-time -> configured -> 5 minutes. The customer
+status returns `estimated_total_time` for the whole visit and
+`estimated_current_station` for the counter they are at now.
+
 Node.js + Express + Socket.IO, MySQL, and plain HTML/CSS/JS in `public/` with
 **no build step and no frontend framework**. That is a deliberate choice and the
 main reason the project is easy to pick up: edit a file in `public/`, reload the
