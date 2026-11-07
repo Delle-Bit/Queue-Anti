@@ -3,6 +3,7 @@ const { pool } = require('./database.js');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { analyzeSentiment } = require('./sentiment');
 
 const dotenv = require('dotenv');
 dotenv.config();
@@ -1383,7 +1384,14 @@ const aiServices = {
 
     feedbackAnalysis: async (feedbackArray) => {
         return await callMockAI('feedback', null, process.env.API_ALLAROUND, feedbackArray, (data) => {
-            return { sentiment: "Mixed", issues: ["Long wait times"] };
+            // VADER runs locally (no endpoint needed): ./sentiment.js. Model the
+            // batch as one document so a mixed batch lands where its words do,
+            // and keep per-entry scoring for the staff view.
+            const text = Array.isArray(data)
+                ? data.map(f => (typeof f === 'string' ? f : f?.comment || '')).join('. ')
+                : String(data || '');
+            const result = analyzeSentiment(text);
+            return { sentiment: result.label, compound: result.compound, issues: result.issues };
         }, null, 'Feedback NLP');
     },
 
