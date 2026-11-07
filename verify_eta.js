@@ -40,5 +40,48 @@ check('two servers halve the queue wait, not the service',
 check('a single station is clamped to the ceiling', eta.estimateVisit([
     { avgMinutes: 500, peopleAhead: 0 }]).total, 120);
 
-console.log(`\n${passed} passed, ${failed} failed\n`);
-process.exit(failed ? 1 : 0);
+// eta.js requires ./database at load. Replace it with a stub whose `rows` the
+// test controls, the same trick verify_payment_math.js uses.
+const path = require('path');
+const Module = require('module');
+let cannedRows = [];
+const dbPath = require.resolve(path.join(__dirname, 'database.js'));
+require.cache[dbPath] = new Module(dbPath, null);
+require.cache[dbPath].filename = dbPath;
+require.cache[dbPath].loaded = true;
+require.cache[dbPath].exports = { pool: { query: async () => [cannedRows, []] } };
+
+const NOW = new Date('2026-11-07T12:00:00Z');
+const daysAgo = (n) => new Date(NOW.getTime() - n * 86400000).toISOString();
+
+console.log('\n4. the DB-backed average and its fallbacks');
+(async () => {
+    delete require.cache[require.resolve('./eta')];
+    const eta2 = require('./eta');
+
+    cannedRows = [
+        { secs: 600, complete_time: daysAgo(1) },
+        { secs: 600, complete_time: daysAgo(2) },
+        { secs: 600, complete_time: daysAgo(3) }
+    ];
+    check('three recent 10-minute visits -> 10', await eta2.stationAverageMinutes('laboratory', 1, 30, NOW), 10);
+
+    // The fallback chain is recent -> all-time -> configured -> 5. One recent
+    // sample is thin, but it is still real history, so it beats the configured
+    // estimate; the configured value is the next rung, tested below.
+    cannedRows = [{ secs: 600, complete_time: daysAgo(1) }];
+    check('thin recent data falls back to the all-time average',
+        await eta2.stationAverageMinutes('laboratory', 1, 42, NOW), 10);
+
+    cannedRows = [];
+    check('no history at all uses the configured estimate',
+        await eta2.stationAverageMinutes('laboratory', 1, 42, NOW), 42);
+
+    cannedRows = [];
+    check('no history and no configured estimate uses the default of 5',
+        await eta2.stationAverageMinutes('laboratory', 1, undefined, NOW), 5);
+
+    console.log(`\n${passed} passed, ${failed} failed\n`);
+    process.exit(failed ? 1 : 0);
+})();
+
