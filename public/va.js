@@ -1354,6 +1354,22 @@ function executeVaAction(action) {
         case 'open_services':
             navigateTo('services');
             break;
+        case 'open_feedback':
+            if (typeof initFeedbackStars === 'function') initFeedbackStars();
+            fetch('/api/feedback/pending', { headers: authHeaders() })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.eligible) {
+                        pendingFeedback = d;
+                        feedbackRating = 0;
+                        if (typeof paintFeedbackStars === 'function') paintFeedbackStars();
+                        openModal('feedback-modal');
+                    } else if (typeof vaSay === 'function') {
+                        vaSay('You have no recent closed visit to review. Thank you for thinking of us.');
+                    }
+                })
+                .catch(() => {});
+            break;
     }
 }
 

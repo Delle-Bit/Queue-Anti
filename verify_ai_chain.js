@@ -603,6 +603,8 @@ const fb = await T.feedbackAnalysis([
 ]);
 check('negative text can produce a negative result', fb.sentiment, 'Negative');
 check('issues are mined from the text', fb.issues.includes('Long wait times'), true);
+const fbIntent = T.assistantCommandReply({ text: 'I want to leave feedback', context: {} });
+check('the assistant opens the feedback form', fbIntent && fbIntent.action.type, 'open_feedback');
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
     process.exit(failed ? 1 : 0);

@@ -402,7 +402,7 @@ ${queue}
 DEPARTMENTS / STATIONS: Front Desk (verification and payment), Laboratory (the lab steps in the chosen package), Doctor (consultation).
 
 Reply with ONLY a JSON object, no code fence, in this exact shape:
-{"reply":"<what to say aloud>","intent":"faq|calculation|queue_action|smalltalk|out_of_scope","action":{"type":"none|join_queue|cancel_queue|show_status|open_services","package_name":"<exact package name or empty>"}}
+{"reply":"<what to say aloud>","intent":"faq|calculation|queue_action|smalltalk|feedback|out_of_scope","action":{"type":"none|join_queue|cancel_queue|show_status|open_services|open_feedback","package_name":"<exact package name or empty>"}}
 Use action.type "none" unless the customer clearly asked for that action.`;
 }
 
@@ -535,6 +535,17 @@ function assistantCommandReply(data) {
     };
   }
 
+  // Feedback is an installed flow, not a queue action. Detected here so the
+  // model never has to guess, and so a complaint typed into the chat opens the
+  // same card the dashboard uses rather than being filed silently.
+  if (/\b(feedback|complaint|complain|suggestion|suggest|review|rate (?:my|the) (?:visit|service))\b/.test(text)) {
+    return {
+      reply: 'I can pass that on. Opening the feedback form for you now.',
+      intent: 'feedback',
+      action: { type: 'open_feedback', package_name: '' }
+    };
+  }
+
   return null;
 }
 
@@ -634,7 +645,7 @@ function parseAssistantReply(raw) {
       reply: String(parsed.reply).replace(/[*#`]/g, '').trim(),
       intent: ['faq', 'calculation', 'queue_action', 'smalltalk', 'out_of_scope'].includes(parsed.intent) ? parsed.intent : 'faq',
       action: {
-        type: ['none', 'join_queue', 'cancel_queue', 'show_status', 'open_services'].includes(parsed.action?.type) ? parsed.action.type : 'none',
+        type: ['none', 'join_queue', 'cancel_queue', 'show_status', 'open_services', 'open_feedback'].includes(parsed.action?.type) ? parsed.action.type : 'none',
         package_name: String(parsed.action?.package_name || '')
       }
     };
